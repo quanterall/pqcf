@@ -3,8 +3,9 @@ use rustler::{Atom, Binary, Encoder, Env, NifResult, ResourceArc, Term};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-mod num;
-mod perm;
+pub mod fock;
+pub mod num;
+pub mod perm;
 mod rng;
 
 use num::C64;

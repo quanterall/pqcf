@@ -7,3 +7,6 @@ __pycache__/
 spikes/*/target/
 spikes/*/matrices.json
 spikes/*/results.json
+s5_s8.json
+s5_pad.json
+s5_s8_errors.json

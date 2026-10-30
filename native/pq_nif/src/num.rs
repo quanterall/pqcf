@@ -7,6 +7,8 @@ pub struct C64 {
     pub im: f64,
 }
 
+// add and mul are named like the operator traits on purpose: explicit calls keep the operation order visible
+#[allow(clippy::should_implement_trait)]
 impl C64 {
     pub const ZERO: C64 = C64 { re: 0.0, im: 0.0 };
     pub const ONE: C64 = C64 { re: 1.0, im: 0.0 };

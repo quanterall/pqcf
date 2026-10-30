@@ -1,1 +1,2 @@
 thewalrus==0.22.0
+mpmath==1.3.0
