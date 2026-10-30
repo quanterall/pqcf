@@ -7,7 +7,9 @@
          gaussian_physicality/2, sample_gaussian/6,
          fock_apply_beamsplitter/7, fock_apply_phaseshift/5, fock_apply_kerr/5, fock_apply_passive/5,
          fock_apply_displacement/6, fock_apply_squeezing/6, fock_pnr_probabilities/4,
-         unitary_decompose/1, sample_categorical/3, gaussian_to_amat/3, gaussian_probability/5]).
+         unitary_decompose/1, sample_categorical/3, gaussian_to_amat/3, gaussian_probability/5,
+         fock_dm_apply_beamsplitter/7, fock_dm_apply_phaseshift/5, fock_dm_apply_kerr/5, fock_dm_apply_passive/5,
+         fock_dm_apply_displacement/6, fock_dm_apply_squeezing/6, fock_dm_apply_loss/5]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -182,3 +184,36 @@ gaussian_to_amat(_Mean, _Cov, _Hbar) -> erlang:nif_error(nif_not_loaded).
 -spec gaussian_probability(pq_core:packed_rvector(), pq_core:packed_rmatrix(), float(), [non_neg_integer()],
                            pnr | threshold) -> {ok, float()} | kernel_error().
 gaussian_probability(_Mean, _Cov, _Hbar, _Pattern, _Detector) -> erlang:nif_error(nif_not_loaded).
+
+%%% Density matrices (FS 8.4, AN 7.5, A.11): rho' = G rho G^dagger for every gate, loss by its Kraus sum. Rho is a
+%%% packed D x D cmat. Each returns {ok, Rho} except displacement and squeezing: {ok, {Rho, TraceDeficit}}.
+
+-type rho() :: pq_core:packed_cmatrix().
+
+dm(Rho, Op, N, C) ->
+    case fock_dm_apply_raw(Rho, Op, N, C) of
+        {ok, {R, _}} when element(1, Op) =/= displacement, element(1, Op) =/= squeezing -> {ok, R};
+        Other -> Other
+    end.
+
+-spec fock_dm_apply_beamsplitter(rho(), float(), float(), non_neg_integer(), non_neg_integer(), pos_integer(),
+                                 non_neg_integer()) -> {ok, rho()} | kernel_error().
+fock_dm_apply_beamsplitter(R, T, P, M1, M2, N, C) -> dm(R, {beamsplitter, T, P, M1, M2}, N, C).
+-spec fock_dm_apply_phaseshift(rho(), float(), non_neg_integer(), pos_integer(), non_neg_integer()) -> {ok, rho()} | kernel_error().
+fock_dm_apply_phaseshift(R, P, M, N, C) -> dm(R, {phaseshift, P, M}, N, C).
+-spec fock_dm_apply_kerr(rho(), float(), non_neg_integer(), pos_integer(), non_neg_integer()) -> {ok, rho()} | kernel_error().
+fock_dm_apply_kerr(R, K, M, N, C) -> dm(R, {kerr, K, M}, N, C).
+-spec fock_dm_apply_passive(rho(), pq_core:packed_cmatrix(), [non_neg_integer()], pos_integer(), non_neg_integer()) ->
+          {ok, rho()} | kernel_error().
+fock_dm_apply_passive(R, U, Ms, N, C) -> dm(R, {passive, U, Ms}, N, C).
+-spec fock_dm_apply_displacement(rho(), float(), float(), non_neg_integer(), pos_integer(), non_neg_integer()) ->
+          {ok, {rho(), float()}} | kernel_error().
+fock_dm_apply_displacement(R, Rr, P, M, N, C) -> dm(R, {displacement, Rr, P, M}, N, C).
+-spec fock_dm_apply_squeezing(rho(), float(), float(), non_neg_integer(), pos_integer(), non_neg_integer()) ->
+          {ok, {rho(), float()}} | kernel_error().
+fock_dm_apply_squeezing(R, Rr, P, M, N, C) -> dm(R, {squeezing, Rr, P, M}, N, C).
+%% FS A.11, intensity transmissivity Eta on Mode
+-spec fock_dm_apply_loss(rho(), float(), non_neg_integer(), pos_integer(), non_neg_integer()) -> {ok, rho()} | kernel_error().
+fock_dm_apply_loss(R, Eta, M, N, C) -> dm(R, {loss, Eta, M}, N, C).
+
+fock_dm_apply_raw(_Rho, _Op, _N, _C) -> erlang:nif_error(nif_not_loaded).

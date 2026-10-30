@@ -6,7 +6,9 @@
 -behaviour(pq_backend).
 -compile({no_auto_import, [apply/3]}).
 -include("pq.hrl").
--export([name/0, capabilities/0, init/3, apply/3, sample/3, final/1]).
+-export([name/0, capabilities/0, capabilities/1, init/3, apply/3, sample/3, final/1]).
+%% shared with pq_fock_dm
+-export([cutoff/2, truncation/3, basis/4]).
 
 name() -> fock.
 
@@ -14,6 +16,13 @@ capabilities() ->
     #{beamsplitter => exact, phaseshift => exact, unitary => exact, displacement => truncated,
       squeezing => truncated, kerr => exact, loss => unsupported, measure_pnr => midcircuit,
       measure_threshold => terminal, measure_homodyne => unsupported}.
+
+%% FR-F05: with promote_dm, loss promotes the state to a density matrix
+capabilities(Opts) ->
+    case maps:get(promote_dm, Opts, false) of
+        true -> (capabilities())#{loss => exact};
+        false -> capabilities()
+    end.
 
 %% the backend state: the public state and the cumulative norm deficit
 init(Input, #circuit{n_modes = N}, Opts) ->
@@ -51,6 +60,13 @@ basis(N, Cut, D, Occ) ->
 
 final({S, _Deficit}) -> S.
 
+%% FR-F05: loss promotes the pure state to a density matrix when promote_dm is set; from then on pq_fock_dm acts
+apply({loss, _, _} = I, {#fock_state{amps = A} = S, Def}, Opts) ->
+    case maps:get(promote_dm, Opts, false) of
+        true -> pq_fock_dm:apply(I, {pq_fock_dm:from_pure(S#fock_state{amps = A}), Def}, Opts);
+        false -> {error, {unsupported_instruction, loss, fock}}
+    end;
+apply(I, {#fock_dm{}, _} = St, Opts) -> pq_fock_dm:apply(I, St, Opts);
 apply(I, {#fock_state{n_modes = N, cutoff = C, amps = A} = S, Def}, Opts) ->
     R = case I of
             {beamsplitter, M1, M2, T, P} -> pq_nif:fock_apply_beamsplitter(A, T, P, M1, M2, N, C);
@@ -81,7 +97,10 @@ truncation(S, Def, Opts) ->
 
 %% terminal measurements: the joint PNR distribution of every measured mode, sampled (one uniform per shot);
 %% threshold columns report n > 0
-sample(Ms, {#fock_state{n_modes = N, cutoff = C, amps = A}, _}, Opts) ->
+sample(Ms, {#fock_dm{n_modes = N, cutoff = C, rho = R}, _}, Opts) -> sample_state(Ms, R, N, C, Opts);
+sample(Ms, {#fock_state{n_modes = N, cutoff = C, amps = A}, _}, Opts) -> sample_state(Ms, A, N, C, Opts).
+
+sample_state(Ms, A, N, C, Opts) ->
     Cols = lists:append([[{M, kind(K)} || M <- Modes] || {K, Modes} <- Ms]),
     Modes = [M || {M, _} <- Cols],
     case pq_nif:fock_pnr_probabilities(A, Modes, N, C) of

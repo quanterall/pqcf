@@ -299,3 +299,123 @@ mod tests {
         assert!(p[1].1 < 1e-30);
     }
 }
+
+/// Density matrices (FS 4.5, FR-F05, AN 7.5): rho is D x D, row-major, in the basis of FS 3.4.
+pub mod dm {
+    use super::{Basis, Error};
+    use crate::num::{Sum, C64};
+
+    fn conj(z: C64) -> C64 {
+        C64::new(z.re, -z.im)
+    }
+
+    /// rho <- G rho G^dagger for a gate G given by its action on a pure state (`apply` maps an amplitude vector
+    /// in place); returns the trace deficit (input trace minus output trace) for the truncated gates
+    pub fn unitary_like(b: &Basis, rho: &mut [C64], mut apply: impl FnMut(&mut [C64]) -> Result<(), Error>) -> Result<f64, Error> {
+        let d = b.patterns.len();
+        let trace_in = trace(rho, d);
+        // M = G rho: G on every column
+        let mut col = vec![C64::ZERO; d];
+        for j in 0..d {
+            for i in 0..d {
+                col[i] = rho[i * d + j];
+            }
+            apply(&mut col)?;
+            for i in 0..d {
+                rho[i * d + j] = col[i];
+            }
+        }
+        // rho' = M G^dagger = (G M^dagger)^dagger: G on every column of M^dagger (the conjugated rows of M)
+        for i in 0..d {
+            for j in 0..d {
+                col[j] = conj(rho[i * d + j]);
+            }
+            apply(&mut col)?;
+            for j in 0..d {
+                rho[i * d + j] = conj(col[j]);
+            }
+        }
+        Ok(trace_in - trace(rho, d))
+    }
+
+    pub fn trace(rho: &[C64], d: usize) -> f64 {
+        let mut s = Sum::new(d as u64);
+        for i in 0..d {
+            s.add(rho[i * d + i].re);
+        }
+        s.value()
+    }
+
+    /// FS A.11: rho -> sum_l K_l rho K_l^dagger, K_l = sum_(n >= l) sqrt(C(n, l)) eta^((n-l)/2) (1-eta)^(l/2) |n-l><n|
+    pub fn loss(b: &Basis, rho: &[C64], eta: f64, mode: usize) -> Vec<C64> {
+        let d = b.patterns.len();
+        let binom = |n: u32, k: u32| -> f64 { (0..k).fold(1.0, |acc, i| acc * (n - i) as f64 / (i + 1) as f64) };
+        let mut out = vec![C64::ZERO; d * d];
+        for (i, p) in b.patterns.iter().enumerate() {
+            for (j, q) in b.patterns.iter().enumerate() {
+                let z = rho[i * d + j];
+                if z.re == 0.0 && z.im == 0.0 {
+                    continue;
+                }
+                let (np, nq) = (p[mode], q[mode]);
+                let mut pp = p.clone();
+                let mut qq = q.clone();
+                for l in 0..=np.min(nq) {
+                    pp[mode] = np - l;
+                    qq[mode] = nq - l;
+                    let w = (binom(np, l) * binom(nq, l)).sqrt()
+                        * eta.powf((np + nq - 2 * l) as f64 / 2.0)
+                        * (1.0 - eta).powi(l as i32);
+                    let (a, c) = (b.index(&pp), b.index(&qq));
+                    out[a * d + c] = out[a * d + c].add(z.scale(w));
+                }
+            }
+        }
+        out
+    }
+
+    /// the diagonal as probabilities of `modes` (FR-F03), in the order of FS 3.4 on the measured modes
+    pub fn pnr_probabilities(b: &Basis, rho: &[C64], modes: &[usize]) -> Vec<(Vec<u32>, f64)> {
+        let d = b.patterns.len();
+        let diag: Vec<C64> = (0..d).map(|i| C64::new(rho[i * d + i].re.max(0.0).sqrt(), 0.0)).collect();
+        super::pnr_probabilities(b, &diag, modes)
+    }
+
+    /// |psi><psi|
+    pub fn from_pure(amps: &[C64]) -> Vec<C64> {
+        amps.iter().flat_map(|&a| amps.iter().map(move |&c| a.mul(conj(c)))).collect()
+    }
+}
+
+#[cfg(test)]
+mod dm_tests {
+    use super::dm;
+    use super::*;
+
+    #[test]
+    fn loss_of_a_fock_state() {
+        // |2> through eta: P(2) = eta^2, P(1) = 2 eta (1 - eta), P(0) = (1 - eta)^2; trace 1
+        let b = Basis::new(1, 2);
+        let mut psi = vec![C64::ZERO; 3];
+        psi[2] = C64::ONE;
+        let rho = dm::loss(&b, &dm::from_pure(&psi), 0.7, 0);
+        let p = dm::pnr_probabilities(&b, &rho, &[0]);
+        assert!((p[2].1 - 0.49).abs() < 1e-15 && (p[1].1 - 0.42).abs() < 1e-15 && (p[0].1 - 0.09).abs() < 1e-15);
+        assert!((dm::trace(&rho, 3) - 1.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn unitaries_agree_with_pure_states() {
+        // a beamsplitter on |psi><psi| equals |G psi><G psi|
+        let b = Basis::new(2, 3);
+        let mut psi = vec![C64::ZERO; b.patterns.len()];
+        psi[b.index(&[1, 1])] = C64::new(0.6, 0.0);
+        psi[b.index(&[2, 0])] = C64::new(0.0, 0.8);
+        let mut rho = dm::from_pure(&psi);
+        let def = dm::unitary_like(&b, &mut rho, |v| beamsplitter(&b, v, 0.4, 0.9, 0, 1)).unwrap();
+        beamsplitter(&b, &mut psi, 0.4, 0.9, 0, 1).unwrap();
+        let want = dm::from_pure(&psi);
+        assert!(def.abs() < 1e-15);
+        assert!(rho.iter().zip(&want).all(|(x, y)| (x.re - y.re).abs() + (x.im - y.im).abs() < 1e-15));
+    }
+}

@@ -24,7 +24,8 @@ mod atoms {
         algorithm, seed, stream_start, max_enumeration, clifford_clifford, brute_force, imat, shots, patterns,
         probability_sum, photon_number_overflow, cvec, subsets, terms, non_physical_state, not_positive_definite,
         size, rvec, rmat, not_symplectic, homodyne, pnr, threshold, unsupported_input, pq_bug, beamsplitter,
-        max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold
+        max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold,
+        phaseshift, kerr, passive, displacement, squeezing, loss
     }
 }
 
@@ -679,6 +680,13 @@ fn fock_apply_squeezing<'a>(env: Env<'a>, amps: Term<'a>, r: f64, phi: f64, mode
 /// fock_pnr_probabilities(State, Modes, NModes, Cutoff) -> [{Pattern, Prob}] (FR-F03), pure states
 #[rustler::nif(schedule = "DirtyCpu")]
 fn fock_pnr_probabilities<'a>(env: Env<'a>, amps: Term<'a>, modes: Vec<usize>, n: usize, c: usize) -> NifResult<Term<'a>> {
+    if let Ok((rho, r, cc)) = cmat(amps) {
+        if r != cc || n == 0 || fockstate::Basis::dim(n, c) != r as u64 || modes.is_empty() || !modes_ok(&modes, n) {
+            return Ok(bad_shape(env, "density matrix D x D and distinct modes"));
+        }
+        let b = fockstate::Basis::new(n, c);
+        return Ok((atoms::ok(), fockstate::dm::pnr_probabilities(&b, &rho, &modes)).encode(env));
+    }
     let (v, b) = fock_args!(env, amps, n, c, modes);
     if modes.is_empty() || !modes_ok(&modes, n) {
         return Ok(bad_shape(env, "distinct modes in range"));
@@ -771,6 +779,68 @@ fn gaussian_probability<'a>(env: Env<'a>, mean: Term<'a>, cov: Term<'a>, hbar: f
     Ok(match r {
         Ok(p) => (atoms::ok(), p).encode(env),
         Err(e) => gbs_error(env, e),
+    })
+}
+
+fn put_cmat<'a>(env: Env<'a>, v: &[C64], r: usize, c: usize) -> Term<'a> {
+    let mut bin = rustler::OwnedBinary::new(v.len() * 16).expect("binary");
+    for (k, z) in v.iter().enumerate() {
+        bin.as_mut_slice()[16 * k..16 * k + 8].copy_from_slice(&z.re.to_le_bytes());
+        bin.as_mut_slice()[16 * k + 8..16 * k + 16].copy_from_slice(&z.im.to_le_bytes());
+    }
+    (atoms::cmat(), r, c, bin.release(env)).encode(env)
+}
+
+/// fock_dm_apply_*(Rho, ...) (FS 8.4, AN 7.5): one entry point, the operation as a tuple; returns {Rho, Deficit}
+/// (the trace deficit of displacement and squeezing, 0 otherwise)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn fock_dm_apply_raw<'a>(env: Env<'a>, rho: Term<'a>, op: Term<'a>, n: usize, c: usize) -> NifResult<Term<'a>> {
+    let (mut r, d, dc) = match cmat(rho) {
+        Ok(x) => x,
+        Err(e) => return Ok(bad_shape(env, &e)),
+    };
+    if d != dc || n == 0 || fockstate::Basis::dim(n, c) != d as u64 {
+        return Ok(bad_shape(env, "density matrix D x D for NModes and Cutoff"));
+    }
+    let b = fockstate::Basis::new(n, c);
+    let tag: Atom = rustler::types::tuple::get_tuple(op)?.first().ok_or(rustler::Error::BadArg)?.decode()?;
+    let in_range = |ms: &[usize]| ms.iter().all(|&m| m < n);
+    let res: Result<f64, fockstate::Error> = if tag == atoms::beamsplitter() {
+        let (_, t, p, m1, m2): (Atom, f64, f64, usize, usize) = op.decode()?;
+        if !in_range(&[m1, m2]) || m1 == m2 { return Ok(bad_shape(env, "modes")); }
+        fockstate::dm::unitary_like(&b, &mut r, |v| fockstate::beamsplitter(&b, v, t, p, m1, m2))
+    } else if tag == atoms::phaseshift() {
+        let (_, p, m): (Atom, f64, usize) = op.decode()?;
+        if !in_range(&[m]) { return Ok(bad_shape(env, "mode")); }
+        fockstate::dm::unitary_like(&b, &mut r, |v| { fockstate::phaseshift(&b, v, p, m); Ok(()) })
+    } else if tag == atoms::kerr() {
+        let (_, k, m): (Atom, f64, usize) = op.decode()?;
+        if !in_range(&[m]) { return Ok(bad_shape(env, "mode")); }
+        fockstate::dm::unitary_like(&b, &mut r, |v| { fockstate::kerr(&b, v, k, m); Ok(()) })
+    } else if tag == atoms::passive() {
+        let (_, u, ms): (Atom, Term, Vec<usize>) = op.decode()?;
+        let (uv, ur, uc) = match cmat(u) { Ok(x) => x, Err(e) => return Ok(bad_shape(env, &e)) };
+        if ur != uc || ur != ms.len() || !modes_ok(&ms, n) { return Ok(bad_shape(env, "U is k x k for k distinct modes")); }
+        fockstate::dm::unitary_like(&b, &mut r, |v| fockstate::passive(&b, v, &uv, &ms))
+    } else if tag == atoms::displacement() {
+        let (_, rr, p, m): (Atom, f64, f64, usize) = op.decode()?;
+        if !in_range(&[m]) { return Ok(bad_shape(env, "mode")); }
+        fockstate::dm::unitary_like(&b, &mut r, |v| { fockstate::displacement(&b, v, rr, p, m); Ok(()) })
+    } else if tag == atoms::squeezing() {
+        let (_, rr, p, m): (Atom, f64, f64, usize) = op.decode()?;
+        if !in_range(&[m]) { return Ok(bad_shape(env, "mode")); }
+        fockstate::dm::unitary_like(&b, &mut r, |v| fockstate::squeezing(&b, v, rr, p, m).map(|_| ()))
+    } else if tag == atoms::loss() {
+        let (_, eta, m): (Atom, f64, usize) = op.decode()?;
+        if !in_range(&[m]) || !(0.0..=1.0).contains(&eta) { return Ok(bad_shape(env, "mode or eta")); }
+        r = fockstate::dm::loss(&b, &r, eta, m);
+        Ok(0.0)
+    } else {
+        return Err(rustler::Error::BadArg);
+    };
+    Ok(match res {
+        Ok(def) => (atoms::ok(), (put_cmat(env, &r, d, d), def)).encode(env),
+        Err(e) => fock_error(env, e),
     })
 }
 

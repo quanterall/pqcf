@@ -55,7 +55,7 @@ run(Backend, C, Opts) ->
 prepare(Backend, C, Opts) ->
     case pq_circuit:validate(C) of
         ok ->
-            case pq_circuit:check_capabilities(C, Backend) of
+            case pq_circuit:check_capabilities(C, Backend, Opts) of
                 ok -> pq_circuit:lower(C, maps:get(bindings, Opts, #{}));
                 E -> E
             end;

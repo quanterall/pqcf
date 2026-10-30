@@ -6,7 +6,7 @@
 -include("pq.hrl").
 -export([new/1, new/2, add/2, insert/3, replace/3, delete/2,
          validate/1, effective_binding/2, compose/2, compose/3,
-         free_symbols/1, all_symbols/1, to_binary/1, from_binary/1, lower/2, check_capabilities/2, mesh/1,
+         free_symbols/1, all_symbols/1, to_binary/1, from_binary/1, lower/2, check_capabilities/2, check_capabilities/3, mesh/1,
          two_mode_squeezing/4, mzi/4]).
 
 -export_type([circuit/0, instruction/0, input_spec/0]).
@@ -325,8 +325,16 @@ real_value(E, K, Sub, C) ->
 %% FS 5.3 and FR-M06: every instruction kind supported by the backend; a measurement the backend allows only at
 %% the end ('terminal') must be followed by measurements only.
 -spec check_capabilities(circuit(), module()) -> ok | {error, pq_core:reason()}.
-check_capabilities(#circuit{instrs = Is}, Backend) ->
-    Caps = Backend:capabilities(),
+check_capabilities(C, Backend) -> check_capabilities(C, Backend, #{}).
+
+%% with the run's options: a backend may export capabilities/1 (pq_fock: loss is exact under promote_dm)
+-spec check_capabilities(circuit(), module(), map()) -> ok | {error, pq_core:reason()}.
+check_capabilities(#circuit{instrs = Is}, Backend, Opts) ->
+    _ = code:ensure_loaded(Backend),
+    Caps = case erlang:function_exported(Backend, capabilities, 1) of
+               true -> Backend:capabilities(Opts);
+               false -> Backend:capabilities()
+           end,
     Name = Backend:name(),
     try
         lists:foreach(
