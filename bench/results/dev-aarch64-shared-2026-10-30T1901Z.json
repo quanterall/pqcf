@@ -1,0 +1,68 @@
+{
+ "hardware": {
+  "host": "dev-aarch64-shared",
+  "cpu": "Cortex-X925",
+  "arch": "aarch64",
+  "kernel": "6.17.0-1021-nvidia",
+  "cores": 20,
+  "pinned_core": 6,
+  "governor": "performance"
+ },
+ "date": "2026-10-30T1901Z",
+ "thewalrus": "0.22.0",
+ "nfr01_limit": 1.5,
+ "results": [
+  {
+   "n": 16,
+   "ours": 0.001427524,
+   "thewalrus_best": 0.0014507230080198497,
+   "thewalrus": {
+    "n": 16,
+    "bbfg": 0.0014507230080198497,
+    "value": [
+     1128520523.86924,
+     -226879809.22399953
+    ],
+    "glynn": 0.0027665359957609326,
+    "ryser": 0.002765559998806566
+   },
+   "ratio": 0.9840086578267515,
+   "values_agree": true
+  },
+  {
+   "n": 18,
+   "ours": 0.006498098,
+   "thewalrus_best": 0.006171057000756264,
+   "thewalrus": {
+    "n": 18,
+    "bbfg": 0.006171057000756264,
+    "value": [
+     -25411405396.13364,
+     42715044381.12166
+    ],
+    "glynn": 0.011871952010551468,
+    "ryser": 0.011872528004460037
+   },
+   "ratio": 1.0529959452981323,
+   "values_agree": true
+  },
+  {
+   "n": 20,
+   "ours": 0.029698224,
+   "thewalrus_best": 0.027127114008180797,
+   "thewalrus": {
+    "n": 20,
+    "bbfg": 0.027127114008180797,
+    "value": [
+     2333404803783.07,
+     6979144920946.483
+    ],
+    "glynn": 0.05312084799516015,
+    "ryser": 0.053122063021874055
+   },
+   "ratio": 1.0947800783763368,
+   "values_agree": true
+  }
+ ],
+ "preliminary": "shared development machine, not the reference hardware"
+}
