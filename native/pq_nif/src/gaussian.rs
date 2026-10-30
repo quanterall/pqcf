@@ -213,10 +213,81 @@ pub fn sample_homodyne(
     Ok(out)
 }
 
+/// Homodyne measurement of x_phi on `mode` with conditioning (FS A.7, FR-G08): the mode rotated by -phi, then
+/// y ~ Normal(mu_x, sigma_xx) (the first, cosine-branch normal of stream (seed, stream)) or the fixed outcome, the
+/// state conditioned on x = y, and the mode's two rows and columns deleted. Returns (y, mu', sigma') on m - 1 modes.
+#[allow(clippy::too_many_arguments)]
+pub fn measure_homodyne(
+    mu: &[f64],
+    sigma: &[f64],
+    m: usize,
+    mode: usize,
+    phi: f64,
+    fixed: Option<f64>,
+    seed: u64,
+    stream: u64,
+) -> Result<(f64, Vec<f64>, Vec<f64>), Error> {
+    let n = 2 * m;
+    if mu.len() != n || sigma.len() != n * n || mode >= m {
+        return Err(Error::BadShape("mean, covariance or mode"));
+    }
+    let (mut mu, mut sigma) = (mu.to_vec(), sigma.to_vec());
+    if phi != 0.0 {
+        let rot = passive_symplectic(&[C64::new((-phi).cos(), (-phi).sin())], 1);
+        apply_symplectic(&mut mu, &mut sigma, m, &rot, &[0.0, 0.0], &[mode], None)?;
+    }
+    let k = mode;
+    let var = sigma[k * n + k];
+    if var.is_nan() || var <= 0.0 {
+        return Err(Error::NonPhysical(var));
+    }
+    let mean = mu[k];
+    let y = match fixed {
+        Some(y) => y,
+        None => mean + var.sqrt() * Stream::new(seed, stream).normal_pair().0,
+    };
+    let col: Vec<f64> = (0..n).map(|i| sigma[i * n + k]).collect();
+    for i in 0..n {
+        mu[i] += col[i] * (y - mean) / var;
+    }
+    for i in 0..n {
+        for j in 0..n {
+            sigma[i * n + j] -= col[i] * col[j] / var;
+        }
+    }
+    let keep: Vec<usize> = (0..m).filter(|&j| j != k).collect();
+    let (mu2, sigma2) = marginal(&mu, &sigma, m, &keep);
+    Ok((y, mu2, sigma2))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::fock::{displacement_matrix, squeezing_matrix};
+
+    /// GT-G02, FS Appendix C: two-mode squeezed vacuum, r = 0.5, x measured on mode 0 with outcome 0.8:
+    /// mode 1 has mean x = tanh(2r) y = 0.609275 (up to the sign of the correlation), Var x = 1/cosh 2r = 0.648054,
+    /// Var p = cosh 2r = 1.543081
+    #[test]
+    fn gt_g02() {
+        let r = 0.5f64;
+        let (c, sh) = ((2.0 * r).cosh(), (2.0 * r).sinh());
+        // xxpp: Cov(x0, x1) = sinh 2r, Cov(p0, p1) = -sinh 2r
+        let sigma = vec![c, sh, 0.0, 0.0, sh, c, 0.0, 0.0, 0.0, 0.0, c, -sh, 0.0, 0.0, -sh, c];
+        let (y, mu, sig) = measure_homodyne(&[0.0; 4], &sigma, 2, 0, 0.0, Some(0.8), 0, 0).unwrap();
+        assert_eq!(y, 0.8);
+        assert!((mu[0] - 0.609275).abs() < 1e-6 && mu[1] == 0.0);
+        assert!((sig[0] - 0.648054).abs() < 1e-6 && (sig[3] - 1.543081).abs() < 1e-6 && sig[1].abs() < 1e-15);
+        // measured along p (phi = pi/2): p0 = y gives p1 = -tanh(2r) y
+        let (_, mu_p, _) = measure_homodyne(&[0.0; 4], &sigma, 2, 0, std::f64::consts::FRAC_PI_2, Some(0.8), 0, 0).unwrap();
+        assert!((mu_p[1] + 0.609275).abs() < 1e-6);
+        // sampled outcomes follow Normal(0, cosh 2r)
+        let ys: Vec<f64> = (0..20000).map(|k| measure_homodyne(&[0.0; 4], &sigma, 2, 0, 0.0, None, 1, k).unwrap().0).collect();
+        let v = ys.iter().map(|y| y * y).sum::<f64>() / ys.len() as f64;
+        assert!((v / c - 1.0).abs() < 0.03);
+        // a mode without x variance cannot be conditioned on
+        assert_eq!(measure_homodyne(&[0.0, 0.0], &[0.0, 0.0, 0.0, 1.0], 1, 0, 0.0, Some(0.0), 0, 0).unwrap_err(), Error::NonPhysical(0.0));
+    }
 
     fn vacuum(m: usize) -> (Vec<f64>, Vec<f64>) {
         let n = 2 * m;

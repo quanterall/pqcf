@@ -61,7 +61,7 @@ pub fn amat(mu: &[f64], sigma: &[f64], m: usize, hbar: f64) -> Result<Amat, Erro
         }
     }
     let det = q.clone().determinant();
-    if !(det.re > 0.0) {
+    if det.re.is_nan() || det.re <= 0.0 {
         return Err(Error::NonPhysical("det Q"));
     }
     let qinv = q.try_inverse().ok_or(Error::NonPhysical("Q singular"))?;
@@ -188,7 +188,7 @@ pub fn sample_chain_rule(
         let mut st = Stream::new(seed, stream_start + i as u64);
         let mut pattern: Vec<u32> = Vec::with_capacity(m);
         let mut p_prev = 1.0;
-        for k in 0..m {
+        for state in &states {
             let u = st.uniform();
             if p_prev <= 0.0 {
                 pattern.push(0);
@@ -208,9 +208,9 @@ pub fn sample_chain_rule(
             for (j, &c) in candidates.iter().enumerate() {
                 pattern.push(c);
                 let p = if threshold {
-                    threshold_probability(&states[k], &pattern, cancel)?
+                    threshold_probability(state, &pattern, cancel)?
                 } else {
-                    pnr_probability(&states[k], &pattern, cancel)?
+                    pnr_probability(state, &pattern, cancel)?
                 };
                 pattern.pop();
                 probs.push(p);

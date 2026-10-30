@@ -25,7 +25,7 @@ mod atoms {
         probability_sum, photon_number_overflow, cvec, subsets, terms, non_physical_state, not_positive_definite,
         size, rvec, rmat, not_symplectic, homodyne, pnr, threshold, unsupported_input, pq_bug, beamsplitter,
         max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold,
-        phaseshift, kerr, passive, displacement, squeezing, loss
+        phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix
     }
 }
 
@@ -841,6 +841,33 @@ fn fock_dm_apply_raw<'a>(env: Env<'a>, rho: Term<'a>, op: Term<'a>, n: usize, c:
     Ok(match res {
         Ok(def) => (atoms::ok(), (put_cmat(env, &r, d, d), def)).encode(env),
         Err(e) => fock_error(env, e),
+    })
+}
+
+/// gaussian_measure_homodyne(Mean, Cov, Mode, Phi, Hbar, Opts) -> {Outcome, Mean, Cov} (FS 8.4, A.7, FR-G08).
+/// Opts: fix_outcome, or seed and stream.
+#[rustler::nif]
+fn gaussian_measure_homodyne<'a>(env: Env<'a>, mean: Term<'a>, cov: Term<'a>, mode: usize, phi: f64, _hbar: f64, opts: Term<'a>) -> NifResult<Term<'a>> {
+    let (mu, sig, m) = match gauss(mean, cov) {
+        Ok(g) => g,
+        Err(e) => return Ok(bad_shape(env, &e)),
+    };
+    if m < 2 {
+        return Ok(bad_shape(env, "a mode must remain after the measurement"));
+    }
+    let fixed: Option<f64> = match opts.map_get(atoms::fix_outcome()) {
+        Ok(t) => Some(t.decode()?),
+        Err(_) => None,
+    };
+    let seed: u64 = opt(opts, atoms::seed(), 0u64)?;
+    let stream: u64 = opt(opts, atoms::stream(), 0u64)?;
+    Ok(match gaussian::measure_homodyne(&mu, &sig, m, mode, phi, fixed, seed, stream) {
+        Ok((y, mu2, sig2)) => {
+            let n = mu2.len();
+            (atoms::ok(), (y, put_rvec(env, &mu2), put_rmat(env, &sig2, n, n))).encode(env)
+        }
+        Err(gaussian::Error::NonPhysical(v)) => error(env, (atoms::singular_matrix(), v)),
+        Err(_) => bad_shape(env, "mean, covariance or mode"),
     })
 }
 

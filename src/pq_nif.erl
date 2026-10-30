@@ -9,7 +9,8 @@
          fock_apply_displacement/6, fock_apply_squeezing/6, fock_pnr_probabilities/4,
          unitary_decompose/1, sample_categorical/3, gaussian_to_amat/3, gaussian_probability/5,
          fock_dm_apply_beamsplitter/7, fock_dm_apply_phaseshift/5, fock_dm_apply_kerr/5, fock_dm_apply_passive/5,
-         fock_dm_apply_displacement/6, fock_dm_apply_squeezing/6, fock_dm_apply_loss/5]).
+         fock_dm_apply_displacement/6, fock_dm_apply_squeezing/6, fock_dm_apply_loss/5,
+         gaussian_measure_homodyne/6]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -217,3 +218,9 @@ fock_dm_apply_squeezing(R, Rr, P, M, N, C) -> dm(R, {squeezing, Rr, P, M}, N, C)
 fock_dm_apply_loss(R, Eta, M, N, C) -> dm(R, {loss, Eta, M}, N, C).
 
 fock_dm_apply_raw(_Rho, _Op, _N, _C) -> erlang:nif_error(nif_not_loaded).
+
+%% FS A.7, FR-G08: measure x_Phi on Mode and condition the rest; Opts: fix_outcome, or seed and stream (the first
+%% normal of the stream). {singular_matrix, Variance} when the quadrature has no variance.
+-spec gaussian_measure_homodyne(pq_core:packed_rvector(), pq_core:packed_rmatrix(), non_neg_integer(), float(), float(),
+                                map()) -> {ok, {float(), pq_core:packed_rvector(), pq_core:packed_rmatrix()}} | kernel_error().
+gaussian_measure_homodyne(_Mean, _Cov, _Mode, _Phi, _Hbar, _Opts) -> erlang:nif_error(nif_not_loaded).
