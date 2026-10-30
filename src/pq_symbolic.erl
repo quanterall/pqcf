@@ -12,7 +12,7 @@
          matmul/2, kron/2, smul/2, madd/1, dagger/1, transpose/1,
          shape/1, free_symbols/1, size/1, hash/1, domain_of/2,
          pretty/1, pretty/2, to_latex/1, parse/1, parse/2,
-         resolve_params/2, resolve_params/3,
+         resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, is_unitary/1, is_unitary/2,
          substitute/2]).
 
 -export_type([sym_expr/0, binding/0, opts/0]).
@@ -140,6 +140,88 @@ smul(S, M) -> canonicalise({smul, S, M}).
 madd(Ms) -> canonicalise({madd, Ms}).
 dagger(M) -> canonicalise({dagger, M}).
 transpose(M) -> canonicalise({transpose, M}).
+
+%%% Circuit-level (SY 6.1, FR-S06)
+
+%% The symbolic single-photon unitary of a passive circuit: rows of the running matrix updated per instruction
+%% (beamsplitter, phaseshift, unitary), each entry normalised at once; symbols take the circuit's domains.
+-spec circuit_unitary(tuple()) -> result(sym_expr()).
+circuit_unitary(C) -> circuit_unitary(C, #{}).
+
+circuit_unitary(C, Opts) ->
+    N = element(2, C),              % #circuit.n_modes
+    Instrs = element(5, C),         % #circuit.instrs
+    Domains = element(7, C),        % #circuit.symbols
+    Max = pq_core:get(max_symbolic_modes, Opts),
+    try
+        N =< Max orelse throw({symbolic_limit, #{n_modes => N, max_symbolic_modes => Max}}),
+        Ctx = context(Opts#{domains => maps:merge(Domains, maps:get(domains, Opts, #{}))}),
+        Id = list_to_tuple([list_to_tuple([pq_sym_poly:const(pq_sym_exact:c(case I =:= J of true -> 1; false -> 0 end))
+                                           || J <- lists:seq(1, N)]) || I <- lists:seq(1, N)]),
+        U = lists:foldl(fun(I, Acc) -> unitary_step(I, Acc, Ctx) end, Id, Instrs),
+        {ok, pq_sym_norm:value_to_ast({mat, N, N, [tuple_to_list(R) || R <- tuple_to_list(U)]})}
+    catch
+        throw:{Cat, _} = R when is_atom(Cat) -> {error, R}
+    end.
+
+unitary_step({beamsplitter, A, B, T, P}, U, Ctx) ->
+    E = fun(X) -> scalar_poly(X, Ctx) end,
+    I = {complex, 0, 1},
+    Cos = E({cos, T}),
+    Gab = E({mul, [-1, {exp, {mul, [{mul, [-1, I]}, P]}}, {sin, T}]}),
+    Gba = E({mul, [{exp, {mul, [I, P]}}, {sin, T}]}),
+    rows(U, [A, B], [[Cos, Gab], [Gba, Cos]], Ctx);
+unitary_step({phaseshift, M, P}, U, Ctx) ->
+    rows(U, [M], [[scalar_poly({exp, {mul, [{complex, 0, 1}, P]}}, Ctx)]], Ctx);
+unitary_step({unitary, Ms, {cmat, _, _, _} = Packed}, U, Ctx) ->
+    {ok, {cmat, G}} = pq_core:unpack(Packed),
+    rows(U, Ms, [[scalar_poly(Z, Ctx) || Z <- Row] || Row <- G], Ctx);
+unitary_step({unitary, Ms, {matrix, G}}, U, Ctx) ->
+    rows(U, Ms, [[scalar_poly(Z, Ctx) || Z <- Row] || Row <- G], Ctx);
+unitary_step(I, _U, _Ctx) -> throw({unsupported_instruction, {element(1, I), symbolic_unitary}}).
+
+scalar_poly(E, Ctx) ->
+    case pq_sym_norm:norm(E, Ctx) of
+        {scalar, P} -> P;
+        _ -> throw({bad_shape, {scalar_expected, E}})
+    end.
+
+%% U <- G U on the rows Ms
+rows(U, Ms, G, Ctx) ->
+    Old = [element(M + 1, U) || M <- Ms],
+    New = [list_to_tuple([pq_sym_poly:sum([pq_sym_poly:mul(Gij, element(Col, Row), Ctx) || {Gij, Row} <- lists:zip(GRow, Old)])
+                          || Col <- lists:seq(1, tuple_size(element(1, U)))]) || GRow <- G],
+    lists:foldl(fun({M, R}, Acc) -> setelement(M + 1, Acc, R) end, U, lists:zip(Ms, New)).
+
+%% SY 6.1: U U^dagger against the identity by canonical form: true or false for entries in E (SY 3.5; circuits of
+%% beamsplitters and phase shifts), unknown when an entry holds an opaque base or a float
+-spec is_unitary(sym_expr()) -> {ok, true | false | unknown} | {error, pq_core:reason()}.
+is_unitary(M) -> is_unitary(M, #{}).
+
+is_unitary(M, Opts) ->
+    case canonicalise({matmul, M, {dagger, M}}, Opts) of
+        {ok, {matrix, Rows}} ->
+            N = length(Rows),
+            Id = [[case I =:= J of true -> 1; false -> 0 end || J <- lists:seq(1, N)] || I <- lists:seq(1, N)],
+            case Rows =:= Id of
+                true -> {ok, true};
+                false ->
+                    case decisive(Rows) of
+                        true -> {ok, false};
+                        false -> {ok, unknown}
+                    end
+            end;
+        {ok, {identity, _}} -> {ok, true};
+        {ok, _} -> {error, {bad_shape, is_unitary}};
+        {error, _} = E -> E
+    end.
+
+%% no opaque base and no float anywhere: the canonical form is faithful (SY 3.5)
+decisive(T) when is_float(T) -> false;
+decisive({pow, B, E}) -> not is_tuple(B) orelse element(1, B) =/= add andalso decisive(B) andalso decisive(E);
+decisive(T) when is_tuple(T) -> lists:all(fun decisive/1, tuple_to_list(T));
+decisive(L) when is_list(L) -> lists:all(fun decisive/1, L);
+decisive(_) -> true.
 
 %%% Inspection
 
