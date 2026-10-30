@@ -9,7 +9,7 @@ top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust 
 
 | Done | Next |
 | --- | --- |
-| Project skeleton; NIF loading and version check; cancel tokens; the ChaCha8 random stream `rng_u64` (GT-R01); core types, configuration, error taxonomy and the packed binary codec (`pq_core`); the permanent family — `permanent`, `permanent_repeated`, `bs_probability` — with fixed-block determinism (GT-P01 against thewalrus) | The symbolic engine; circuits; the linear-algebra crate choice; the benchmark harness and reference hardware; the remaining Phase 0 spikes |
+| Project skeleton; NIF loading and version check; cancel tokens; the ChaCha8 random stream `rng_u64` (GT-R01); core types, configuration, error taxonomy and the packed binary codec (`pq_core`); the permanent family — `permanent`, `permanent_repeated`, `bs_probability` — with fixed-block determinism (GT-P01 against thewalrus); the core of the symbolic engine `pq_symbolic` — exact canonical form (Gaussian rationals, radicals, exponentials; trigonometric functions as exponentials), substitution with domains, evaluation (complex doubles, or exact), matrices, ASCII and LaTeX printing, a parser with atom safety, parameter resolution, bounded execution | Differentiation and the rest of the symbolic engine; circuits; the linear-algebra crate choice; the benchmark harness and reference hardware; the remaining Phase 0 spikes |
 
 ## Building and testing
 

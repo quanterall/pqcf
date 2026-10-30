@@ -3,7 +3,7 @@
     {vsn, "0.1.0"},
     {registered, [pq_sup]},
     {mod, {pq_app, []}},
-    {applications, [kernel, stdlib]},
+    {applications, [kernel, stdlib, crypto]},
     {env, []},
     {licenses, ["Apache-2.0"]}
 ]}.
