@@ -6,7 +6,7 @@
 -include("pq.hrl").
 -export([new/1, new/2, add/2, insert/3, replace/3, delete/2,
          validate/1, effective_binding/2, compose/2, compose/3,
-         free_symbols/1, all_symbols/1, to_binary/1, from_binary/1, lower/2, check_capabilities/2,
+         free_symbols/1, all_symbols/1, to_binary/1, from_binary/1, lower/2, check_capabilities/2, mesh/1,
          two_mode_squeezing/4, mzi/4]).
 
 -export_type([circuit/0, instruction/0, input_spec/0]).
@@ -483,6 +483,20 @@ plain(_) -> true.
 plain_list([]) -> true;
 plain_list([H | T]) -> plain(H) andalso plain_list(T);
 plain_list(Tail) -> plain(Tail).                        % an improper list's tail
+
+%%% FR-C10: the Clements mesh of a numeric unitary, as instructions on modes 0..k-1: beamsplitters in order,
+%%% then one phase shift per mode. Replaying them reproduces U to 1e-12 k (AN 9).
+
+-spec mesh(pq_core:packed_cmatrix()) -> result([instruction()]).
+mesh({cmat, K, K, _} = U) ->
+    case pq_nif:unitary_decompose(U) of
+        {ok, {Bs, Phases}} ->
+            {ok, {rvec, Ps}} = pq_core:unpack(Phases),
+            {ok, [{beamsplitter, A, B, T, P} || {A, B, T, P} <- Bs] ++
+                 [{phaseshift, J, Ph} || {J, Ph} <- lists:enumerate(0, Ps)]};
+        {error, _} = E -> E
+    end;
+mesh(U) -> {error, {bad_shape, #{unitary => U}}}.
 
 %%% FR-C11: the gate library, as instruction lists
 

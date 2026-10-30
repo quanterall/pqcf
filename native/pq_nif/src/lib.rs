@@ -5,8 +5,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub mod boson;
 pub mod fock;
+pub mod fockstate;
 pub mod gaussian;
 pub mod hafnian;
+pub mod mesh;
 pub mod num;
 pub mod perm;
 pub mod rng;
@@ -20,7 +22,7 @@ mod atoms {
         cancel, threads, scale, positions, blocks, input, output, permanent_scale,
         algorithm, seed, stream_start, max_enumeration, clifford_clifford, brute_force, imat, shots, patterns,
         probability_sum, photon_number_overflow, cvec, subsets, terms, non_physical_state, not_positive_definite,
-        size, rvec, rmat, not_symplectic, homodyne, pnr, threshold, unsupported_input
+        size, rvec, rmat, not_symplectic, homodyne, pnr, threshold, unsupported_input, pq_bug, beamsplitter
     }
 }
 
@@ -553,6 +555,141 @@ fn sample_gaussian<'a>(
         Err(gaussian::Error::Cancelled) => error(env, atoms::cancelled()),
         Err(_) => bad_shape(env, "state"),
     }))
+}
+
+fn put_cvec<'a>(env: Env<'a>, v: &[C64]) -> Term<'a> {
+    let mut bin = rustler::OwnedBinary::new(v.len() * 16).expect("binary");
+    for (k, z) in v.iter().enumerate() {
+        bin.as_mut_slice()[16 * k..16 * k + 8].copy_from_slice(&z.re.to_le_bytes());
+        bin.as_mut_slice()[16 * k + 8..16 * k + 16].copy_from_slice(&z.im.to_le_bytes());
+    }
+    (atoms::cvec(), v.len(), bin.release(env)).encode(env)
+}
+
+/// the amplitudes of a pure state with its basis, checked against NModes and Cutoff (FS 3.4, FR-F04)
+fn fock_state(amps: Term, n_modes: usize, cutoff: usize) -> Result<(Vec<C64>, fockstate::Basis), String> {
+    let v = cvec(amps)?;
+    if n_modes == 0 || fockstate::Basis::dim(n_modes, cutoff) != v.len() as u64 {
+        return Err(format!("{} amplitudes for {n_modes} modes and cutoff {cutoff}", v.len()));
+    }
+    Ok((v, fockstate::Basis::new(n_modes, cutoff)))
+}
+
+fn fock_error<'a>(env: Env<'a>, e: fockstate::Error) -> Term<'a> {
+    match e {
+        fockstate::Error::BadShape(m) => bad_shape(env, m),
+        fockstate::Error::Internal(m) => error(env, (atoms::pq_bug(), m)),
+        fockstate::Error::TooLarge => error(env, (atoms::dimension_limit(), atoms::size())),
+    }
+}
+
+macro_rules! fock_args {
+    ($env:expr, $amps:expr, $n:expr, $c:expr, $modes:expr) => {
+        match fock_state($amps, $n, $c) {
+            Ok((v, b)) if $modes.iter().all(|&m: &usize| m < $n) => (v, b),
+            Ok(_) => return Ok(bad_shape($env, "mode out of range")),
+            Err(e) => return Ok(bad_shape($env, &e)),
+        }
+    };
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+#[allow(clippy::too_many_arguments)] // FS 8.4's signature
+fn fock_apply_beamsplitter<'a>(env: Env<'a>, amps: Term<'a>, theta: f64, phi: f64, m1: usize, m2: usize, n: usize, c: usize) -> NifResult<Term<'a>> {
+    let (mut v, b) = fock_args!(env, amps, n, c, [m1, m2]);
+    if m1 == m2 {
+        return Ok(bad_shape(env, "two distinct modes"));
+    }
+    Ok(match fockstate::beamsplitter(&b, &mut v, theta, phi, m1, m2) {
+        Ok(()) => (atoms::ok(), put_cvec(env, &v)).encode(env),
+        Err(e) => fock_error(env, e),
+    })
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn fock_apply_phaseshift<'a>(env: Env<'a>, amps: Term<'a>, phi: f64, mode: usize, n: usize, c: usize) -> NifResult<Term<'a>> {
+    let (mut v, b) = fock_args!(env, amps, n, c, [mode]);
+    fockstate::phaseshift(&b, &mut v, phi, mode);
+    Ok((atoms::ok(), put_cvec(env, &v)).encode(env))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn fock_apply_kerr<'a>(env: Env<'a>, amps: Term<'a>, kappa: f64, mode: usize, n: usize, c: usize) -> NifResult<Term<'a>> {
+    let (mut v, b) = fock_args!(env, amps, n, c, [mode]);
+    fockstate::kerr(&b, &mut v, kappa, mode);
+    Ok((atoms::ok(), put_cvec(env, &v)).encode(env))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn fock_apply_passive<'a>(env: Env<'a>, amps: Term<'a>, u: Term<'a>, modes: Vec<usize>, n: usize, c: usize) -> NifResult<Term<'a>> {
+    let (mut v, b) = fock_args!(env, amps, n, c, modes);
+    let (uv, r, cc) = match cmat(u) {
+        Ok(x) => x,
+        Err(e) => return Ok(bad_shape(env, &e)),
+    };
+    if r != cc || r != modes.len() || !modes_ok(&modes, n) {
+        return Ok(bad_shape(env, "U is k x k for k distinct modes"));
+    }
+    Ok(match fockstate::passive(&b, &mut v, &uv, &modes) {
+        Ok(()) => (atoms::ok(), put_cvec(env, &v)).encode(env),
+        Err(e) => fock_error(env, e),
+    })
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn fock_apply_displacement<'a>(env: Env<'a>, amps: Term<'a>, r: f64, phi: f64, mode: usize, n: usize, c: usize) -> NifResult<Term<'a>> {
+    let (mut v, b) = fock_args!(env, amps, n, c, [mode]);
+    let deficit = fockstate::displacement(&b, &mut v, r, phi, mode);
+    Ok((atoms::ok(), (put_cvec(env, &v), deficit)).encode(env))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn fock_apply_squeezing<'a>(env: Env<'a>, amps: Term<'a>, r: f64, phi: f64, mode: usize, n: usize, c: usize) -> NifResult<Term<'a>> {
+    let (mut v, b) = fock_args!(env, amps, n, c, [mode]);
+    Ok(match fockstate::squeezing(&b, &mut v, r, phi, mode) {
+        Ok(deficit) => (atoms::ok(), (put_cvec(env, &v), deficit)).encode(env),
+        Err(e) => fock_error(env, e),
+    })
+}
+
+/// fock_pnr_probabilities(State, Modes, NModes, Cutoff) -> [{Pattern, Prob}] (FR-F03), pure states
+#[rustler::nif(schedule = "DirtyCpu")]
+fn fock_pnr_probabilities<'a>(env: Env<'a>, amps: Term<'a>, modes: Vec<usize>, n: usize, c: usize) -> NifResult<Term<'a>> {
+    let (v, b) = fock_args!(env, amps, n, c, modes);
+    if modes.is_empty() || !modes_ok(&modes, n) {
+        return Ok(bad_shape(env, "distinct modes in range"));
+    }
+    Ok((atoms::ok(), fockstate::pnr_probabilities(&b, &v, &modes)).encode(env))
+}
+
+/// unitary_decompose(U) -> {Mesh, Phases} (FR-C10, AN 9): Mesh = [{M, M+1, Theta, Phi}] in application order
+#[rustler::nif(schedule = "DirtyCpu")]
+fn unitary_decompose<'a>(env: Env<'a>, u: Term<'a>) -> NifResult<Term<'a>> {
+    let (uv, r, c) = match cmat(u) {
+        Ok(x) => x,
+        Err(e) => return Ok(bad_shape(env, &e)),
+    };
+    if r != c {
+        return Ok(bad_shape(env, "a square unitary"));
+    }
+    let (bs, phases) = mesh::decompose(&uv, r);
+    let list: Vec<(usize, usize, f64, f64)> = bs.iter().map(|&(m, t, p)| (m, m + 1, t, p)).collect();
+    Ok((atoms::ok(), (list, put_rvec(env, &phases))).encode(env))
+}
+
+/// sample_categorical(Probs, NShots, Opts): one uniform per shot from stream (seed, stream_start + i), the
+/// categorical draw of AN 5.1 (Opts: seed, stream_start); the drawn indices
+#[rustler::nif(schedule = "DirtyCpu")]
+fn sample_categorical<'a>(env: Env<'a>, probs: Term<'a>, shots: usize, opts: Term<'a>) -> NifResult<Term<'a>> {
+    let p = match rvec(probs) {
+        Ok(p) if !p.is_empty() && p.iter().all(|x| x.is_finite() && *x >= 0.0) => p,
+        _ => return Ok(bad_shape(env, "non-negative probabilities")),
+    };
+    let seed: u64 = opt(opts, atoms::seed(), 0u64)?;
+    let start: u64 = opt(opts, atoms::stream_start(), 0u64)?;
+    let out: Vec<usize> =
+        (0..shots).map(|i| boson::categorical(&p, rng::Stream::new(seed, start + i as u64).uniform())).collect();
+    Ok((atoms::ok(), out).encode(env))
 }
 
 rustler::init!("pq_nif");

@@ -4,7 +4,10 @@
          permanent/2, permanent_repeated/4, bs_probability/4, sample_boson/4,
          hafnian/2, hafnian_repeated/3, loop_hafnian/4, torontonian/2,
          gaussian_apply_symplectic/5, gaussian_apply_passive/4, gaussian_apply_loss/5, gaussian_marginal/3,
-         gaussian_physicality/2, sample_gaussian/6]).
+         gaussian_physicality/2, sample_gaussian/6,
+         fock_apply_beamsplitter/7, fock_apply_phaseshift/5, fock_apply_kerr/5, fock_apply_passive/5,
+         fock_apply_displacement/6, fock_apply_squeezing/6, fock_pnr_probabilities/4,
+         unitary_decompose/1, sample_categorical/3]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -125,3 +128,44 @@ gaussian_physicality(_Cov, _Hbar) -> erlang:nif_error(nif_not_loaded).
 -spec sample_gaussian(pq_core:packed_rvector(), pq_core:packed_rmatrix(), non_neg_integer(), {homodyne, float()},
                       float(), opts() | map()) -> {ok, {pq_core:packed_rmatrix(), map()}} | kernel_error().
 sample_gaussian(_Mean, _Cov, _NShots, _Detector, _Hbar, _Opts) -> erlang:nif_error(nif_not_loaded).
+
+%%% Fock space, pure states (FS 8.4, AN 7): amplitudes as a packed cvec in the basis of FS 3.4; NModes and Cutoff
+%%% explicit. Displacement and squeezing also return the norm deficit (FS 3.5).
+
+-type amps() :: pq_core:packed_cvector().
+-type fock() :: {ok, amps()} | kernel_error().
+
+-spec fock_apply_beamsplitter(amps(), float(), float(), non_neg_integer(), non_neg_integer(), pos_integer(),
+                              non_neg_integer()) -> fock().
+fock_apply_beamsplitter(_A, _Theta, _Phi, _M1, _M2, _N, _C) -> erlang:nif_error(nif_not_loaded).
+
+-spec fock_apply_phaseshift(amps(), float(), non_neg_integer(), pos_integer(), non_neg_integer()) -> fock().
+fock_apply_phaseshift(_A, _Phi, _Mode, _N, _C) -> erlang:nif_error(nif_not_loaded).
+
+-spec fock_apply_kerr(amps(), float(), non_neg_integer(), pos_integer(), non_neg_integer()) -> fock().
+fock_apply_kerr(_A, _Kappa, _Mode, _N, _C) -> erlang:nif_error(nif_not_loaded).
+
+-spec fock_apply_passive(amps(), pq_core:packed_cmatrix(), [non_neg_integer()], pos_integer(), non_neg_integer()) ->
+          fock().
+fock_apply_passive(_A, _U, _Modes, _N, _C) -> erlang:nif_error(nif_not_loaded).
+
+-spec fock_apply_displacement(amps(), float(), float(), non_neg_integer(), pos_integer(), non_neg_integer()) ->
+          {ok, {amps(), float()}} | kernel_error().
+fock_apply_displacement(_A, _R, _Phi, _Mode, _N, _C) -> erlang:nif_error(nif_not_loaded).
+
+-spec fock_apply_squeezing(amps(), float(), float(), non_neg_integer(), pos_integer(), non_neg_integer()) ->
+          {ok, {amps(), float()}} | kernel_error().
+fock_apply_squeezing(_A, _R, _Phi, _Mode, _N, _C) -> erlang:nif_error(nif_not_loaded).
+
+-spec fock_pnr_probabilities(amps(), [non_neg_integer()], pos_integer(), non_neg_integer()) ->
+          {ok, [{[non_neg_integer()], float()}]} | kernel_error().
+fock_pnr_probabilities(_A, _Modes, _N, _C) -> erlang:nif_error(nif_not_loaded).
+
+%% FR-C10: the Clements mesh, beamsplitters {M, M+1, Theta, Phi} in application order, then the phases
+-spec unitary_decompose(pq_core:packed_cmatrix()) ->
+          {ok, {[{non_neg_integer(), pos_integer(), float(), float()}], pq_core:packed_rvector()}} | kernel_error().
+unitary_decompose(_U) -> erlang:nif_error(nif_not_loaded).
+
+%% indices drawn from Probs, one uniform per shot from stream (seed, stream_start + i) (AN 5.1)
+-spec sample_categorical(pq_core:packed_rvector(), non_neg_integer(), map()) -> {ok, [non_neg_integer()]} | kernel_error().
+sample_categorical(_Probs, _NShots, _Opts) -> erlang:nif_error(nif_not_loaded).

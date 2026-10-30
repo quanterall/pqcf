@@ -1,0 +1,103 @@
+%% The pure-state Fock backend (FS 5.5): amplitudes in the basis of FS 3.4 under a cutoff. Exact: beamsplitter,
+%% phase shift, passive unitary (through the Clements mesh), Kerr. Truncated: displacement and squeezing, their
+%% cumulative norm deficit a warning above truncation_tol, an error under strict (FS 3.5). Loss needs a density
+%% matrix (FR-F05, Phase 2). Terminal PNR and threshold sampling; mid-circuit PNR in Phase 2.
+-module(pq_fock).
+-behaviour(pq_backend).
+-compile({no_auto_import, [apply/3]}).
+-include("pq.hrl").
+-export([name/0, capabilities/0, init/3, apply/3, sample/3, final/1]).
+
+name() -> fock.
+
+capabilities() ->
+    #{beamsplitter => exact, phaseshift => exact, unitary => exact, displacement => truncated,
+      squeezing => truncated, kerr => exact, loss => unsupported, measure_pnr => midcircuit,
+      measure_threshold => terminal, measure_homodyne => unsupported}.
+
+%% the backend state: the public state and the cumulative norm deficit
+init(Input, #circuit{n_modes = N}, Opts) ->
+    case cutoff(Input, Opts) of
+        {ok, Cut} ->
+            D = pq_state:basis_size(N, Cut),
+            Max = pq_core:get(max_fock_dim, Opts),
+            case D =< Max of
+                false -> {error, {dimension_limit, D, Max}};
+                true -> start(Input, N, Cut, D)
+            end;
+        E -> E
+    end.
+
+cutoff({fock_state, #fock_state{cutoff = C}}, _Opts) -> {ok, C};
+cutoff(Input, Opts) ->
+    Photons = case Input of {fock, Occ} -> lists:sum(Occ); _ -> 0 end,
+    case maps:find(cutoff, Opts) of
+        {ok, C} when is_integer(C), C >= Photons -> {ok, C};
+        {ok, C} -> {error, {unsupported_input, #{cutoff => C, photons => Photons}}};
+        error when Photons > 0 -> {ok, Photons};
+        error -> {error, {unsupported_input, cutoff_required}}
+    end.
+
+start(vacuum, N, Cut, D) -> {ok, {basis(N, Cut, D, lists:duplicate(N, 0)), 0.0}};
+start({fock, Occ}, N, Cut, D) -> {ok, {basis(N, Cut, D, Occ), 0.0}};
+start({fock_state, #fock_state{n_modes = N} = S}, N, _Cut, _D) -> {ok, {S, 0.0}};
+start(Other, _N, _Cut, _D) -> {error, {unsupported_input, Other}}.
+
+basis(N, Cut, D, Occ) ->
+    {ok, I} = pq_state:index(Occ, N, Cut),
+    Amps = << <<(case K =:= I of true -> 1.0; false -> 0.0 end):64/float-little, 0.0:64/float-little>>
+              || K <- lists:seq(0, D - 1) >>,
+    #fock_state{n_modes = N, cutoff = Cut, amps = {cvec, D, Amps}}.
+
+final({S, _Deficit}) -> S.
+
+apply(I, {#fock_state{n_modes = N, cutoff = C, amps = A} = S, Def}, Opts) ->
+    R = case I of
+            {beamsplitter, M1, M2, T, P} -> pq_nif:fock_apply_beamsplitter(A, T, P, M1, M2, N, C);
+            {phaseshift, M, P} -> pq_nif:fock_apply_phaseshift(A, P, M, N, C);
+            {kerr, M, K} -> pq_nif:fock_apply_kerr(A, K, M, N, C);
+            {unitary, Ms, U} -> pq_nif:fock_apply_passive(A, U, Ms, N, C);
+            {displacement, M, Rr, P} -> pq_nif:fock_apply_displacement(A, Rr, P, M, N, C);
+            {squeezing, M, Rr, P} -> pq_nif:fock_apply_squeezing(A, Rr, P, M, N, C);
+            _ -> {error, {unsupported_instruction, element(1, I), fock}}
+        end,
+    case R of
+        {ok, {Amps, D}} -> truncation(S#fock_state{amps = Amps}, Def + D, Opts);
+        {ok, Amps} -> {ok, {S#fock_state{amps = Amps}, Def}, []};
+        {error, _} = E -> E
+    end.
+
+truncation(S, Def, Opts) ->
+    Tol = pq_core:get(truncation_tol, Opts),
+    Info = #{deficit => Def, instr_index => maps:get(instr_index, Opts, undefined)},
+    case Def > Tol of
+        false -> {ok, {S, Def}, []};
+        true ->
+            case pq_core:get(strict, Opts) of
+                true -> {error, {truncation, Info}};
+                false -> {ok, {S, Def}, [{truncation, Info}]}
+            end
+    end.
+
+%% terminal measurements: the joint PNR distribution of every measured mode, sampled (one uniform per shot);
+%% threshold columns report n > 0
+sample(Ms, {#fock_state{n_modes = N, cutoff = C, amps = A}, _}, Opts) ->
+    Cols = lists:append([[{M, kind(K)} || M <- Modes] || {K, Modes} <- Ms]),
+    Modes = [M || {M, _} <- Cols],
+    case pq_nif:fock_pnr_probabilities(A, Modes, N, C) of
+        {ok, PatProbs} ->
+            {Pats, Probs} = lists:unzip(PatProbs),
+            {ok, P} = pq_core:pack({rvec, Probs}),
+            {ok, Idx} = pq_nif:sample_categorical(P, maps:get(shots, Opts, 1), maps:with([seed, stream_start], Opts)),
+            PatT = list_to_tuple(Pats),
+            Kinds = [Kd || {_, Kd} <- Cols],
+            Samples = [[case Kd of threshold -> min(X, 1); pnr -> X end
+                        || {X, Kd} <- lists:zip(element(I + 1, PatT), Kinds)] || I <- Idx],
+            Kind = case lists:usort(Kinds) of [One] -> One; _ -> mixed end,
+            Extra = case Kind of mixed -> #{column_kinds => Kinds}; _ -> #{} end,
+            {ok, Kind, Modes, Samples, Extra#{cutoff => C}};
+        {error, _} = E -> E
+    end.
+
+kind(measure_pnr) -> pnr;
+kind(measure_threshold) -> threshold.

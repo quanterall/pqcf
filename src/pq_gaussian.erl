@@ -77,7 +77,7 @@ sample(Ms, S, Opts) ->
                                                 float(Red#gaussian_state.hbar), NifOpts) of
                         {ok, {Packed, _}} ->
                             {ok, {rmat, Rows}} = pq_core:unpack(Packed),
-                            {ok, homodyne, Modes, Rows};
+                            {ok, homodyne, Modes, Rows, #{}};
                         {error, _} = E -> E
                     end;
                 E -> E

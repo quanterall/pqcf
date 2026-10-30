@@ -30,7 +30,7 @@ fn never() -> bool {
 
 /// The categorical draw of AN 5.1: cumulative sums in index order (Neumaier above 64 terms), the first index
 /// whose cumulative value exceeds u * total; if rounding leaves none, the last index with a positive weight.
-fn categorical(w: &[f64], u: f64) -> usize {
+pub fn categorical(w: &[f64], u: f64) -> usize {
     let mut total = Sum::new(w.len() as u64);
     for &x in w {
         total.add(x);
