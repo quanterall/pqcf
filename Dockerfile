@@ -8,4 +8,4 @@ RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-too
 WORKDIR /src
 COPY . .
 RUN rebar3 compile
-CMD ["sh", "-c", "rebar3 eunit && rebar3 dialyzer && cd native/pq_nif && cargo clippy --release -- -D warnings"]
+CMD ["sh", "-c", "rebar3 eunit && rebar3 dialyzer && cd native/pq_nif && cargo test --release -q && cargo clippy --release --all-targets -- -D warnings"]

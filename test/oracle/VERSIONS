@@ -1,0 +1,5 @@
+# Oracle versions used for the fixtures in test/fixtures (FS 12.1). Rebuild the fixtures when one changes.
+thewalrus 0.22.0
+numpy 2.4.6
+scipy 1.17.1
+python 3.11
