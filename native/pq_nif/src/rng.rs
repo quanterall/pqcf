@@ -26,3 +26,57 @@ pub fn u64s(seed: u64, s: u64, count: usize) -> Vec<u64> {
     let mut rng = stream(seed, s);
     (0..count).map(|_| rng.next_u64()).collect()
 }
+
+/// One shot's stream with the derived draws of FS 8.5: a uniform double from one u64, bounded integers by Lemire's
+/// rejection, normal pairs by Box-Muller (cosine branch first, a first uniform of 0 rejected).
+pub struct Stream(ChaCha8Rng);
+
+impl Stream {
+    pub fn new(seed: u64, s: u64) -> Stream {
+        Stream(stream(seed, s))
+    }
+
+    pub fn u64(&mut self) -> u64 {
+        self.0.next_u64()
+    }
+
+    /// (x >> 11) * 2^-53, in [0, 1)
+    pub fn uniform(&mut self) -> f64 {
+        (self.u64() >> 11) as f64 * (1.0 / (1u64 << 53) as f64)
+    }
+
+    /// uniform in 0..s (s > 0), Lemire's multiply-and-reject on 64 bits
+    pub fn below(&mut self, s: u64) -> u64 {
+        assert!(s > 0);
+        let mut m = (self.u64() as u128) * (s as u128);
+        let mut low = m as u64;
+        if low < s {
+            let t = s.wrapping_neg() % s;
+            while low < t {
+                m = (self.u64() as u128) * (s as u128);
+                low = m as u64;
+            }
+        }
+        (m >> 64) as u64
+    }
+
+    /// two independent standard normals
+    pub fn normal_pair(&mut self) -> (f64, f64) {
+        let mut u1 = self.uniform();
+        while u1 == 0.0 {
+            u1 = self.uniform();
+        }
+        let u2 = self.uniform();
+        let r = (-2.0 * u1.ln()).sqrt();
+        let a = 2.0 * std::f64::consts::PI * u2;
+        (r * a.cos(), r * a.sin())
+    }
+
+    /// Fisher-Yates shuffle: for i = len-1 down to 1, swap i with below(i + 1)
+    pub fn shuffle<T>(&mut self, v: &mut [T]) {
+        for i in (1..v.len()).rev() {
+            let j = self.below(i as u64 + 1) as usize;
+            v.swap(i, j);
+        }
+    }
+}

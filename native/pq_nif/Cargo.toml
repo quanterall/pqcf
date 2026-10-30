@@ -17,3 +17,6 @@ nalgebra = { version = "0.35", default-features = false, features = ["std"] }
 [profile.release]
 opt-level = 3
 debug = false
+
+[dev-dependencies]
+serde_json = { version = "1", features = ["float_roundtrip"] }

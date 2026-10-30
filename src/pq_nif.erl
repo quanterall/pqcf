@@ -1,7 +1,7 @@
 %% The only module that calls Rust (FS 2.1). The functions below are replaced by the NIF library at load time.
 -module(pq_nif).
 -export([nif_version/0, check_version/0, cancel_token_new/0, cancel_token_set/1, rng_u64/3,
-         permanent/2, permanent_repeated/4, bs_probability/4]).
+         permanent/2, permanent_repeated/4, bs_probability/4, sample_boson/4]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -55,3 +55,17 @@ permanent_repeated(_M, _RowMult, _ColMult, _Opts) -> erlang:nif_error(nif_not_lo
           {ok, {float(), #{permanent_scale := float(), positions := non_neg_integer(),
                            blocks := non_neg_integer()}}} | kernel_error().
 bs_probability(_U, _InputOcc, _OutputOcc, _Opts) -> erlang:nif_error(nif_not_loaded).
+
+%%% Boson sampling (FS 8.4, AN 5). Shot i uses stream (seed, stream_start + i), so samples do not depend on how
+%%% shots are split between calls. Opts: algorithm (clifford_clifford, default | brute_force), seed (default 0),
+%%% stream_start (default 0), max_enumeration (brute_force, default 1,000,000), cancel.
+
+-spec sample_boson(pq_core:packed_cmatrix(), [non_neg_integer()], non_neg_integer(), map()) ->
+          {ok, {pq_core:packed_imatrix(), #{algorithm := atom(), shots := non_neg_integer()}}} | kernel_error().
+sample_boson(U, InputOcc, NShots, Opts) ->
+    case sample_boson_raw(U, InputOcc, NShots, Opts) of
+        {error, {probability_sum, Total}} -> error({pq_bug, {probability_sum, Total}});
+        Other -> Other
+    end.
+
+sample_boson_raw(_U, _InputOcc, _NShots, _Opts) -> erlang:nif_error(nif_not_loaded).

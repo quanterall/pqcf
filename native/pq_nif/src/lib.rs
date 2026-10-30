@@ -3,17 +3,20 @@ use rustler::{Atom, Binary, Encoder, Env, NifResult, ResourceArc, Term};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+pub mod boson;
 pub mod fock;
 pub mod num;
 pub mod perm;
-mod rng;
+pub mod rng;
 
 use num::C64;
 
 mod atoms {
     rustler::atoms! {
         ok, error, dimension_limit, count, max, cmat, bad_shape, non_finite, cancelled, nif_panic,
-        cancel, threads, scale, positions, blocks, input, output, permanent_scale
+        cancel, threads, scale, positions, blocks, input, output, permanent_scale,
+        algorithm, seed, stream_start, max_enumeration, clifford_clifford, brute_force, imat, shots, patterns,
+        probability_sum, photon_number_overflow
     }
 }
 
@@ -194,6 +197,69 @@ fn bs_probability<'a>(
     Ok(guarded(env, || match perm::bs_probability(&a, rows, &input, &output, o.threads, &cancel) {
         Ok((p, r)) => (atoms::ok(), (p, info(env, &r, atoms::permanent_scale()))).encode(env),
         Err(e) => perm_error(env, e),
+    }))
+}
+
+fn opt<'a, T: rustler::Decoder<'a>>(opts: Term<'a>, key: Atom, default: T) -> NifResult<T> {
+    match opts.map_get(key) {
+        Ok(t) => t.decode(),
+        Err(_) => Ok(default),
+    }
+}
+
+/// sample_boson(U, InputOcc, NShots, Opts) (FS 8.4): shot i uses stream (seed, stream_start + i).
+/// Opts: algorithm (clifford_clifford | brute_force), seed, stream_start, max_enumeration, cancel.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn sample_boson_raw<'a>(env: Env<'a>, u: Term<'a>, input: Vec<u32>, shots: usize, opts: Term<'a>) -> NifResult<Term<'a>> {
+    let o = kernel_opts(opts)?;
+    let (a, rows, cols) = match cmat(u) {
+        Ok(x) => x,
+        Err(e) => return Ok(bad_shape(env, &e)),
+    };
+    if rows != cols || input.len() != rows {
+        return Ok(bad_shape(env, "sample_boson needs a square unitary and one occupation per mode"));
+    }
+    let n: u64 = input.iter().map(|&x| x as u64).sum();
+    if n > 65535 {
+        return Ok(error(env, (atoms::photon_number_overflow(), n)));
+    }
+    let alg_atom: Atom = opt(opts, atoms::algorithm(), atoms::clifford_clifford())?;
+    let seed: u64 = opt(opts, atoms::seed(), 0u64)?;
+    let start: u64 = opt(opts, atoms::stream_start(), 0u64)?;
+    let max_enum: u64 = opt(opts, atoms::max_enumeration(), 1_000_000u64)?;
+    let algorithm = if alg_atom == atoms::brute_force() {
+        boson::Algorithm::BruteForce { max_enumeration: max_enum }
+    } else if alg_atom == atoms::clifford_clifford() {
+        boson::Algorithm::CliffordClifford
+    } else {
+        return Err(rustler::Error::BadArg);
+    };
+    let cancel = cancelled_fn(&o);
+    Ok(guarded(env, || match boson::sample_boson(&a, rows, &input, shots, seed, start, algorithm, &cancel) {
+        Ok(samples) => {
+            let mut bin = rustler::OwnedBinary::new(samples.len() * 2).expect("binary");
+            for (k, x) in samples.iter().enumerate() {
+                bin.as_mut_slice()[2 * k..2 * k + 2].copy_from_slice(&(*x as u16).to_le_bytes());
+            }
+            let packed = (atoms::imat(), shots, rows, bin.release(env));
+            let info = Term::map_from_pairs(
+                env,
+                &[(atoms::algorithm().encode(env), alg_atom.encode(env)), (atoms::shots().encode(env), shots.encode(env))],
+            )
+            .unwrap();
+            (atoms::ok(), (packed, info)).encode(env)
+        }
+        Err(boson::Error::BadShape(m)) => bad_shape(env, m),
+        Err(boson::Error::TooManyPatterns(p)) => {
+            let detail = Term::map_from_pairs(
+                env,
+                &[(atoms::patterns().encode(env), p.encode(env)), (atoms::max().encode(env), max_enum.encode(env))],
+            )
+            .unwrap();
+            error(env, (atoms::dimension_limit(), detail))
+        }
+        Err(boson::Error::ProbabilitySum(t)) => error(env, (atoms::probability_sum(), t)),
+        Err(boson::Error::Cancelled) => error(env, atoms::cancelled()),
     }))
 }
 

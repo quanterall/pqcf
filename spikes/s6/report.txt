@@ -1,0 +1,10 @@
+m=2 input=[1, 1]: 3 patterns; Clifford-Clifford chi2 0.3 on 2 dof, p = 0.856 (pass); AN v0.1 mutant p = 0 (caught); 0.6 s for 10^6 shots
+m=4 input=[1, 1, 1, 0]: 20 patterns; Clifford-Clifford chi2 25.6 on 19 dof, p = 0.14 (pass); AN v0.1 mutant p = 0 (caught); 1.4 s for 10^6 shots
+m=5 input=[1, 1, 1, 1, 0]: 70 patterns; Clifford-Clifford chi2 88.7 on 69 dof, p = 0.0554 (pass); AN v0.1 mutant p = 0 (caught); 2.7 s for 10^6 shots
+m=6 input=[1, 1, 1, 1, 1, 1]: 462 patterns; Clifford-Clifford chi2 499.8 on 460 dof, p = 0.097 (pass); AN v0.1 mutant p = 0 (caught); 8.6 s for 10^6 shots
+m=8 input=[1, 1, 1, 1, 1, 1, 0, 0]: 1716 patterns; Clifford-Clifford chi2 1749.9 on 1690 dof, p = 0.152 (pass); AN v0.1 mutant p = 0 (caught); 9.4 s for 10^6 shots
+m=4 input=[2, 1, 0, 0]: 20 patterns; Clifford-Clifford chi2 23.7 on 19 dof, p = 0.207 (pass); AN v0.1 mutant p = 0 (caught); 1.4 s for 10^6 shots
+m=5 input=[3, 0, 1, 0, 0]: 70 patterns; Clifford-Clifford chi2 72.2 on 69 dof, p = 0.371 (pass); AN v0.1 mutant p = 0 (caught); 2.7 s for 10^6 shots
+m=8 input=[2, 2, 1, 1, 0, 0, 0, 0]: 1716 patterns; Clifford-Clifford chi2 1766.1 on 1673 dof, p = 0.0557 (pass); AN v0.1 mutant p = 0 (caught); 8.1 s for 10^6 shots
+S6: PASS
+
