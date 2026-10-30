@@ -1,0 +1,13 @@
+c = 1: error / S = 9.1e-17, S = 2.43e0, tor = 4.334e-1, P(B) error 1.4e-19, ours 0.000 s, thewalrus 2.971 s
+c = 2: error / S = 0.0e0, S = 5.76e0, tor = 6.503e-1, P(B) error 0.0e0, ours 0.000 s, thewalrus 0.000 s
+c = 3: error / S = 8.2e-15, S = 7.18e1, tor = 5.060e1, P(B) error 3.1e-16, ours 0.000 s, thewalrus 0.000 s
+c = 4: error / S = 4.0e-14, S = 2.08e3, tor = 1.779e3, P(B) error 4.3e-14, ours 0.000 s, thewalrus 0.000 s
+c = 5: error / S = 8.2e-17, S = 1.29e2, tor = 1.662e0, P(B) error 1.0e-17, ours 0.000 s, thewalrus 0.000 s
+c = 8: error / S = 9.7e-17, S = 6.47e3, tor = 1.893e2, P(B) error 6.1e-16, ours 0.000 s, thewalrus 0.000 s
+c = 10: error / S = 2.9e-17, S = 2.36e4, tor = 3.721e2, P(B) error 9.5e-18, ours 0.000 s, thewalrus 0.001 s
+c = 12: error / S = 2.1e-17, S = 5.13e5, tor = 1.621e4, P(B) error 1.7e-16, ours 0.001 s, thewalrus 0.004 s
+c = 14: error / S = 1.2e-16, S = 1.49e6, tor = 1.733e4, P(B) error NaN, ours 0.004 s, thewalrus 0.018 s
+c = 16: error / S = 4.3e-16, S = 9.62e7, tor = 1.512e7, P(B) error NaN, ours 0.019 s, thewalrus 0.081 s
+c = 18: error / S = 5.1e-17, S = 8.80e7, tor = 1.560e5, P(B) error NaN, ours 0.088 s, thewalrus 0.353 s
+c = 20: error / S = 2.5e-17, S = 2.13e9, tor = 9.434e6, P(B) error NaN, ours 0.401 s, thewalrus 1.545 s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s

@@ -5,9 +5,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub mod boson;
 pub mod fock;
+pub mod hafnian;
 pub mod num;
 pub mod perm;
 pub mod rng;
+pub mod toronto;
 
 use num::C64;
 
@@ -16,7 +18,8 @@ mod atoms {
         ok, error, dimension_limit, count, max, cmat, bad_shape, non_finite, cancelled, nif_panic,
         cancel, threads, scale, positions, blocks, input, output, permanent_scale,
         algorithm, seed, stream_start, max_enumeration, clifford_clifford, brute_force, imat, shots, patterns,
-        probability_sum, photon_number_overflow
+        probability_sum, photon_number_overflow, cvec, subsets, terms, non_physical_state, not_positive_definite,
+        size
     }
 }
 
@@ -260,6 +263,114 @@ fn sample_boson_raw<'a>(env: Env<'a>, u: Term<'a>, input: Vec<u32>, shots: usize
         }
         Err(boson::Error::ProbabilitySum(t)) => error(env, (atoms::probability_sum(), t)),
         Err(boson::Error::Cancelled) => error(env, atoms::cancelled()),
+    }))
+}
+
+/// A packed complex vector {cvec, Len, Binary}.
+fn cvec(term: Term) -> Result<Vec<C64>, String> {
+    let (tag, len, bin): (Atom, usize, Binary) = term.decode().map_err(|_| "not a cvec".to_string())?;
+    if tag != atoms::cvec() || bin.len() != 16 * len {
+        return Err("not a cvec of its length".into());
+    }
+    let f = |k: usize| f64::from_le_bytes(bin[8 * k..8 * k + 8].try_into().unwrap());
+    Ok((0..len).map(|e| C64::new(f(2 * e), f(2 * e + 1))).collect())
+}
+
+fn haf_result<'a>(env: Env<'a>, r: Result<hafnian::HafResult, hafnian::Error>) -> Term<'a> {
+    match r {
+        Ok(h) => {
+            let info = Term::map_from_pairs(
+                env,
+                &[(atoms::scale().encode(env), h.scale.encode(env)), (atoms::subsets().encode(env), h.subsets.encode(env))],
+            )
+            .unwrap();
+            (atoms::ok(), ((h.value.re, h.value.im), info)).encode(env)
+        }
+        Err(hafnian::Error::BadShape(m)) => bad_shape(env, m),
+        Err(hafnian::Error::TooLarge(m)) => {
+            let d = Term::map_from_pairs(env, &[(atoms::size().encode(env), m.encode(env))]).unwrap();
+            error(env, (atoms::dimension_limit(), d))
+        }
+        Err(hafnian::Error::Cancelled) => error(env, atoms::cancelled()),
+        Err(hafnian::Error::NonFinite(w)) => {
+            error(env, (atoms::non_finite(), if w == "input" { atoms::input() } else { atoms::output() }))
+        }
+    }
+}
+
+fn square(term: Term) -> Result<(Vec<C64>, usize), String> {
+    let (a, r, c) = cmat(term)?;
+    if r != c {
+        return Err("a square matrix is needed".into());
+    }
+    Ok((a, r))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn hafnian<'a>(env: Env<'a>, m: Term<'a>, opts: Term<'a>) -> NifResult<Term<'a>> {
+    let o = kernel_opts(opts)?;
+    let (a, n) = match square(m) {
+        Ok(x) => x,
+        Err(e) => return Ok(bad_shape(env, &e)),
+    };
+    let cancel = cancelled_fn(&o);
+    Ok(guarded(env, || haf_result(env, hafnian::hafnian(&a, n, None, o.threads, &cancel))))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn hafnian_repeated<'a>(env: Env<'a>, m: Term<'a>, mult: Vec<u32>, opts: Term<'a>) -> NifResult<Term<'a>> {
+    let o = kernel_opts(opts)?;
+    let (a, n) = match square(m) {
+        Ok(x) => x,
+        Err(e) => return Ok(bad_shape(env, &e)),
+    };
+    let cancel = cancelled_fn(&o);
+    Ok(guarded(env, || haf_result(env, hafnian::hafnian_repeated(&a, n, None, &mult, o.threads, &cancel))))
+}
+
+/// loop_hafnian(M, Diag, Mult, Opts): the hafnian of M with its diagonal replaced by Diag (FS A.9)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn loop_hafnian<'a>(env: Env<'a>, m: Term<'a>, diag: Term<'a>, mult: Vec<u32>, opts: Term<'a>) -> NifResult<Term<'a>> {
+    let o = kernel_opts(opts)?;
+    let (a, n) = match square(m) {
+        Ok(x) => x,
+        Err(e) => return Ok(bad_shape(env, &e)),
+    };
+    let d = match cvec(diag) {
+        Ok(x) => x,
+        Err(e) => return Ok(bad_shape(env, &e)),
+    };
+    let cancel = cancelled_fn(&o);
+    Ok(guarded(env, || haf_result(env, hafnian::hafnian_repeated(&a, n, Some(&d), &mult, o.threads, &cancel))))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn torontonian<'a>(env: Env<'a>, m: Term<'a>, opts: Term<'a>) -> NifResult<Term<'a>> {
+    let o = kernel_opts(opts)?;
+    let (a, n) = match square(m) {
+        Ok(x) => x,
+        Err(e) => return Ok(bad_shape(env, &e)),
+    };
+    let cancel = cancelled_fn(&o);
+    Ok(guarded(env, || match toronto::torontonian(&a, n, o.threads, &cancel) {
+        Ok(t) => {
+            let info = Term::map_from_pairs(
+                env,
+                &[(atoms::scale().encode(env), t.scale.encode(env)), (atoms::terms().encode(env), t.terms.encode(env))],
+            )
+            .unwrap();
+            (atoms::ok(), (t.value, info)).encode(env)
+        }
+        Err(toronto::Error::BadShape(m)) => bad_shape(env, m),
+        Err(toronto::Error::TooLarge(c)) => {
+            let d = Term::map_from_pairs(env, &[(atoms::size().encode(env), c.encode(env))]).unwrap();
+            error(env, (atoms::dimension_limit(), d))
+        }
+        Err(toronto::Error::Cancelled) => error(env, atoms::cancelled()),
+        Err(toronto::Error::NonFinite(w)) => {
+            error(env, (atoms::non_finite(), if w == "input" { atoms::input() } else { atoms::output() }))
+        }
+        Err(toronto::Error::NotPositiveDefinite) => error(env, (atoms::non_physical_state(), atoms::not_positive_definite())),
     }))
 }
 
