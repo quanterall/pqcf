@@ -26,7 +26,7 @@ errors_test() ->
     ?assertMatch({error, {bad_shape, _}}, pq_nif:sample_boson(hom(), [1, 1, 0], 1, #{})),
     ?assertMatch({error, {dimension_limit, #{patterns := 3, max := 2}}},
                  pq_nif:sample_boson(hom(), [1, 1], 1, #{algorithm => brute_force, max_enumeration => 2})),
-    ?assertError(badarg, pq_nif:sample_boson(hom(), [1, 1], 1, #{algorithm => metropolis})),
+    ?assertError(badarg, pq_nif:sample_boson(hom(), [1, 1], 1, #{algorithm => no_such_algorithm})),
     {ok, {Empty, _}} = pq_nif:sample_boson(hom(), [0, 0], 3, #{}),
     ?assertEqual([[0, 0], [0, 0], [0, 0]], rows(Empty)),
     T = pq_nif:cancel_token_new(),

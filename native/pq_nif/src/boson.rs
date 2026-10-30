@@ -46,6 +46,30 @@ pub fn categorical(w: &[f64], u: f64) -> usize {
     w.iter().rposition(|&x| x > 0.0).unwrap_or(0)
 }
 
+/// Loss at the inputs or the outputs (FR-B05, FS A.8): per-mode transmissivities.
+#[derive(Clone, Debug)]
+pub enum Loss {
+    None,
+    Input(Vec<f64>),
+    Output(Vec<f64>),
+}
+
+/// One lossy shot (AN 5.1 stream order): input loss, one uniform per photon in mode order; the Clifford-Clifford
+/// shot on the survivors; output loss, one uniform per sampled photon in output mode order.
+pub fn lossy_shot(u: &[C64], m: usize, input: &[u32], loss: &Loss, s: &mut Stream) -> Vec<u32> {
+    let kept: Vec<u32> = match loss {
+        Loss::Input(eta) => (0..m).map(|i| (0..input[i]).filter(|_| s.uniform() < eta[i]).count() as u32).collect(),
+        _ => input.to_vec(),
+    };
+    let mut out = clifford_clifford_shot(u, m, &kept, s);
+    if let Loss::Output(eta) = loss {
+        for (j, n) in out.iter_mut().enumerate() {
+            *n = (0..*n).filter(|_| s.uniform() < eta[j]).count() as u32;
+        }
+    }
+    out
+}
+
 /// One Clifford-Clifford shot: the output pattern (length m).
 pub fn clifford_clifford_shot(u: &[C64], m: usize, input: &[u32], s: &mut Stream) -> Vec<u32> {
     let mut cols: Vec<usize> = (0..m).flat_map(|i| std::iter::repeat_n(i, input[i] as usize)).collect();
@@ -131,6 +155,66 @@ pub fn distribution(u: &[C64], m: usize, input: &[u32], max_patterns: u64) -> Re
 pub enum Algorithm {
     CliffordClifford,
     BruteForce { max_enumeration: u64 },
+    Metropolis { burn_in: usize, thin: usize, chains: usize },
+}
+
+fn fact(t: &[u32]) -> f64 {
+    t.iter().map(|&k| (1..=k).map(|x| x as f64).product::<f64>()).product()
+}
+
+/// AN 5.3: an independence Metropolis sampler with the distinguishable-photon proposal: each photon of input
+/// column c lands in mode j with probability |U[j][c]|^2; q(T) = perm(|U|^2_(T,S)) / prod T!. Chain c uses stream
+/// (seed, c): the initial proposal (one uniform per photon), then per step the proposal and one uniform for the
+/// acceptance; burn_in steps discarded, every thin-th state kept, ceil(shots / chains) per chain, the chains
+/// concatenated and cut to shots. Returns the samples and the acceptance rate.
+#[allow(clippy::too_many_arguments)]
+pub fn metropolis(u: &[C64], m: usize, input: &[u32], shots: usize, seed: u64, burn_in: usize, thin: usize, chains: usize,
+                  cancel: &dyn Fn() -> bool) -> Result<(Vec<u32>, f64), Error> {
+    let cols: Vec<usize> = (0..m).flat_map(|i| std::iter::repeat_n(i, input[i] as usize)).collect();
+    let w: Vec<C64> = u.iter().map(|z| C64::new(z.re * z.re + z.im * z.im, 0.0)).collect();
+    let p = |t: &[u32]| perm::bs_probability(u, m, input, t, 1, &never).expect("probability").0;
+    let q = |t: &[u32]| perm::permanent_repeated(&w, m, m, t, input, 1, &never).expect("permanent").value.re / fact(t);
+    let propose = |s: &mut Stream| -> Vec<u32> {
+        let mut t = vec![0u32; m];
+        for &c in &cols {
+            let col: Vec<f64> = (0..m).map(|j| w[j * m + c].re).collect();
+            t[categorical(&col, s.uniform())] += 1;
+        }
+        t
+    };
+    let chains = chains.max(1);
+    let per = shots.div_ceil(chains);
+    let (mut out, mut accepted, mut steps) = (Vec::with_capacity(per * chains * m), 0u64, 0u64);
+    for c in 0..chains {
+        if cancel() {
+            return Err(Error::Cancelled);
+        }
+        let mut s = Stream::new(seed, c as u64);
+        let mut cur = propose(&mut s);
+        let (mut pc, mut qc) = (p(&cur), q(&cur));
+        let mut kept = 0;
+        let mut step = 0usize;
+        while kept < per {
+            let next = propose(&mut s);
+            let (pn, qn) = (p(&next), q(&next));
+            let a = s.uniform();
+            // min(1, p(T') q(T) / (p(T) q(T'))), written without division
+            if pn * qc >= a * pc * qn {
+                cur = next;
+                pc = pn;
+                qc = qn;
+                accepted += 1;
+            }
+            steps += 1;
+            step += 1;
+            if step > burn_in && (step - burn_in).is_multiple_of(thin.max(1)) {
+                out.extend_from_slice(&cur);
+                kept += 1;
+            }
+        }
+    }
+    out.truncate(shots * m);
+    Ok((out, accepted as f64 / steps.max(1) as f64))
 }
 
 /// `shots` samples, shot i from stream (seed, stream_start + i); row-major shots x m.
@@ -145,8 +229,34 @@ pub fn sample_boson(
     algorithm: Algorithm,
     cancel: &dyn Fn() -> bool,
 ) -> Result<Vec<u32>, Error> {
+    sample_boson_lossy(u, m, input, shots, seed, stream_start, algorithm, &Loss::None, cancel)
+}
+
+/// sample_boson with loss at the inputs or outputs (FR-B05): clifford_clifford with either, brute_force with output
+/// loss (one uniform per sampled photon after the shot's uniform); Metropolis without loss.
+#[allow(clippy::too_many_arguments)]
+pub fn sample_boson_lossy(
+    u: &[C64],
+    m: usize,
+    input: &[u32],
+    shots: usize,
+    seed: u64,
+    stream_start: u64,
+    algorithm: Algorithm,
+    loss: &Loss,
+    cancel: &dyn Fn() -> bool,
+) -> Result<Vec<u32>, Error> {
     if u.len() != m * m || input.len() != m {
         return Err(Error::BadShape("unitary and input"));
+    }
+    match (loss, &algorithm) {
+        (Loss::Input(e) | Loss::Output(e), _) if e.len() != m || e.iter().any(|x| !(0.0..=1.0).contains(x)) => {
+            return Err(Error::BadShape("one transmissivity in [0, 1] per mode"));
+        }
+        (Loss::Input(_), Algorithm::BruteForce { .. }) | (Loss::Input(_) | Loss::Output(_), Algorithm::Metropolis { .. }) => {
+            return Err(Error::BadShape("loss with this algorithm"));
+        }
+        _ => {}
     }
     let mut out = Vec::with_capacity(shots * m);
     match algorithm {
@@ -156,8 +266,11 @@ pub fn sample_boson(
                     return Err(Error::Cancelled);
                 }
                 let mut s = Stream::new(seed, stream_start + i as u64);
-                out.extend(clifford_clifford_shot(u, m, input, &mut s));
+                out.extend(lossy_shot(u, m, input, loss, &mut s));
             }
+        }
+        Algorithm::Metropolis { burn_in, thin, chains } => {
+            return metropolis(u, m, input, shots, seed, burn_in, thin, chains, cancel).map(|(s, _)| s);
         }
         Algorithm::BruteForce { max_enumeration } => {
             let (pats, probs) = distribution(u, m, input, max_enumeration)?;
@@ -166,7 +279,13 @@ pub fn sample_boson(
                     return Err(Error::Cancelled);
                 }
                 let mut s = Stream::new(seed, stream_start + i as u64);
-                out.extend_from_slice(&pats[categorical(&probs, s.uniform())]);
+                let mut t = pats[categorical(&probs, s.uniform())].clone();
+                if let Loss::Output(eta) = loss {
+                    for (j, n) in t.iter_mut().enumerate() {
+                        *n = (0..*n).filter(|_| s.uniform() < eta[j]).count() as u32;
+                    }
+                }
+                out.extend(t);
             }
         }
     }
@@ -207,6 +326,27 @@ mod tests {
             parts.extend(sample_boson(&u, 2, &[2, 1], 18, 99, 17, alg(), &never).unwrap());
             assert_eq!(all, parts);
         }
+    }
+
+    #[test]
+    fn lossy_and_metropolis() {
+        let u = hom();
+        // input loss eta = (1, 0.5): mean photon number 1.5; output loss: the same mean on the outputs
+        for loss in [Loss::Input(vec![1.0, 0.5]), Loss::Output(vec![0.75, 0.75])] {
+            let s = sample_boson_lossy(&u, 2, &[1, 1], 40000, 3, 0, Algorithm::CliffordClifford, &loss, &never).unwrap();
+            let mean = s.iter().sum::<u32>() as f64 / 40000.0;
+            assert!((mean - 1.5).abs() < 0.02, "{loss:?}: {mean}");
+        }
+        // input loss of one photon of HOM: the survivor is in either output with probability 1/2, never (1, 1)
+        let s = sample_boson_lossy(&u, 2, &[1, 1], 20000, 3, 0, Algorithm::CliffordClifford, &Loss::Input(vec![1.0, 0.5]), &never).unwrap();
+        assert_eq!(s.chunks(2).filter(|t| t == &[1, 1]).count(), 0);
+        assert!(matches!(sample_boson_lossy(&u, 2, &[1, 1], 1, 0, 0, Algorithm::BruteForce { max_enumeration: 10 },
+                                            &Loss::Input(vec![1.0, 1.0]), &never), Err(Error::BadShape(_))));
+        // Metropolis on HOM: the exact distribution has no (1, 1)
+        let (ms, rate) = metropolis(&u, 2, &[1, 1], 4000, 7, 100, 10, 8, &never).unwrap();
+        assert_eq!(ms.len(), 8000);
+        assert_eq!(ms.chunks(2).filter(|t| t == &[1, 1]).count(), 0);
+        assert!(rate > 0.0 && rate <= 1.0);
     }
 
     #[test]

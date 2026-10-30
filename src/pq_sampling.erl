@@ -11,9 +11,12 @@ sample(boson, C, Opts) ->
     case prepare(C, Opts) of
         {ok, U, In, Measured} ->
             Alg = maps:get(algorithm, Opts, clifford_clifford),
-            Spec = #{kind => boson, unitary => U, input => In, seed => Seed, algorithm => Alg,
-                     max_enumeration => pq_core:get(max_enumeration, Opts), crash => maps:get(crash, Opts, [])},
-            Parallel = maps:get(parallel, Opts, true) andalso Shots >= pq_core:get(parallel_threshold, Opts),
+            Spec = maps:merge(maps:with([loss, burn_in, thin, chains], Opts),
+                              #{kind => boson, unitary => U, input => In, seed => Seed, algorithm => Alg,
+                                max_enumeration => pq_core:get(max_enumeration, Opts), crash => maps:get(crash, Opts, [])}),
+            %% metropolis carries its chains' state across shots: one call (FR-B03)
+            Parallel = maps:get(parallel, Opts, true) andalso Alg =/= metropolis
+                andalso Shots >= pq_core:get(parallel_threshold, Opts),
             R = case Parallel of
                     %% brute_force builds the whole distribution per call: one chunk (A-5)
                     true when Alg =:= brute_force -> pq_parallel:run_job(Spec, (job_opts(Opts))#{shots => Shots, chunk => Shots});

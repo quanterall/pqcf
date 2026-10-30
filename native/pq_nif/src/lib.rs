@@ -25,7 +25,7 @@ mod atoms {
         probability_sum, photon_number_overflow, cvec, subsets, terms, non_physical_state, not_positive_definite,
         size, rvec, rmat, not_symplectic, homodyne, pnr, threshold, unsupported_input, pq_bug, beamsplitter,
         max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold,
-        phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix, stream_ref
+        phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix, stream_ref, metropolis, burn_in, thin, chains, acceptance_rate
     }
 }
 
@@ -260,22 +260,42 @@ fn sample_boson_raw<'a>(env: Env<'a>, u: Term<'a>, input: Vec<u32>, shots: usize
         boson::Algorithm::BruteForce { max_enumeration: max_enum }
     } else if alg_atom == atoms::clifford_clifford() {
         boson::Algorithm::CliffordClifford
+    } else if alg_atom == atoms::metropolis() {
+        boson::Algorithm::Metropolis {
+            burn_in: opt(opts, atoms::burn_in(), 100usize)?,
+            thin: opt(opts, atoms::thin(), 10usize)?,
+            chains: opt(opts, atoms::chains(), shots.clamp(1, 8))?,
+        }
     } else {
         return Err(rustler::Error::BadArg);
     };
+    // loss => {input | output, [Eta]} (FR-B05)
+    let loss = match opts.map_get(atoms::loss()) {
+        Ok(t) => {
+            let (place, etas): (Atom, Vec<f64>) = t.decode()?;
+            if place == atoms::input() { boson::Loss::Input(etas) } else if place == atoms::output() { boson::Loss::Output(etas) } else { return Err(rustler::Error::BadArg) }
+        }
+        Err(_) => boson::Loss::None,
+    };
     let cancel = cancelled_fn(&o);
-    Ok(guarded(env, || match boson::sample_boson(&a, rows, &input, shots, seed, start, algorithm, &cancel) {
-        Ok(samples) => {
+    let result = match (algorithm, &loss) {
+        (boson::Algorithm::Metropolis { burn_in, thin, chains }, boson::Loss::None) => {
+            boson::metropolis(&a, rows, &input, shots, seed, burn_in, thin, chains, &cancel).map(|(s, r)| (s, Some(r)))
+        }
+        (alg, _) => boson::sample_boson_lossy(&a, rows, &input, shots, seed, start, alg, &loss, &cancel).map(|s| (s, None)),
+    };
+    Ok(guarded(env, || match result {
+        Ok((samples, rate)) => {
             let mut bin = rustler::OwnedBinary::new(samples.len() * 2).expect("binary");
             for (k, x) in samples.iter().enumerate() {
                 bin.as_mut_slice()[2 * k..2 * k + 2].copy_from_slice(&(*x as u16).to_le_bytes());
             }
             let packed = (atoms::imat(), shots, rows, bin.release(env));
-            let info = Term::map_from_pairs(
-                env,
-                &[(atoms::algorithm().encode(env), alg_atom.encode(env)), (atoms::shots().encode(env), shots.encode(env))],
-            )
-            .unwrap();
+            let mut pairs = vec![(atoms::algorithm().encode(env), alg_atom.encode(env)), (atoms::shots().encode(env), shots.encode(env))];
+            if let Some(r) = rate {
+                pairs.push((atoms::acceptance_rate().encode(env), r.encode(env)));
+            }
+            let info = Term::map_from_pairs(env, &pairs).unwrap();
             (atoms::ok(), (packed, info)).encode(env)
         }
         Err(boson::Error::BadShape(m)) => bad_shape(env, m),

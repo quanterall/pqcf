@@ -66,8 +66,10 @@ permanent_repeated(_M, _RowMult, _ColMult, _Opts) -> erlang:nif_error(nif_not_lo
 bs_probability(_U, _InputOcc, _OutputOcc, _Opts) -> erlang:nif_error(nif_not_loaded).
 
 %%% Boson sampling (FS 8.4, AN 5). Shot i uses stream (seed, stream_start + i), so samples do not depend on how
-%%% shots are split between calls. Opts: algorithm (clifford_clifford, default | brute_force), seed (default 0),
-%%% stream_start (default 0), max_enumeration (brute_force, default 1,000,000), cancel.
+%%% shots are split between calls. Opts: algorithm (clifford_clifford, default | brute_force | metropolis), seed
+%%% (default 0), stream_start (default 0), max_enumeration (brute_force, default 1,000,000), burn_in, thin, chains
+%%% (metropolis: 100, 10, min(shots, 8); chain c on stream (seed, c), not shot-parallel), loss => {input | output,
+%%% [Eta]} (FR-B05; input loss with clifford_clifford only), cancel.
 
 -spec sample_boson(pq_core:packed_cmatrix(), [non_neg_integer()], non_neg_integer(), map()) ->
           {ok, {pq_core:packed_imatrix(), #{algorithm := atom(), shots := non_neg_integer()}}} | kernel_error().

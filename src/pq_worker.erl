@@ -16,7 +16,8 @@ run({Id, First, N, Spec}, Attempt) ->
 run_chunk({#{kind := circuit} = Spec, First, N}) ->
     pq_simulator:shots(Spec, First, N);
 run_chunk({#{kind := boson, unitary := U, input := In, seed := Seed} = Spec, First, N}) ->
-    Opts = maps:merge(maps:with([algorithm, max_enumeration, cancel], Spec), #{seed => Seed, stream_start => First}),
+    Opts = maps:merge(maps:with([algorithm, max_enumeration, cancel, loss, burn_in, thin, chains], Spec),
+                      #{seed => Seed, stream_start => First}),
     case pq_nif:sample_boson(U, In, N, Opts) of
         {ok, {Packed, _}} ->
             {ok, {imat, Rows}} = pq_core:unpack(Packed),

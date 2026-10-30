@@ -59,3 +59,28 @@ jobs_test_() ->
                   ?assertEqual([], supervisor:which_children(pq_worker_sup)),
                   ?assertEqual([], supervisor:which_children(pq_job_sup))
               end)}]}.
+
+%% FR-B03 metropolis and FR-B05 loss through pq_sampling
+variants_test_() ->
+    {setup, fun setup/0, fun(_) -> ok end,
+     [?_test(begin
+                 {ok, #result{samples = S}} = pq_sampling:sample(boson, c(), #{shots => 6000, seed => 2, algorithm => metropolis}),
+                 {ok, Exact} = exact(),
+                 {ok, Tv} = pq_stats:tv_distance(hist(S), Exact),
+                 ?assert(Tv < 0.05)
+             end),
+      ?_test(begin
+                 {ok, #result{samples = S}} = pq_sampling:sample(boson, c(), #{shots => 20000, seed => 2,
+                                                                              loss => {input, [0.5, 1.0, 1.0, 1.0]}}),
+                 Mean = lists:sum(lists:append(S)) / 20000,
+                 ?assert(abs(Mean - 2.5) < 0.02)
+             end)]}.
+
+hist(S) ->
+    N = length(S),
+    lists:foldl(fun(R, A) -> maps:update_with(R, fun(X) -> X + 1 / N end, 1 / N, A) end, #{}, S).
+
+exact() ->
+    U = pq_sampling:passive_unitary((c())#circuit{instrs = lists:droplast((c())#circuit.instrs)}),
+    Pats = [[A, B, Cc, 3 - A - B - Cc] || A <- lists:seq(0, 3), B <- lists:seq(0, 3 - A), Cc <- lists:seq(0, 3 - A - B)],
+    {ok, maps:from_list([{P, element(1, element(2, pq_nif:bs_probability(U, [1, 1, 1, 0], P, #{})))} || P <- Pats])}.
