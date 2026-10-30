@@ -127,5 +127,6 @@ homodyne_test() ->
     ?assertEqual(lists:sublist(S, 5), S2),
     {ok, #result{metadata = #{seed := Drawn}}} = pq_simulator:run(pq_gaussian, C, #{shots => 1}),
     ?assert(is_integer(Drawn)),
-    ?assertMatch({error, {unsupported_instruction, measure_pnr, _}},
-                 pq_simulator:run(pq_gaussian, c(1, [{measure_pnr, [0]}]), #{shots => 1})).
+    %% photon counting arrived in Phase 2: vacuum counts 0
+    ?assertMatch({ok, #result{kind = pnr, samples = [[0], [0]]}},
+                 pq_simulator:run(pq_gaussian, c(1, [{measure_pnr, [0]}]), #{shots => 2})).

@@ -37,11 +37,12 @@ run(Backend, C, Opts) ->
                     {error, {unsupported_instruction, midcircuit_measurement, #{instr_index => hd(Mid), available => phase_2}}};
                 {ok, State, Warnings} when Ms =/= [] ->
                     case Backend:sample(Ms, State, Opts#{seed => Seed, shots => Shots, stream_start => 0}) of
-                        {ok, Kind, Modes, Samples, Extra} ->
+                        {ok, Kind, Modes, Samples, Extra0} ->
+                            {More, Extra} = {maps:get(extra_warnings, Extra0, []), maps:remove(extra_warnings, Extra0)},
                             Meta = maps:merge(Extra, #{seed => Seed, shots_requested => Shots,
                                                        shots_accepted => length(Samples), acceptance_rate => 1.0,
                                                        backend => Backend:name(),
-                                                       warnings => Warnings ++ maps:get(warnings, Low#circuit.meta, [])}),
+                                                       warnings => Warnings ++ maps:get(warnings, Low#circuit.meta, []) ++ More}),
                             {ok, #result{kind = Kind, measured = Modes, samples = Samples, metadata = Meta}};
                         {error, _} = E -> E
                     end;

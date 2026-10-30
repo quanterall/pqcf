@@ -60,9 +60,37 @@ result(_S, {error, _} = E) -> E.
 
 %% terminal homodyne on every listed mode: each mode rotated by -Phi into x, the measured modes' marginal sampled
 sample(Ms, S, Opts) ->
-    case lists:all(fun(I) -> element(1, I) =:= measure_homodyne end, Ms) of
-        false -> {error, {unsupported_instruction, element(1, hd([I || I <- Ms, element(1, I) =/= measure_homodyne])),
-                          #{backend => gaussian, available => phase_2}}};
+    Kinds = lists:usort([element(1, I) || I <- Ms]),
+    case Kinds of
+        [measure_homodyne] -> sample_homodyne(Ms, S, Opts);
+        [K] when K =:= measure_pnr; K =:= measure_threshold -> sample_counting(K, Ms, S, Opts);
+        _ -> {error, {unsupported_instruction, mixed_detectors, #{backend => gaussian}}}
+    end.
+
+%% photon counting (FS 5.7): the measured modes' marginal, sampled by the chain rule; truncated_mass recorded
+sample_counting(K, Ms, S, Opts) ->
+    Modes = lists:append([Mo || {_, Mo} <- Ms]),
+    {ok, Red} = pq_state:reduce(S, Modes),
+    Det = case K of measure_pnr -> pnr; measure_threshold -> threshold end,
+    NifOpts = maps:merge(maps:with([seed, stream_start, cancel], Opts),
+                         #{max_photons => pq_core:get(max_photons, Opts),
+                           max_per_mode => maps:get(max_per_mode, Opts, pq_core:get(max_photons, Opts)),
+                           max_clicks => pq_core:get(max_clicks, Opts)}),
+    case pq_nif:sample_gaussian(Red#gaussian_state.mean, Red#gaussian_state.cov, maps:get(shots, Opts, 1), Det,
+                                float(Red#gaussian_state.hbar), NifOpts) of
+        {ok, {Packed, #{truncated_mass := T}}} ->
+            {ok, {imat, Rows}} = pq_core:unpack(Packed),
+            Tol = pq_core:get(truncation_tol, Opts),
+            W = [{gbs_truncation, #{truncated_mass => T}} || T > Tol],
+            case W =/= [] andalso pq_core:get(strict, Opts) of
+                true -> {error, {gbs_truncation, #{truncated_mass => T}}};
+                false -> {ok, Det, Modes, Rows, #{truncated_mass => T, extra_warnings => W}}
+            end;
+        {error, _} = E -> E
+    end.
+
+sample_homodyne(Ms, S, Opts) ->
+    case true of
         true ->
             Modes = [M || {measure_homodyne, M, _} <- Ms],
             Rot = lists:foldl(fun({measure_homodyne, M, P}, {ok, St, _}) -> apply({phaseshift, M, -P}, St, Opts);

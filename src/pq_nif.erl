@@ -7,7 +7,7 @@
          gaussian_physicality/2, sample_gaussian/6,
          fock_apply_beamsplitter/7, fock_apply_phaseshift/5, fock_apply_kerr/5, fock_apply_passive/5,
          fock_apply_displacement/6, fock_apply_squeezing/6, fock_pnr_probabilities/4,
-         unitary_decompose/1, sample_categorical/3]).
+         unitary_decompose/1, sample_categorical/3, gaussian_to_amat/3, gaussian_probability/5]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -124,9 +124,12 @@ gaussian_marginal(_Mean, _Cov, _Modes) -> erlang:nif_error(nif_not_loaded).
 -spec gaussian_physicality(pq_core:packed_rmatrix(), float()) -> {ok, float()} | kernel_error().
 gaussian_physicality(_Cov, _Hbar) -> erlang:nif_error(nif_not_loaded).
 
-%% Detector {homodyne, Phi}: x_Phi on every mode; Opts: seed, stream_start, cancel. Shots x m packed rmat.
--spec sample_gaussian(pq_core:packed_rvector(), pq_core:packed_rmatrix(), non_neg_integer(), {homodyne, float()},
-                      float(), opts() | map()) -> {ok, {pq_core:packed_rmatrix(), map()}} | kernel_error().
+%% Detector {homodyne, Phi}: x_Phi on every mode, a packed rmat; pnr | threshold: the chain-rule samplers (AN 6.2,
+%% 6.3), a packed imat, Info truncated_mass. Opts: seed, stream_start, cancel, max_photons, max_per_mode,
+%% max_clicks.
+-spec sample_gaussian(pq_core:packed_rvector(), pq_core:packed_rmatrix(), non_neg_integer(),
+                      {homodyne, float()} | pnr | threshold, float(), opts() | map()) ->
+          {ok, {pq_core:packed_rmatrix() | pq_core:packed_imatrix(), map()}} | kernel_error().
 sample_gaussian(_Mean, _Cov, _NShots, _Detector, _Hbar, _Opts) -> erlang:nif_error(nif_not_loaded).
 
 %%% Fock space, pure states (FS 8.4, AN 7): amplitudes as a packed cvec in the basis of FS 3.4; NModes and Cutoff
@@ -169,3 +172,13 @@ unitary_decompose(_U) -> erlang:nif_error(nif_not_loaded).
 %% indices drawn from Probs, one uniform per shot from stream (seed, stream_start + i) (AN 5.1)
 -spec sample_categorical(pq_core:packed_rvector(), non_neg_integer(), map()) -> {ok, [non_neg_integer()]} | kernel_error().
 sample_categorical(_Probs, _NShots, _Opts) -> erlang:nif_error(nif_not_loaded).
+
+%% FS 8.4, A.9: {A, Gamma, Norm} with P(S) = (loop) hafnian(A_S, Gamma_S) / (prod S! Norm)
+-spec gaussian_to_amat(pq_core:packed_rvector(), pq_core:packed_rmatrix(), float()) ->
+          {ok, {pq_core:packed_cmatrix(), pq_core:packed_cvector(), float()}} | kernel_error().
+gaussian_to_amat(_Mean, _Cov, _Hbar) -> erlang:nif_error(nif_not_loaded).
+
+%% the probability of one photon-number (pnr) or click (threshold) pattern of a Gaussian state
+-spec gaussian_probability(pq_core:packed_rvector(), pq_core:packed_rmatrix(), float(), [non_neg_integer()],
+                           pnr | threshold) -> {ok, float()} | kernel_error().
+gaussian_probability(_Mean, _Cov, _Hbar, _Pattern, _Detector) -> erlang:nif_error(nif_not_loaded).

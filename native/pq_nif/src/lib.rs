@@ -7,6 +7,7 @@ pub mod boson;
 pub mod fock;
 pub mod fockstate;
 pub mod gaussian;
+pub mod gbs;
 pub mod hafnian;
 pub mod mesh;
 pub mod num;
@@ -22,7 +23,8 @@ mod atoms {
         cancel, threads, scale, positions, blocks, input, output, permanent_scale,
         algorithm, seed, stream_start, max_enumeration, clifford_clifford, brute_force, imat, shots, patterns,
         probability_sum, photon_number_overflow, cvec, subsets, terms, non_physical_state, not_positive_definite,
-        size, rvec, rmat, not_symplectic, homodyne, pnr, threshold, unsupported_input, pq_bug, beamsplitter
+        size, rvec, rmat, not_symplectic, homodyne, pnr, threshold, unsupported_input, pq_bug, beamsplitter,
+        max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold
     }
 }
 
@@ -535,12 +537,34 @@ fn sample_gaussian<'a>(
         Ok(g) => g,
         Err(e) => return Ok(bad_shape(env, &e)),
     };
+    let seed: u64 = opt(opts, atoms::seed(), 0u64)?;
+    let start: u64 = opt(opts, atoms::stream_start(), 0u64)?;
+    if let Ok(tag) = detector.decode::<Atom>() {
+        if tag == atoms::pnr() || tag == atoms::threshold() {
+            let caps = gbs::Caps {
+                max_photons: opt(opts, atoms::max_photons(), 16u32)?,
+                max_per_mode: opt(opts, atoms::max_per_mode(), opt(opts, atoms::max_photons(), 16u32)?)?,
+                max_clicks: opt(opts, atoms::max_clicks(), 20u32)?,
+            };
+            let cancel = cancelled_fn(&o);
+            let thr = tag == atoms::threshold();
+            return Ok(guarded(env, || match gbs::sample_chain_rule(&mu, &sig, m, _hbar, thr, &caps, shots, seed, start, &cancel) {
+                Ok((samples, lost)) => {
+                    let mut bin = rustler::OwnedBinary::new(samples.len() * 2).expect("binary");
+                    for (k, x) in samples.iter().enumerate() {
+                        bin.as_mut_slice()[2 * k..2 * k + 2].copy_from_slice(&(*x as u16).to_le_bytes());
+                    }
+                    let info = Term::map_from_pairs(env, &[(atoms::truncated_mass().encode(env), lost.encode(env))]).unwrap();
+                    (atoms::ok(), ((atoms::imat(), shots, m, bin.release(env)), info)).encode(env)
+                }
+                Err(e) => gbs_error(env, e),
+            }));
+        }
+    }
     let phi = match detector.decode::<(Atom, f64)>() {
         Ok((tag, phi)) if tag == atoms::homodyne() => phi,
         _ => return Ok(error(env, (atoms::unsupported_input(), detector))),
     };
-    let seed: u64 = opt(opts, atoms::seed(), 0u64)?;
-    let start: u64 = opt(opts, atoms::stream_start(), 0u64)?;
     if phi != 0.0 {
         let rot = C64::new((-phi).cos(), (-phi).sin());
         for j in 0..m {
@@ -690,6 +714,64 @@ fn sample_categorical<'a>(env: Env<'a>, probs: Term<'a>, shots: usize, opts: Ter
     let out: Vec<usize> =
         (0..shots).map(|i| boson::categorical(&p, rng::Stream::new(seed, start + i as u64).uniform())).collect();
     Ok((atoms::ok(), out).encode(env))
+}
+
+fn gbs_error<'a>(env: Env<'a>, e: gbs::Error) -> Term<'a> {
+    match e {
+        gbs::Error::BadShape(m) => bad_shape(env, m),
+        gbs::Error::NegativeProbability(p) => error(env, (atoms::negative_probability(), p)),
+        gbs::Error::NonPhysical(w) => error(env, (atoms::non_physical_state(), w.to_string())),
+        gbs::Error::DisplacedThreshold => error(env, (atoms::unsupported_input(), atoms::nonzero_mean_threshold())),
+        gbs::Error::Cancelled => error(env, atoms::cancelled()),
+    }
+}
+
+/// gaussian_to_amat(Mean, Cov, Hbar) -> {A, Gamma, Norm} (FS 8.4, A.9)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn gaussian_to_amat<'a>(env: Env<'a>, mean: Term<'a>, cov: Term<'a>, hbar: f64) -> NifResult<Term<'a>> {
+    let (mu, sig, m) = match gauss(mean, cov) {
+        Ok(g) => g,
+        Err(e) => return Ok(bad_shape(env, &e)),
+    };
+    Ok(match gbs::amat(&mu, &sig, m, hbar) {
+        Ok(am) => {
+            let n = 2 * m;
+            let a: Vec<C64> = (0..n * n).map(|k| C64::new(am.a[(k / n, k % n)].re, am.a[(k / n, k % n)].im)).collect();
+            let g: Vec<C64> = am.gamma.iter().map(|z| C64::new(z.re, z.im)).collect();
+            let mut bin = rustler::OwnedBinary::new(a.len() * 16).expect("binary");
+            for (k, z) in a.iter().enumerate() {
+                bin.as_mut_slice()[16 * k..16 * k + 8].copy_from_slice(&z.re.to_le_bytes());
+                bin.as_mut_slice()[16 * k + 8..16 * k + 16].copy_from_slice(&z.im.to_le_bytes());
+            }
+            let amat = (atoms::cmat(), n, n, bin.release(env));
+            (atoms::ok(), (amat, put_cvec(env, &g), am.norm)).encode(env)
+        }
+        Err(e) => gbs_error(env, e),
+    })
+}
+
+/// gaussian_probability(Mean, Cov, Hbar, Pattern, Detector): P(pattern) for pnr (A.9) or threshold (A.10)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn gaussian_probability<'a>(env: Env<'a>, mean: Term<'a>, cov: Term<'a>, hbar: f64, pattern: Vec<u32>, detector: Atom) -> NifResult<Term<'a>> {
+    let (mu, sig, m) = match gauss(mean, cov) {
+        Ok(g) => g,
+        Err(e) => return Ok(bad_shape(env, &e)),
+    };
+    if pattern.len() != m {
+        return Ok(bad_shape(env, "one count per mode"));
+    }
+    let never = || false;
+    let r = gbs::amat(&mu, &sig, m, hbar).and_then(|am| {
+        if detector == atoms::threshold() {
+            gbs::threshold_probability(&am, &pattern, &never)
+        } else {
+            gbs::pnr_probability(&am, &pattern, &never)
+        }
+    });
+    Ok(match r {
+        Ok(p) => (atoms::ok(), p).encode(env),
+        Err(e) => gbs_error(env, e),
+    })
 }
 
 rustler::init!("pq_nif");
