@@ -371,3 +371,106 @@ properties_test_() ->
     {timeout, 600, [{timeout, 150, Q(prop_value(), 1000)}, {timeout, 150, Q(prop_idempotent(), 600)},
                     {timeout, 150, Q(prop_round_trip(), 600)}, {timeout, 150, Q(prop_exact(), 1000)},
                     {timeout, 150, ?_assertNot(proper:quickcheck(prop_mutant(), [{numtests, 1000}, quiet]))}]}.
+
+%%% Differentiation (SY 5.3, P6)
+
+d(E, X) -> {ok, D} = ?S:differentiate(E, X), D.
+
+diff_examples_test() ->
+    T = {sym, t},
+    %% SY 10.1: d/dtheta of the Hong-Ou-Mandel probability is -2 sin(4 theta)
+    Perm = {add, [{pow, {cos, T}, 2}, {mul, [-1, {pow, {sin, T}, 2}]}]},
+    P = {mul, [Perm, {conj, Perm}]},
+    ?assert(same(d(P, t), {mul, [-2, {sin, {mul, [4, T]}}]})),
+    %% SY 10.2: d/dTheta (1/2 - cos(Theta)/2) = sin(Theta)/2
+    ?assert(same(d({add, [{rat, 1, 2}, {mul, [{rat, -1, 2}, {cos, T}]}]}, t), {mul, [{rat, 1, 2}, {sin, T}]})),
+    ?assert(same(d({pow, x(), 5}, x), {mul, [5, {pow, x(), 4}]})),
+    ?assert(same(d({pow, {add, [1, x()]}, -1}, x), {mul, [-1, {pow, {add, [1, x()]}, -2}]})),
+    ?assert(same(d({exp, {pow, x(), 2}}, x), {mul, [2, x(), {exp, {pow, x(), 2}}]})),
+    ?assertEqual(0, d({add, [y(), {const, pi}, {pow, 2, {rat, 1, 2}}]}, x)),
+    %% sqrt(1 - x) for a real x: -1/2 (1 - x)^(-1/2)
+    ?assert(same(d({pow, {add, [1, {mul, [-1, x()]}]}, {rat, 1, 2}}, x),
+                 {mul, [{rat, -1, 2}, {pow, {add, [1, {mul, [-1, x()]}]}, {rat, -1, 2}}]})),
+    {ok, D2} = ?S:differentiate({sin, x()}, x, #{order => 2}),
+    ?assert(same(D2, {mul, [-1, {sin, x()}]})),
+    {ok, [Gx, Gy]} = ?S:gradient({mul, [x(), {pow, y(), 2}]}, [x, y]),
+    ?assert(same(Gx, {pow, y(), 2}) andalso same(Gy, {mul, [2, x(), y()]})),
+    {ok, J} = ?S:jacobian({matrix, [[{mul, [x(), y()]}], [{add, [x(), y()]}]]}, [x, y]),
+    ?assertEqual(?S:canonicalise({matrix, [[y(), x()], [1, 1]]}), {ok, J}),
+    {ok, DM} = ?S:differentiate({matrix, [[x(), {pow, x(), 2}]]}, x),
+    ?assertEqual(?S:canonicalise({matrix, [[1, {mul, [2, x()]}]]}), {ok, DM}).
+
+diff_errors_test() ->
+    Z = #{domains => #{z => complex}},
+    ?assertEqual({error, {differentiate_unsupported, {sym, z}}}, ?S:differentiate({sym, z}, z, Z)),
+    %% a real variable with a complex symbol around: fine, conj(z) does not depend on x
+    ?assertMatch({ok, _}, ?S:differentiate({mul, [x(), {conj, {sym, z}}]}, x, Z)),
+    ?assertMatch({error, {bad_shape, _}}, ?S:jacobian({matrix, [[x(), y()]]}, [x])).
+
+%% P6: product and chain rules as canonical identities; mixed second derivatives commute
+diff_rules_test() ->
+    F = {add, [{sin, {mul, [x(), y()]}}, {pow, x(), 3}]},
+    G = {exp, {mul, [{rat, 1, 2}, y(), x()]}},
+    ?assert(same(d({mul, [F, G]}, x), {add, [{mul, [d(F, x), G]}, {mul, [F, d(G, x)]}]})),
+    ?assert(same(d({sin, F}, x), {mul, [{cos, F}, d(F, x)]})),
+    ?assert(same(d(d(F, x), y), d(d(F, y), x))).
+
+%% P6: first derivatives agree with central differences within 1e-6 (relative) on random expressions
+prop_diff_numeric() ->
+    ?FORALL({E, B}, {expr(3), binding()},
+            case ?S:differentiate(E, x, ?DOM) of
+                {ok, D} ->
+                    H = 1.0e-6,
+                    X0 = maps:get(x, B),
+                    F = fun(X) -> ?S:evaluate(E, B#{x => X}, ?DOM) end,
+                    case {?S:evaluate(D, B, ?DOM), F(X0 + H), F(X0 - H)} of
+                        {{ok, DV}, {ok, Fp}, {ok, Fm}} ->
+                            {R1, I1} = as_pair(Fp), {R2, I2} = as_pair(Fm),
+                            Num = {(R1 - R2) / (2 * H), (I1 - I2) / (2 * H)},
+                            {A, Bi} = as_pair(DV),
+                            Big = abs(R1) + abs(I1) + abs(A) + abs(Bi) > 1.0e4,
+                            %% near a branch cut or a pole a difference quotient means nothing
+                            Big orelse abs(A - element(1, Num)) + abs(Bi - element(2, Num))
+                                       =< 1.0e-6 * max(1.0, abs(A) + abs(Bi)) orelse near_cut(E, B);
+                        _ -> true
+                    end;
+                {error, _} -> true
+            end).
+
+%% the expression has a fractional power whose argument is within 1e-3 of the negative real axis or of 0
+near_cut(E, B) ->
+    Args = [A || {pow, A, {rat, _, _}} <- subterms(E)],
+    lists:any(fun(A) ->
+                      case ?S:evaluate(A, B, ?DOM) of
+                          {ok, V} -> {R, I} = as_pair(V), abs(I) < 1.0e-3 andalso R < 1.0e-3;
+                          _ -> true
+                      end
+              end, Args).
+
+subterms(T) when is_tuple(T) -> [T | lists:append([subterms(X) || X <- tuple_to_list(T)])];
+subterms(L) when is_list(L) -> lists:append([subterms(X) || X <- L]);
+subterms(_) -> [].
+
+%% the property bites: a derivative off by 0.1 % (plus 1e-3) is caught
+prop_diff_mutant() ->
+    ?FORALL({E, B}, {expr(3), binding()},
+            case ?S:differentiate(E, x, ?DOM) of
+                {ok, D} ->
+                    H = 1.0e-6,
+                    X0 = maps:get(x, B),
+                    F = fun(X) -> ?S:evaluate(E, B#{x => X}, ?DOM) end,
+                    case {?S:evaluate({add, [{mul, [{rat, 1001, 1000}, D]}, {rat, 1, 1000}]}, B, ?DOM),
+                          F(X0 + H), F(X0 - H)} of
+                        {{ok, DV}, {ok, Fp}, {ok, Fm}} ->
+                            {R1, I1} = as_pair(Fp), {R2, I2} = as_pair(Fm),
+                            {A, Bi} = as_pair(DV),
+                            abs(A - (R1 - R2) / (2 * H)) + abs(Bi - (I1 - I2) / (2 * H))
+                                =< 1.0e-6 * max(1.0, abs(A) + abs(Bi));
+                        _ -> true
+                    end;
+                {error, _} -> true
+            end).
+
+diff_property_test_() ->
+    {timeout, 300, [?_assert(proper:quickcheck(prop_diff_numeric(), [{numtests, 800}, {to_file, user}])),
+                    ?_assertNot(proper:quickcheck(prop_diff_mutant(), [{numtests, 800}, quiet]))]}.

@@ -8,6 +8,7 @@
 -export([sym/1, num/1, i/0, pi/0, add/1, mul/1, sub/2, neg/1, divide/2, pow/2, sqrt/1, sin/1, cos/1, exp/1,
          conj/1, matrix/1,
          canonicalise/1, canonicalise/2, simplify/1, simplify/2, subs/2, subs/3, evaluate/2, evaluate/3,
+         differentiate/2, differentiate/3, gradient/2, gradient/3, jacobian/2, jacobian/3,
          matmul/2, kron/2, smul/2, madd/1, dagger/1, transpose/1,
          shape/1, free_symbols/1, size/1, hash/1, domain_of/2,
          pretty/1, pretty/2, to_latex/1, parse/1, parse/2,
@@ -76,6 +77,52 @@ substitute({Op, A}, Map) when Op =:= sin; Op =:= cos; Op =:= exp; Op =:= conj; O
 substitute({Op, A, B}, Map) when Op =:= smul; Op =:= matmul; Op =:= kron ->
     {Op, substitute(A, Map), substitute(B, Map)};
 substitute(X, _Map) -> X.
+
+%%% Differentiation (SY 5.3, FR-S05): canonical results; option order => N for higher derivatives
+
+-spec differentiate(sym_expr(), atom()) -> result(sym_expr()).
+differentiate(E, X) -> differentiate(E, X, #{}).
+
+differentiate(E, X, Opts) when is_atom(X) ->
+    N = maps:get(order, Opts, 1),
+    run(E, Opts, fun(Ctx) ->
+                         V = pq_sym_norm:norm(E, Ctx),
+                         output(diff_value(V, X, N, Ctx), Ctx)
+                 end).
+
+diff_value({scalar, P}, X, N, Ctx) ->
+    {scalar, lists:foldl(fun(_, Q) -> pq_sym_diff:diff(Q, X, Ctx) end, P, lists:seq(1, N))};
+diff_value({identity, K}, _X, _N, _Ctx) -> {mat, K, K, lists:duplicate(K, lists:duplicate(K, #{}))};
+diff_value({mat, R, C, Rows}, X, N, Ctx) ->
+    {mat, R, C, [[element(2, diff_value({scalar, E}, X, N, Ctx)) || E <- Row] || Row <- Rows]}.
+
+-spec gradient(sym_expr(), [atom()]) -> result([sym_expr()]).
+gradient(E, Xs) -> gradient(E, Xs, #{}).
+
+gradient(E, Xs, Opts) ->
+    run(E, Opts, fun(Ctx) ->
+                         {scalar, P} = scalar_value(pq_sym_norm:norm(E, Ctx)),
+                         [output({scalar, pq_sym_diff:diff(P, X, Ctx)}, Ctx) || X <- Xs]
+                 end).
+
+%% the Jacobian of a scalar (one row) or of a column vector (one row per entry), one column per symbol
+-spec jacobian(sym_expr(), [atom()]) -> result(sym_expr()).
+jacobian(E, Xs) -> jacobian(E, Xs, #{}).
+
+jacobian(E, Xs, Opts) ->
+    run(E, Opts, fun(Ctx) ->
+                         Entries = case pq_sym_norm:norm(E, Ctx) of
+                                       {scalar, P} -> [P];
+                                       {mat, _, 1, Rows} -> [P || [P] <- Rows];
+                                       _ -> throw({bad_shape, {jacobian, E}})
+                                   end,
+                         Xs =/= [] orelse throw({bad_shape, {jacobian, no_symbols}}),
+                         output({mat, length(Entries), length(Xs),
+                                 [[pq_sym_diff:diff(P, X, Ctx) || X <- Xs] || P <- Entries]}, Ctx)
+                 end).
+
+scalar_value({scalar, _} = V) -> V;
+scalar_value(_) -> throw({bad_shape, scalar_expected}).
 
 %%% Evaluation
 
