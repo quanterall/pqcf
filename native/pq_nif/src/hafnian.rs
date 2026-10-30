@@ -270,8 +270,81 @@ pub fn hafnian(
     Ok(HafResult { value, scale: scale.value(), subsets: total })
 }
 
-/// Repeated indices (FS 8.4 hafnian_repeated, loop_hafnian with Mult): index i taken mult[i] times; the
-/// expanded matrix goes through the formula above. Loop weights, when given, are repeated with their index.
+/// Kan's formula for repeated indices (thewalrus hafnian_repeated): with r the multiplicities, n = sum r,
+/// h(x) = r/2 - x and q = h^T A h / 2,
+///   haf  = sum over 0 <= x <= r of (-1)^(sum x) prod C(r_i, x_i) q^(n/2) / (n/2)!
+///   lhaf = the same with q^(n/2)/(n/2)! replaced by sum over j = n mod 2 of q^((n-j)/2)/((n-j)/2)! (mu.h)^j / j!
+/// prod (r_i + 1) terms of O(m^2), summed in odometer order (Neumaier above 64 terms).
+pub fn kan(a: &[C64], m: usize, loops: Option<&[C64]>, mult: &[u32], cancel: &(dyn Fn() -> bool + Sync)) -> Result<HafResult, Error> {
+    let n: u32 = mult.iter().sum();
+    if n == 0 {
+        return Ok(HafResult { value: C64::ONE, scale: 1.0, subsets: 0 });
+    }
+    if loops.is_none() && n % 2 == 1 {
+        return Ok(HafResult { value: C64::ZERO, scale: 0.0, subsets: 0 });
+    }
+    let idx: Vec<usize> = (0..m).filter(|&i| mult[i] > 0).collect();
+    let r: Vec<u32> = idx.iter().map(|&i| mult[i]).collect();
+    let terms: u64 = r.iter().map(|&x| x as u64 + 1).product();
+    let binom = |nn: u32, k: u32| -> f64 { (0..k).fold(1.0, |acc, i| acc * (nn - i) as f64 / (i + 1) as f64) };
+    let fact = |k: u32| -> f64 { (1..=k).map(|x| x as f64).product() };
+    let mut x = vec![0u32; idx.len()];
+    let mut sum = CSum::new(terms);
+    let mut scale = Sum::new(terms);
+    for t in 0..terms {
+        if t % 4096 == 0 && cancel() {
+            return Err(Error::Cancelled);
+        }
+        let h: Vec<f64> = r.iter().zip(&x).map(|(&ri, &xi)| ri as f64 / 2.0 - xi as f64).collect();
+        let mut q = C64::ZERO;
+        for (p, &ip) in idx.iter().enumerate() {
+            for (s2, &is) in idx.iter().enumerate() {
+                q = q.add(a[ip * m + is].scale(h[p] * h[s2]));
+            }
+        }
+        q = q.scale(0.5);
+        let coef: f64 = r.iter().zip(&x).map(|(&ri, &xi)| binom(ri, xi)).product::<f64>()
+            * if x.iter().sum::<u32>() % 2 == 1 { -1.0 } else { 1.0 };
+        let body = match loops {
+            None => cpow(q, n / 2).scale(1.0 / fact(n / 2)),
+            Some(l) => {
+                let lin = idx.iter().zip(&h).fold(C64::ZERO, |acc, (&i, &hi)| acc.add(l[i].scale(hi)));
+                let mut acc = C64::ZERO;
+                let mut j = n % 2;
+                while j <= n {
+                    let k = (n - j) / 2;
+                    acc = acc.add(cpow(q, k).scale(1.0 / fact(k)).mul(cpow(lin, j).scale(1.0 / fact(j))));
+                    j += 2;
+                }
+                acc
+            }
+        };
+        let term = body.scale(coef);
+        sum.add(term);
+        scale.add(term.abs());
+        // odometer
+        for d in 0..x.len() {
+            if x[d] < r[d] {
+                x[d] += 1;
+                break;
+            }
+            x[d] = 0;
+        }
+    }
+    let value = sum.value();
+    if !value.is_finite() {
+        return Err(Error::NonFinite("output"));
+    }
+    Ok(HafResult { value, scale: scale.value(), subsets: terms })
+}
+
+fn cpow(z: C64, k: u32) -> C64 {
+    (0..k).fold(C64::ONE, |acc, _| acc.mul(z))
+}
+
+/// Repeated indices (FS 8.4 hafnian_repeated, loop_hafnian with Mult): index i taken mult[i] times. Kan's formula
+/// when its prod (r_i + 1) terms are fewer than the 2^(n/2) subsets of the expanded matrix (times their O(n) work
+/// against O(m^2)), else the expanded matrix through the power-trace formula. The choice depends only on the input.
 pub fn hafnian_repeated(
     a: &[C64],
     m: usize,
@@ -282,6 +355,15 @@ pub fn hafnian_repeated(
 ) -> Result<HafResult, Error> {
     if mult.len() != m || a.len() != m * m {
         return Err(Error::BadShape("multiplicities"));
+    }
+    let kan_terms: f64 = mult.iter().map(|&x| x as f64 + 1.0).product::<f64>() * (m * m) as f64;
+    let n_total: u32 = mult.iter().sum();
+    let expand_terms = 2f64.powi((n_total / 2) as i32) * (n_total as f64).powi(3).max(1.0);
+    if kan_terms < expand_terms {
+        if a.iter().chain(loops.unwrap_or(&[])).any(|z| !z.is_finite()) {
+            return Err(Error::NonFinite("input"));
+        }
+        return kan(a, m, loops, mult, cancel);
     }
     let idx: Vec<usize> = (0..m).flat_map(|i| std::iter::repeat_n(i, mult[i] as usize)).collect();
     let k = idx.len();
@@ -395,6 +477,26 @@ mod tests {
         let four = hafnian(&a, 28, None, 4, &never).unwrap();
         assert_eq!(one.value.re.to_bits(), four.value.re.to_bits());
         assert_eq!(one.value.im.to_bits(), four.value.im.to_bits());
+    }
+
+    /// Kan's formula against the expanded matrix's power-trace hafnian, with and without loops
+    #[test]
+    fn kan_against_expansion() {
+        for (k, mult) in [vec![2u32], vec![3, 1], vec![2, 2, 0], vec![4, 1, 1], vec![1, 1, 1, 1], vec![5], vec![3, 3]].iter().enumerate() {
+            let m = mult.len();
+            let a = sym(m, 40 + k as u64);
+            let l: Vec<C64> = (0..m).map(|i| C64::new(0.3 * i as f64 - 0.2, 0.1)).collect();
+            for loops in [None, Some(&l[..])] {
+                let got = kan(&a, m, loops, mult, &never).unwrap();
+                let idx: Vec<usize> = (0..m).flat_map(|i| std::iter::repeat_n(i, mult[i] as usize)).collect();
+                let ar = &a;
+                let b: Vec<C64> = idx.iter().flat_map(|&i| idx.iter().map(move |&j| ar[i * m + j])).collect();
+                let lb: Option<Vec<C64>> = loops.map(|l| idx.iter().map(|&i| l[i]).collect());
+                let want = hafnian(&b, idx.len(), lb.as_deref(), 1, &never).unwrap();
+                let err = (got.value.re - want.value.re).abs() + (got.value.im - want.value.im).abs();
+                assert!(err <= 1e-12 * got.scale.max(want.scale).max(1.0), "{mult:?} loops {}: {:?} vs {:?}", loops.is_some(), got.value, want.value);
+            }
+        }
     }
 
     #[test]

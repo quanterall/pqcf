@@ -58,8 +58,7 @@ fn samplers_follow_the_probabilities() {
             if exact.is_empty() {
                 continue;
             }
-            // caps of 8: a pattern of n photons costs a hafnian of 2^n subsets while repeated indices are expanded
-            let caps = Caps { max_photons: 8, max_per_mode: 8, max_clicks: 20 };
+            let caps = Caps { max_photons: 16, max_per_mode: 16, max_clicks: 20 }; // the defaults (FS Appendix E)
             let (s, lost) = sample_chain_rule(&mu, &sigma, m, 2.0, threshold, &caps, shots, &mut Source::Seeded { seed: 9, start: 0 }, &never)
                 .unwrap_or_else(|e| panic!("{key}, {m} modes: {e:?}"));
             // with mass beyond the caps the sampler draws the truncated, renormalised distribution (AN 6.2):
@@ -71,7 +70,7 @@ fn samplers_follow_the_probabilities() {
             checked += 1;
             for e in exact {
                 let p = e["p"].as_f64().unwrap();
-                if p < 1e-3 || pattern(e).iter().sum::<u32>() > 8 {
+                if p < 1e-3 {
                     continue;
                 }
                 let pat = pattern(e);
