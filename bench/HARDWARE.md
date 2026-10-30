@@ -18,3 +18,12 @@ machine and are marked as preliminary.
 
 Ratios are our median time over thewalrus 0.22.0's fastest method (bbfg, glynn or ryser) on the same core;
 NFR-01 requires at most 1.5.
+
+## NFR-02 (preliminary)
+
+`bench/nfr02.erl`: 100,000 boson-sampling shots, 6 photons in 12 modes, clifford_clifford, seed 1, through the job
+server with p workers; efficiency `T1 / (p Tp)`, NFR-02 requires at least 0.8 up to the dirty CPU schedulers.
+
+| Date | Machine | Cores | p = 1 | p = 2 | p = 4 | samples identical |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2026-10-30 | shared development machine, 4 pinned cores | 4 | 1.17 s (1.00) | 0.61 s (0.95) | 0.33 s (0.88) | yes |
