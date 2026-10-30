@@ -3,8 +3,13 @@
 -module(pq_worker).
 -export([start_link/3, run_chunk/1]).
 
+%% The worker links to its job before anything else, so the job always sees the real exit reason (linking from
+%% the job after the start raced with an early crash: noproc).
 start_link(Job, Chunk, Attempt) ->
-    {ok, proc_lib:spawn_link(fun() -> Job ! {chunk_done, self(), element(1, Chunk), run(Chunk, Attempt)} end)}.
+    {ok, proc_lib:spawn_link(fun() ->
+                                     link(Job),
+                                     Job ! {chunk_done, self(), element(1, Chunk), run(Chunk, Attempt)}
+                             end)}.
 
 run({Id, First, N, Spec}, Attempt) ->
     %% failure injection for tests (FS 12.5): crash on the listed {ChunkId, Attempt}

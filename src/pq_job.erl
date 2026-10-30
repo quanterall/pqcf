@@ -58,7 +58,6 @@ running({timeout, run}, expired, D) ->
 dispatch(#d{queue = [{Id, First, N} | Rest], inflight = In, max_inflight = Max} = D) when map_size(In) < Max ->
     Attempt = maps:get(Id, D#d.attempts, 0),
     {ok, Pid} = pq_worker_sup:start_worker(self(), {Id, First, N, D#d.spec}, Attempt),
-    link(Pid),
     dispatch(D#d{queue = Rest, inflight = In#{Pid => {Id, First, N}}});
 dispatch(D) -> D.
 
