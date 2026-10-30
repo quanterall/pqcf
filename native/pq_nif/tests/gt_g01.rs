@@ -1,6 +1,7 @@
 //! GT-G01: GBS probabilities (photon counting, displaced and mixed states; threshold, zero mean) against
 //! thewalrus 0.22.0 (test/oracle/gt_g01.py) within 1e-10, and the chain-rule sampler's frequencies against them.
 use pq_nif::gbs::{amat, pnr_probability, sample_chain_rule, threshold_probability, Caps};
+use pq_nif::rng::Source;
 use serde_json::Value;
 
 fn never() -> bool {
@@ -59,7 +60,7 @@ fn samplers_follow_the_probabilities() {
             }
             // caps of 8: a pattern of n photons costs a hafnian of 2^n subsets while repeated indices are expanded
             let caps = Caps { max_photons: 8, max_per_mode: 8, max_clicks: 20 };
-            let (s, lost) = sample_chain_rule(&mu, &sigma, m, 2.0, threshold, &caps, shots, 9, 0, &never)
+            let (s, lost) = sample_chain_rule(&mu, &sigma, m, 2.0, threshold, &caps, shots, &mut Source::Seeded { seed: 9, start: 0 }, &never)
                 .unwrap_or_else(|e| panic!("{key}, {m} modes: {e:?}"));
             // with mass beyond the caps the sampler draws the truncated, renormalised distribution (AN 6.2):
             // compare with the untruncated probabilities only where that mass is negligible
@@ -107,7 +108,7 @@ fn pnr_sampler_on_weak_states() {
         let am = amat(&mu, &sigma, m, 2.0).unwrap();
         let caps = Caps { max_photons: 8, max_per_mode: 8, max_clicks: 20 };
         let shots = 20000;
-        let (s, lost) = sample_chain_rule(&mu, &sigma, m, 2.0, false, &caps, shots, 3, 0, &never).unwrap();
+        let (s, lost) = sample_chain_rule(&mu, &sigma, m, 2.0, false, &caps, shots, &mut Source::Seeded { seed: 3, start: 0 }, &never).unwrap();
         assert!(lost < 1e-3, "{m} modes: lost {lost}");
         let mut seen = std::collections::BTreeMap::new();
         for t in s.chunks(m) {

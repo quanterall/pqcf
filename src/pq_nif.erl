@@ -10,7 +10,7 @@
          unitary_decompose/1, sample_categorical/3, gaussian_to_amat/3, gaussian_probability/5,
          fock_dm_apply_beamsplitter/7, fock_dm_apply_phaseshift/5, fock_dm_apply_kerr/5, fock_dm_apply_passive/5,
          fock_dm_apply_displacement/6, fock_dm_apply_squeezing/6, fock_dm_apply_loss/5,
-         gaussian_measure_homodyne/6]).
+         gaussian_measure_homodyne/6, stream_new/2, fock_measure_pnr/5]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -224,3 +224,13 @@ fock_dm_apply_raw(_Rho, _Op, _N, _C) -> erlang:nif_error(nif_not_loaded).
 -spec gaussian_measure_homodyne(pq_core:packed_rvector(), pq_core:packed_rmatrix(), non_neg_integer(), float(), float(),
                                 map()) -> {ok, {float(), pq_core:packed_rvector(), pq_core:packed_rmatrix()}} | kernel_error().
 gaussian_measure_homodyne(_Mean, _Cov, _Mode, _Phi, _Hbar, _Opts) -> erlang:nif_error(nif_not_loaded).
+
+%% the stream (Seed, Stream) as a resource: kernels given it as stream_ref draw from it in order (a shot driven
+%% step by step, FS 9.3)
+-spec stream_new(non_neg_integer(), non_neg_integer()) -> reference().
+stream_new(_Seed, _Stream) -> erlang:nif_error(nif_not_loaded).
+
+%% FR-M07: {Prob, State projected onto Outcome on Modes and renormalised}; the measured modes stay in the state
+-spec fock_measure_pnr(pq_core:packed_cvector() | pq_core:packed_cmatrix(), [non_neg_integer()], [non_neg_integer()],
+                       pos_integer(), non_neg_integer()) -> {ok, {float(), term()}} | kernel_error().
+fock_measure_pnr(_State, _Modes, _Outcome, _N, _C) -> erlang:nif_error(nif_not_loaded).

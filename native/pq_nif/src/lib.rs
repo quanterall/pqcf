@@ -25,7 +25,7 @@ mod atoms {
         probability_sum, photon_number_overflow, cvec, subsets, terms, non_physical_state, not_positive_definite,
         size, rvec, rmat, not_symplectic, homodyne, pnr, threshold, unsupported_input, pq_bug, beamsplitter,
         max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold,
-        phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix
+        phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix, stream_ref
     }
 }
 
@@ -35,6 +35,26 @@ const VERSION: (u32, u32, u32) = (0, 1, 0);
 const RNG_MAX_COUNT: usize = 65_536;
 
 pub struct CancelToken(AtomicBool);
+
+/// One shot's stream (FS 9.3), held between calls when a shot is driven step by step from Erlang.
+pub struct StreamRes(std::sync::Mutex<rng::Stream>);
+
+#[rustler::resource_impl]
+impl rustler::Resource for StreamRes {}
+
+/// stream_new(Seed, Stream): the stream (Seed, Stream) as a resource; kernels given it as stream_ref draw from it in
+/// order
+#[rustler::nif]
+fn stream_new(seed: u64, stream: u64) -> ResourceArc<StreamRes> {
+    ResourceArc::new(StreamRes(std::sync::Mutex::new(rng::Stream::new(seed, stream))))
+}
+
+fn stream_ref(opts: Term) -> NifResult<Option<ResourceArc<StreamRes>>> {
+    match opts.map_get(atoms::stream_ref()) {
+        Ok(t) => Ok(Some(t.decode()?)),
+        Err(_) => Ok(None),
+    }
+}
 
 #[rustler::resource_impl]
 impl rustler::Resource for CancelToken {}
@@ -549,7 +569,13 @@ fn sample_gaussian<'a>(
             };
             let cancel = cancelled_fn(&o);
             let thr = tag == atoms::threshold();
-            return Ok(guarded(env, || match gbs::sample_chain_rule(&mu, &sig, m, _hbar, thr, &caps, shots, seed, start, &cancel) {
+            let sref = stream_ref(opts)?;
+            let mut guard = sref.as_ref().map(|r| r.0.lock().expect("stream"));
+            let mut src = match guard.as_deref_mut() {
+                Some(st) => rng::Source::Shared(st),
+                None => rng::Source::Seeded { seed, start },
+            };
+            return Ok(guarded(env, || match gbs::sample_chain_rule(&mu, &sig, m, _hbar, thr, &caps, shots, &mut src, &cancel) {
                 Ok((samples, lost)) => {
                     let mut bin = rustler::OwnedBinary::new(samples.len() * 2).expect("binary");
                     for (k, x) in samples.iter().enumerate() {
@@ -574,7 +600,13 @@ fn sample_gaussian<'a>(
         }
     }
     let cancel = cancelled_fn(&o);
-    Ok(guarded(env, || match gaussian::sample_homodyne(&mu, &sig, m, shots, seed, start, &cancel) {
+    let sref = stream_ref(opts)?;
+    let mut guard = sref.as_ref().map(|r| r.0.lock().expect("stream"));
+    let mut src = match guard.as_deref_mut() {
+        Some(st) => rng::Source::Shared(st),
+        None => rng::Source::Seeded { seed, start },
+    };
+    Ok(guarded(env, || match gaussian::sample_homodyne(&mu, &sig, m, shots, &mut src, &cancel) {
         Ok(y) => (atoms::ok(), (put_rmat(env, &y, shots, m), Term::map_new(env))).encode(env),
         Err(gaussian::Error::NonPhysical(l)) => error(env, (atoms::non_physical_state(), l)),
         Err(gaussian::Error::Cancelled) => error(env, atoms::cancelled()),
@@ -719,8 +751,13 @@ fn sample_categorical<'a>(env: Env<'a>, probs: Term<'a>, shots: usize, opts: Ter
     };
     let seed: u64 = opt(opts, atoms::seed(), 0u64)?;
     let start: u64 = opt(opts, atoms::stream_start(), 0u64)?;
-    let out: Vec<usize> =
-        (0..shots).map(|i| boson::categorical(&p, rng::Stream::new(seed, start + i as u64).uniform())).collect();
+    let sref = stream_ref(opts)?;
+    let mut guard = sref.as_ref().map(|r| r.0.lock().expect("stream"));
+    let mut src = match guard.as_deref_mut() {
+        Some(st) => rng::Source::Shared(st),
+        None => rng::Source::Seeded { seed, start },
+    };
+    let out: Vec<usize> = (0..shots).map(|i| src.with_shot(i as u64, |st| boson::categorical(&p, st.uniform()))).collect();
     Ok((atoms::ok(), out).encode(env))
 }
 
@@ -861,7 +898,13 @@ fn gaussian_measure_homodyne<'a>(env: Env<'a>, mean: Term<'a>, cov: Term<'a>, mo
     };
     let seed: u64 = opt(opts, atoms::seed(), 0u64)?;
     let stream: u64 = opt(opts, atoms::stream(), 0u64)?;
-    Ok(match gaussian::measure_homodyne(&mu, &sig, m, mode, phi, fixed, seed, stream) {
+    let sref = stream_ref(opts)?;
+    let mut guard = sref.as_ref().map(|r| r.0.lock().expect("stream"));
+    let mut src = match guard.as_deref_mut() {
+        Some(st) => rng::Source::Shared(st),
+        None => rng::Source::Seeded { seed, start: stream },
+    };
+    Ok(match gaussian::measure_homodyne(&mu, &sig, m, mode, phi, fixed, &mut src) {
         Ok((y, mu2, sig2)) => {
             let n = mu2.len();
             (atoms::ok(), (y, put_rvec(env, &mu2), put_rmat(env, &sig2, n, n))).encode(env)
@@ -869,6 +912,38 @@ fn gaussian_measure_homodyne<'a>(env: Env<'a>, mean: Term<'a>, cov: Term<'a>, mo
         Err(gaussian::Error::NonPhysical(v)) => error(env, (atoms::singular_matrix(), v)),
         Err(_) => bad_shape(env, "mean, covariance or mode"),
     })
+}
+
+/// fock_measure_pnr(State, Modes, Outcome, NModes, Cutoff) -> {Prob, ConditionalState} (FS 8.4, FR-M07): the
+/// state projected onto Outcome on Modes and renormalised; the measured modes stay in the state, holding their
+/// outcome (no renumbering). A pure state (cvec) or a density matrix (cmat).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn fock_measure_pnr<'a>(env: Env<'a>, state: Term<'a>, modes: Vec<usize>, outcome: Vec<u32>, n: usize, c: usize) -> NifResult<Term<'a>> {
+    if modes.is_empty() || modes.len() != outcome.len() || !modes_ok(&modes, n) {
+        return Ok(bad_shape(env, "distinct modes in range, one outcome each"));
+    }
+    if let Ok((mut rho, d, dc)) = cmat(state) {
+        if d != dc || fockstate::Basis::dim(n, c) != d as u64 {
+            return Ok(bad_shape(env, "density matrix D x D"));
+        }
+        let b = fockstate::Basis::new(n, c);
+        let keep: Vec<bool> = b.patterns.iter().map(|p| modes.iter().zip(&outcome).all(|(&m, &o)| p[m] == o)).collect();
+        let prob = (0..d).filter(|&i| keep[i]).map(|i| rho[i * d + i].re).sum::<f64>();
+        for i in 0..d {
+            for j in 0..d {
+                rho[i * d + j] = if keep[i] && keep[j] && prob > 0.0 { rho[i * d + j].scale(1.0 / prob) } else { C64::ZERO };
+            }
+        }
+        return Ok((atoms::ok(), (prob, put_cmat(env, &rho, d, d))).encode(env));
+    }
+    let (mut v, b) = fock_args!(env, state, n, c, modes);
+    let keep: Vec<bool> = b.patterns.iter().map(|p| modes.iter().zip(&outcome).all(|(&m, &o)| p[m] == o)).collect();
+    let prob: f64 = v.iter().zip(&keep).filter(|(_, &k)| k).map(|(a, _)| a.re * a.re + a.im * a.im).sum();
+    let norm = prob.sqrt();
+    for (a, &k) in v.iter_mut().zip(&keep) {
+        *a = if k && norm > 0.0 { a.scale(1.0 / norm) } else { C64::ZERO };
+    }
+    Ok((atoms::ok(), (prob, put_cvec(env, &v))).encode(env))
 }
 
 rustler::init!("pq_nif");

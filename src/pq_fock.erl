@@ -6,7 +6,7 @@
 -behaviour(pq_backend).
 -compile({no_auto_import, [apply/3]}).
 -include("pq.hrl").
--export([name/0, capabilities/0, capabilities/1, init/3, apply/3, sample/3, final/1]).
+-export([name/0, capabilities/0, capabilities/1, init/3, apply/3, sample/3, final/1, measure/3]).
 %% shared with pq_fock_dm
 -export([cutoff/2, truncation/3, basis/4]).
 
@@ -107,7 +107,7 @@ sample_state(Ms, A, N, C, Opts) ->
         {ok, PatProbs} ->
             {Pats, Probs} = lists:unzip(PatProbs),
             {ok, P} = pq_core:pack({rvec, Probs}),
-            {ok, Idx} = pq_nif:sample_categorical(P, maps:get(shots, Opts, 1), maps:with([seed, stream_start], Opts)),
+            {ok, Idx} = pq_nif:sample_categorical(P, maps:get(shots, Opts, 1), maps:with([seed, stream_start, stream_ref], Opts)),
             PatT = list_to_tuple(Pats),
             Kinds = [Kd || {_, Kd} <- Cols],
             Samples = [[case Kd of threshold -> min(X, 1); pnr -> X end
@@ -117,6 +117,31 @@ sample_state(Ms, A, N, C, Opts) ->
             {ok, Kind, Modes, Samples, Extra#{cutoff => C}};
         {error, _} = E -> E
     end.
+
+%% FR-M07: PNR on Modes of one shot: the outcome drawn from the shot's stream (one uniform) or fixed, the state
+%% projected onto it and renormalised (the measured modes keep their outcome; nothing is renumbered)
+measure({measure_pnr, Modes}, {S, Def}, Opts) ->
+    {Kind, N, C, State} = case S of
+                              #fock_state{n_modes = N0, cutoff = C0, amps = A} -> {pure, N0, C0, A};
+                              #fock_dm{n_modes = N0, cutoff = C0, rho = R} -> {dm, N0, C0, R}
+                          end,
+    Outcome = case maps:find(fix_outcome, Opts) of
+                  {ok, O} -> {ok, O};
+                  error ->
+                      {ok, PP} = pq_nif:fock_pnr_probabilities(State, Modes, N, C),
+                      {Pats, Probs} = lists:unzip(PP),
+                      {ok, P} = pq_core:pack({rvec, Probs}),
+                      {ok, [I]} = pq_nif:sample_categorical(P, 1, maps:with([stream_ref], Opts)),
+                      {ok, lists:nth(I + 1, Pats)}
+              end,
+    {ok, Out} = Outcome,
+    case pq_nif:fock_measure_pnr(State, Modes, Out, N, C) of
+        {ok, {Prob, _}} when Prob =< 0.0 -> {error, {postselection_exhausted, #{fixed_outcome_probability => 0.0}}};
+        {ok, {_, New}} when Kind =:= pure -> {ok, Out, {S#fock_state{amps = New}, Def}};
+        {ok, {_, New}} -> {ok, Out, {S#fock_dm{rho = New}, Def}};
+        {error, _} = E -> E
+    end;
+measure(I, _S, _Opts) -> {error, {unsupported_instruction, element(1, I), #{backend => fock, placement => midcircuit}}}.
 
 kind(measure_pnr) -> pnr;
 kind(measure_threshold) -> threshold.

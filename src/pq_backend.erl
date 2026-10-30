@@ -15,4 +15,8 @@
               {ok, Kind :: atom(), Modes :: [non_neg_integer()], Samples :: [list()], Meta :: map()} | {error, term()}.
 %% optional: the public state of evolve/3 (when the backend keeps more, such as a cumulative norm deficit)
 -callback final(State :: term()) -> term().
--optional_callbacks([final/1]).
+%% optional: a mid-circuit measurement (capability midcircuit) on one shot, its outcome drawn from the shot's
+%% stream (Opts stream_ref) or fixed (fix_outcome); the measured modes keep their place in the state
+-callback measure(Instruction :: tuple(), State :: term(), Opts :: map()) ->
+              {ok, Outcome :: list(), State :: term()} | {error, term()}.
+-optional_callbacks([final/1, measure/3]).

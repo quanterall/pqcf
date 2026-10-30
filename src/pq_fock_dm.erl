@@ -5,7 +5,7 @@
 -behaviour(pq_backend).
 -compile({no_auto_import, [apply/3]}).
 -include("pq.hrl").
--export([name/0, capabilities/0, init/3, apply/3, sample/3, final/1, from_pure/1]).
+-export([name/0, capabilities/0, init/3, apply/3, sample/3, final/1, from_pure/1, measure/3]).
 
 name() -> fock_dm.
 
@@ -60,3 +60,5 @@ apply(I, {#fock_dm{n_modes = N, cutoff = C, rho = R} = S, Def}, Opts) ->
     end.
 
 sample(Ms, St, Opts) -> pq_fock:sample(Ms, St, Opts).
+
+measure(I, St, Opts) -> pq_fock:measure(I, St, Opts).

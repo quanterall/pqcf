@@ -80,3 +80,19 @@ impl Stream {
         }
     }
 }
+
+/// Where a sampler's shots get their streams: shot i from (seed, start + i), or every draw from one shared stream
+/// (a shot driven step by step from Erlang, FS 9.3: the shot's stream consumed in instruction order).
+pub enum Source<'a> {
+    Seeded { seed: u64, start: u64 },
+    Shared(&'a mut Stream),
+}
+
+impl Source<'_> {
+    pub fn with_shot<R>(&mut self, i: u64, f: impl FnOnce(&mut Stream) -> R) -> R {
+        match self {
+            Source::Seeded { seed, start } => f(&mut Stream::new(*seed, *start + i)),
+            Source::Shared(s) => f(s),
+        }
+    }
+}

@@ -2,7 +2,7 @@
 //! xxpp order: index j is x_j, index m + j is p_j. Maps are applied one instruction at a time (AN 8); nothing is
 //! composed or projected.
 use crate::num::{Sum, C64};
-use crate::rng::Stream;
+use crate::rng::Source;
 use nalgebra::{DMatrix, SymmetricEigen};
 
 #[derive(Debug, PartialEq)]
@@ -168,8 +168,7 @@ pub fn sample_homodyne(
     sigma: &[f64],
     m: usize,
     shots: usize,
-    seed: u64,
-    stream_start: u64,
+    src: &mut Source,
     cancel: &dyn Fn() -> bool,
 ) -> Result<Vec<f64>, Error> {
     let n = 2 * m;
@@ -200,12 +199,13 @@ pub fn sample_homodyne(
         if i % 1024 == 0 && cancel() {
             return Err(Error::Cancelled);
         }
-        let mut st = Stream::new(seed, stream_start + i as u64);
-        for p in 0..m.div_ceil(2) {
-            let (a, b) = st.normal_pair();
-            z[2 * p] = a;
-            z[2 * p + 1] = b;
-        }
+        src.with_shot(i as u64, |st| {
+            for p in 0..m.div_ceil(2) {
+                let (a, b) = st.normal_pair();
+                z[2 * p] = a;
+                z[2 * p + 1] = b;
+            }
+        });
         for a in 0..m {
             out.push(mu[a] + dot((0..m).map(|b| l[(a, b)] * z[b]), m));
         }
@@ -216,7 +216,6 @@ pub fn sample_homodyne(
 /// Homodyne measurement of x_phi on `mode` with conditioning (FS A.7, FR-G08): the mode rotated by -phi, then
 /// y ~ Normal(mu_x, sigma_xx) (the first, cosine-branch normal of stream (seed, stream)) or the fixed outcome, the
 /// state conditioned on x = y, and the mode's two rows and columns deleted. Returns (y, mu', sigma') on m - 1 modes.
-#[allow(clippy::too_many_arguments)]
 pub fn measure_homodyne(
     mu: &[f64],
     sigma: &[f64],
@@ -224,8 +223,7 @@ pub fn measure_homodyne(
     mode: usize,
     phi: f64,
     fixed: Option<f64>,
-    seed: u64,
-    stream: u64,
+    src: &mut Source,
 ) -> Result<(f64, Vec<f64>, Vec<f64>), Error> {
     let n = 2 * m;
     if mu.len() != n || sigma.len() != n * n || mode >= m {
@@ -244,7 +242,7 @@ pub fn measure_homodyne(
     let mean = mu[k];
     let y = match fixed {
         Some(y) => y,
-        None => mean + var.sqrt() * Stream::new(seed, stream).normal_pair().0,
+        None => mean + var.sqrt() * src.with_shot(0, |st| st.normal_pair().0),
     };
     let col: Vec<f64> = (0..n).map(|i| sigma[i * n + k]).collect();
     for i in 0..n {
@@ -274,19 +272,19 @@ mod tests {
         let (c, sh) = ((2.0 * r).cosh(), (2.0 * r).sinh());
         // xxpp: Cov(x0, x1) = sinh 2r, Cov(p0, p1) = -sinh 2r
         let sigma = vec![c, sh, 0.0, 0.0, sh, c, 0.0, 0.0, 0.0, 0.0, c, -sh, 0.0, 0.0, -sh, c];
-        let (y, mu, sig) = measure_homodyne(&[0.0; 4], &sigma, 2, 0, 0.0, Some(0.8), 0, 0).unwrap();
+        let (y, mu, sig) = measure_homodyne(&[0.0; 4], &sigma, 2, 0, 0.0, Some(0.8), &mut Source::Seeded { seed: 0, start: 0 }).unwrap();
         assert_eq!(y, 0.8);
         assert!((mu[0] - 0.609275).abs() < 1e-6 && mu[1] == 0.0);
         assert!((sig[0] - 0.648054).abs() < 1e-6 && (sig[3] - 1.543081).abs() < 1e-6 && sig[1].abs() < 1e-15);
         // measured along p (phi = pi/2): p0 = y gives p1 = -tanh(2r) y
-        let (_, mu_p, _) = measure_homodyne(&[0.0; 4], &sigma, 2, 0, std::f64::consts::FRAC_PI_2, Some(0.8), 0, 0).unwrap();
+        let (_, mu_p, _) = measure_homodyne(&[0.0; 4], &sigma, 2, 0, std::f64::consts::FRAC_PI_2, Some(0.8), &mut Source::Seeded { seed: 0, start: 0 }).unwrap();
         assert!((mu_p[1] + 0.609275).abs() < 1e-6);
         // sampled outcomes follow Normal(0, cosh 2r)
-        let ys: Vec<f64> = (0..20000).map(|k| measure_homodyne(&[0.0; 4], &sigma, 2, 0, 0.0, None, 1, k).unwrap().0).collect();
+        let ys: Vec<f64> = (0..20000).map(|k| measure_homodyne(&[0.0; 4], &sigma, 2, 0, 0.0, None, &mut Source::Seeded { seed: 1, start: k }).unwrap().0).collect();
         let v = ys.iter().map(|y| y * y).sum::<f64>() / ys.len() as f64;
         assert!((v / c - 1.0).abs() < 0.03);
         // a mode without x variance cannot be conditioned on
-        assert_eq!(measure_homodyne(&[0.0, 0.0], &[0.0, 0.0, 0.0, 1.0], 1, 0, 0.0, Some(0.0), 0, 0).unwrap_err(), Error::NonPhysical(0.0));
+        assert_eq!(measure_homodyne(&[0.0, 0.0], &[0.0, 0.0, 0.0, 1.0], 1, 0, 0.0, Some(0.0), &mut Source::Seeded { seed: 0, start: 0 }).unwrap_err(), Error::NonPhysical(0.0));
     }
 
     fn vacuum(m: usize) -> (Vec<f64>, Vec<f64>) {
@@ -376,11 +374,11 @@ mod tests {
         // squeezed vacuum, Var x = e^(-2r): sample variance within 1 %
         let r = 0.5f64;
         let (mu, sig) = (vec![0.0, 0.0], vec![(-2.0 * r).exp(), 0.0, 0.0, (2.0 * r).exp()]);
-        let y = sample_homodyne(&mu, &sig, 1, 200000, 3, 0, &|| false).unwrap();
+        let y = sample_homodyne(&mu, &sig, 1, 200000, &mut Source::Seeded { seed: 3, start: 0 }, &|| false).unwrap();
         let var: f64 = y.iter().map(|v| v * v).sum::<f64>() / y.len() as f64;
         assert!((var / (-2.0 * r).exp() - 1.0).abs() < 0.01);
         // shots do not depend on the split
-        let a = sample_homodyne(&mu, &sig, 1, 10, 3, 4, &|| false).unwrap();
-        assert_eq!(a[2..], sample_homodyne(&mu, &sig, 1, 8, 3, 6, &|| false).unwrap()[..]);
+        let a = sample_homodyne(&mu, &sig, 1, 10, &mut Source::Seeded { seed: 3, start: 4 }, &|| false).unwrap();
+        assert_eq!(a[2..], sample_homodyne(&mu, &sig, 1, 8, &mut Source::Seeded { seed: 3, start: 6 }, &|| false).unwrap()[..]);
     }
 }

@@ -74,7 +74,8 @@ truncation_test() ->
                  pq_simulator:run(pq_fock, c(4, vacuum, [{measure_pnr, [0]}]), #{cutoff => 10, max_fock_dim => 10})),
     ?assertEqual({error, {unsupported_instruction, loss, fock}},
                  pq_simulator:run(pq_fock, c(1, {fock, [1]}, [{loss, 0, 0.5}, {measure_pnr, [0]}]), #{})),
-    ?assertMatch({error, {unsupported_instruction, midcircuit_measurement, _}},
+    %% mid-circuit measurements arrived in Phase 2
+    ?assertMatch({ok, #result{samples = [[1]]}},
                  pq_simulator:run(pq_fock, c(2, {fock, [1, 0]}, [{measure_pnr, [0]}, {phaseshift, 1, 0}]), #{})).
 
 detectors_test() ->

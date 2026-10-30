@@ -13,6 +13,8 @@ run({Id, First, N, Spec}, Attempt) ->
 
 %% {Spec, FirstShot, NShots} -> {ok, Samples} | {error, Reason}; shot k uses stream (Seed, k)
 -spec run_chunk({map(), non_neg_integer(), non_neg_integer()}) -> {ok, [list()]} | {error, term()}.
+run_chunk({#{kind := circuit} = Spec, First, N}) ->
+    pq_simulator:shots(Spec, First, N);
 run_chunk({#{kind := boson, unitary := U, input := In, seed := Seed} = Spec, First, N}) ->
     Opts = maps:merge(maps:with([algorithm, max_enumeration, cancel], Spec), #{seed => Seed, stream_start => First}),
     case pq_nif:sample_boson(U, In, N, Opts) of

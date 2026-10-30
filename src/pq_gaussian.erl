@@ -5,7 +5,7 @@
 -behaviour(pq_backend).
 -compile({no_auto_import, [apply/3]}).
 -include("pq.hrl").
--export([name/0, capabilities/0, init/3, apply/3, sample/3]).
+-export([name/0, capabilities/0, init/3, apply/3, sample/3, measure/3]).
 
 name() -> gaussian.
 
@@ -58,6 +58,34 @@ symplectic(#gaussian_state{mean = Mu, cov = C} = S, Rows, D, Modes) ->
 result(S, {ok, {Mu, C}}) -> {ok, S#gaussian_state{mean = Mu, cov = C}, []};
 result(_S, {error, _} = E) -> E.
 
+%% FR-G08: homodyne on one mode of one shot, the rest conditioned (A.7); the measured mode is then reset to vacuum
+%% in place, so no mode is renumbered (no later instruction may use it, FR-M06)
+measure({measure_homodyne, M, Phi}, #gaussian_state{n_modes = N, hbar = H, mean = Mu, cov = C} = S, Opts) when N >= 2 ->
+    NifOpts = maps:merge(maps:with([stream_ref], Opts),
+                         case maps:find(fix_outcome, Opts) of {ok, Y0} -> #{fix_outcome => float(Y0)}; error -> #{} end),
+    case pq_nif:gaussian_measure_homodyne(Mu, C, M, float(Phi), float(H), NifOpts) of
+        {ok, {Y, Mu2, C2}} ->
+            {ok, {rvec, Mv}} = pq_core:unpack(Mu2),
+            {ok, {rmat, Cv}} = pq_core:unpack(C2),
+            {ok, [Y], reinsert(S, M, Mv, Cv)};
+        {error, _} = E -> E
+    end;
+measure({measure_homodyne, _, _}, _S, _Opts) -> {error, {unsupported_input, homodyne_on_the_last_mode}};
+measure(I, _S, _Opts) -> {error, {unsupported_instruction, element(1, I), #{backend => gaussian, placement => midcircuit}}}.
+
+%% put back mode M as vacuum, uncorrelated, into a state of N - 1 modes (xxpp)
+reinsert(#gaussian_state{n_modes = N, hbar = H} = S, M, Mv, Cv) ->
+    Old = fun(I) -> case I rem N of M -> none; J -> (I div N) * (N - 1) + (case J > M of true -> J - 1; false -> J end) end end,
+    Mean = [case Old(I) of none -> 0.0; K -> lists:nth(K + 1, Mv) end || I <- lists:seq(0, 2 * N - 1)],
+    Cov = [[case {Old(I), Old(J)} of
+                {none, _} when I =:= J -> H / 2;
+                {none, _} -> 0.0;
+                {_, none} -> 0.0;
+                {A, B} -> lists:nth(B + 1, lists:nth(A + 1, Cv))
+            end || J <- lists:seq(0, 2 * N - 1)] || I <- lists:seq(0, 2 * N - 1)],
+    New = pq_state:from_mean_cov(Mean, Cov, H),
+    S#gaussian_state{mean = New#gaussian_state.mean, cov = New#gaussian_state.cov}.
+
 %% terminal homodyne on every listed mode: each mode rotated by -Phi into x, the measured modes' marginal sampled
 sample(Ms, S, Opts) ->
     Kinds = lists:usort([element(1, I) || I <- Ms]),
@@ -72,7 +100,7 @@ sample_counting(K, Ms, S, Opts) ->
     Modes = lists:append([Mo || {_, Mo} <- Ms]),
     {ok, Red} = pq_state:reduce(S, Modes),
     Det = case K of measure_pnr -> pnr; measure_threshold -> threshold end,
-    NifOpts = maps:merge(maps:with([seed, stream_start, cancel], Opts),
+    NifOpts = maps:merge(maps:with([seed, stream_start, cancel, stream_ref], Opts),
                          #{max_photons => pq_core:get(max_photons, Opts),
                            max_per_mode => maps:get(max_per_mode, Opts, pq_core:get(max_photons, Opts)),
                            max_clicks => pq_core:get(max_clicks, Opts)}),
@@ -100,7 +128,7 @@ sample_homodyne(Ms, S, Opts) ->
                 {ok, St, _} ->
                     {ok, Red} = pq_state:reduce(St, Modes),
                     Shots = maps:get(shots, Opts, 1),
-                    NifOpts = maps:with([seed, stream_start, cancel], Opts),
+                    NifOpts = maps:with([seed, stream_start, cancel, stream_ref], Opts),
                     case pq_nif:sample_gaussian(Red#gaussian_state.mean, Red#gaussian_state.cov, Shots, {homodyne, 0.0},
                                                 float(Red#gaussian_state.hbar), NifOpts) of
                         {ok, {Packed, _}} ->

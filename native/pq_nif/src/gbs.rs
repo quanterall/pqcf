@@ -10,7 +10,7 @@
 //!   threshold, zero mean: P(B) = tor(O_B) / sqrt(det Q),  O = I - Q^-1
 use crate::hafnian::hafnian_repeated;
 use crate::num::{Sum, C64};
-use crate::rng::Stream;
+use crate::rng::Source;
 use crate::toronto::torontonian;
 use nalgebra::{Complex, DMatrix, DVector};
 
@@ -166,8 +166,7 @@ pub fn sample_chain_rule(
     threshold: bool,
     caps: &Caps,
     shots: usize,
-    seed: u64,
-    stream_start: u64,
+    src: &mut Source,
     cancel: &(dyn Fn() -> bool + Sync),
 ) -> Result<(Vec<u32>, f64), Error> {
     let states: Vec<Amat> = (1..=m)
@@ -185,7 +184,8 @@ pub fn sample_chain_rule(
         if cancel() {
             return Err(Error::Cancelled);
         }
-        let mut st = Stream::new(seed, stream_start + i as u64);
+        let shot = src.with_shot(i as u64, |st| -> Result<(Vec<u32>, u64), Error> {
+        let mut beyond_total = 0u64;
         let mut pattern: Vec<u32> = Vec::with_capacity(m);
         let mut p_prev = 1.0;
         for state in &states {
@@ -237,7 +237,10 @@ pub fn sample_chain_rule(
             pattern.push(candidates[j]);
             p_prev = probs[j];
         }
-        out.extend(pattern);
+        Ok((pattern, beyond_total))
+        })?;
+        beyond_total += shot.1;
+        out.extend(shot.0);
     }
     Ok((out, if shots == 0 { 0.0 } else { beyond_total as f64 / shots as f64 }))
 }
@@ -281,7 +284,7 @@ mod tests {
         let r = 0.6f64;
         let sigma = [(-2.0 * r).exp(), 0.0, 0.0, (2.0 * r).exp()];
         let caps = Caps { max_photons: 16, max_per_mode: 16, max_clicks: 20 };
-        let (s, lost) = sample_chain_rule(&[0.0, 0.0], &sigma, 1, 2.0, false, &caps, 20000, 1, 0, &never).unwrap();
+        let (s, lost) = sample_chain_rule(&[0.0, 0.0], &sigma, 1, 2.0, false, &caps, 20000, &mut Source::Seeded { seed: 1, start: 0 }, &never).unwrap();
         assert!(s.iter().all(|&n| n % 2 == 0));
         let f0 = s.iter().filter(|&&n| n == 0).count() as f64 / 20000.0;
         assert!((f0 - 1.0 / r.cosh()).abs() < 0.01);
@@ -289,7 +292,7 @@ mod tests {
         // tight caps: the lost-mass estimate is near the true 1 - P(0) - P(2), and the samples follow
         // the renormalised distribution P(0) / (P(0) + P(2))
         let tight = Caps { max_photons: 2, max_per_mode: 2, max_clicks: 20 };
-        let (s2, lost2) = sample_chain_rule(&[0.0, 0.0], &sigma, 1, 2.0, false, &tight, 20000, 1, 0, &never).unwrap();
+        let (s2, lost2) = sample_chain_rule(&[0.0, 0.0], &sigma, 1, 2.0, false, &tight, 20000, &mut Source::Seeded { seed: 1, start: 0 }, &never).unwrap();
         let (p0, p2) = (1.0 / r.cosh(), r.tanh().powi(2) / (2.0 * r.cosh()));
         assert!((lost2 - (1.0 - p0 - p2)).abs() < 0.01, "{lost2}");
         let g0 = s2.iter().filter(|&&n| n == 0).count() as f64 / 20000.0;

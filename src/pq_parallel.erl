@@ -13,7 +13,8 @@ run_job(Spec, Opts) ->
                {ok, C} -> C;
                error -> max(1, min(pq_core:get(max_chunk, Opts), ceil_div(Shots, 4 * Workers)))
            end,
-    JobOpts = #{chunks => chunks(Shots, Size, 0), max_inflight => Workers,
+    Offset = maps:get(offset, Opts, 0),
+    JobOpts = #{chunks => [{Id, F + Offset, N} || {Id, F, N} <- chunks(Shots, Size, 0)], max_inflight => Workers,
                 max_retries => pq_core:get(max_retries, Opts), timeout => maps:get(timeout, Opts, infinity)},
     case Shots of
         0 -> {ok, []};
