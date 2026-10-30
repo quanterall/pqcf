@@ -32,7 +32,7 @@ prefix_test() ->
     ?assertEqual(Short, lists:sublist(Long, 17)).
 
 count_limit_test() ->
-    ?assertEqual({error, {bad_count, 65537}}, pq_nif:rng_u64(1, 1, 65537)).
+    ?assertEqual({error, {dimension_limit, #{count => 65537, max => 65536}}}, pq_nif:rng_u64(1, 1, 65537)).
 
 bad_arguments_test() ->
     ?assertError(badarg, pq_nif:rng_u64(-1, 0, 1)),

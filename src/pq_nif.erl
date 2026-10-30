@@ -32,5 +32,5 @@ cancel_token_set(_Token) -> erlang:nif_error(nif_not_loaded).
 
 %% The raw ChaCha8 stream (Seed, Stream) for the golden test GT-R01 (FS 8.3).
 -spec rng_u64(non_neg_integer(), non_neg_integer(), non_neg_integer()) ->
-          {ok, [non_neg_integer()]} | {error, {bad_count, non_neg_integer()}}.
+          {ok, [non_neg_integer()]} | {error, {dimension_limit, #{count := non_neg_integer(), max := 65536}}}.
 rng_u64(_Seed, _Stream, _Count) -> erlang:nif_error(nif_not_loaded).

@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 mod rng;
 
 mod atoms {
-    rustler::atoms! { ok, error, bad_count }
+    rustler::atoms! { ok, error, dimension_limit, count, max }
 }
 
 /// NIF version {Major, Minor, Patch}; checked by pq_nif.erl at load time and in the node handshake.
@@ -38,7 +38,11 @@ fn cancel_token_set(token: ResourceArc<CancelToken>) -> Atom {
 fn rng_u64<'a>(env: Env<'a>, seed: u64, stream: u64, count: usize) -> NifResult<Term<'a>> {
     use rustler::Encoder;
     if count > RNG_MAX_COUNT {
-        return Ok((atoms::error(), (atoms::bad_count(), count)).encode(env));
+        let detail = rustler::Term::map_from_pairs(
+            env,
+            &[(atoms::count().encode(env), count.encode(env)), (atoms::max().encode(env), RNG_MAX_COUNT.encode(env))],
+        )?;
+        return Ok((atoms::error(), (atoms::dimension_limit(), detail)).encode(env));
     }
     Ok((atoms::ok(), rng::u64s(seed, stream, count)).encode(env))
 }
