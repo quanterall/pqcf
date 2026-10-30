@@ -4,3 +4,6 @@ native/pq_nif/target/
 rebar3.crashdump
 erl_crash.dump
 __pycache__/
+spikes/*/target/
+spikes/*/matrices.json
+spikes/*/results.json
