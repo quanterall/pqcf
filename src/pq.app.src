@@ -1,0 +1,9 @@
+{application, pq, [
+    {description, "Photonic Quantum Computing Framework"},
+    {vsn, "0.1.0"},
+    {registered, [pq_sup]},
+    {mod, {pq_app, []}},
+    {applications, [kernel, stdlib]},
+    {env, []},
+    {licenses, ["Apache-2.0"]}
+]}.

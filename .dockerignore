@@ -1,0 +1,4 @@
+_build
+native/pq_nif/target
+priv/*.so
+.git

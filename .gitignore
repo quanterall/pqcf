@@ -1,0 +1,6 @@
+_build/
+priv/*.so
+native/pq_nif/target/
+rebar3.crashdump
+erl_crash.dump
+__pycache__/

@@ -1,0 +1,18 @@
+[package]
+name = "pq_nif"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = "0.36"
+rand_core = "0.9"
+rand_chacha = "0.9"
+
+[profile.release]
+opt-level = 3
+debug = false
