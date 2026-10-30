@@ -6,7 +6,7 @@
 -include("pq.hrl").
 -export([new/1, new/2, add/2, insert/3, replace/3, delete/2,
          validate/1, effective_binding/2, compose/2, compose/3,
-         free_symbols/1, all_symbols/1, to_binary/1, from_binary/1,
+         free_symbols/1, all_symbols/1, to_binary/1, from_binary/1, lower/2, check_capabilities/2,
          two_mode_squeezing/4, mzi/4]).
 
 -export_type([circuit/0, instruction/0, input_spec/0]).
@@ -265,6 +265,86 @@ effective_binding(#circuit{params = P, symbols = S} = C, Binding) ->
                 Missing -> {error, {unbound_symbols, lists:usort(Missing)}}
             end;
         {error, _} = E -> E
+    end.
+
+%%% FR-C07: lowering
+
+%% The circuit under the effective binding with every parameter a float, every unitary a packed matrix, custom
+%% instructions expanded, meta.lowered = true and no symbols. Validated before and after.
+-spec lower(circuit(), pq_symbolic:binding()) -> result(circuit()).
+lower(#circuit{} = C, Binding) ->
+    try
+        ok = ok_or_fail(validate(C)),
+        {ok, Env} = ok_or_fail(effective_binding(C, Binding)),
+        Sub = maps:map(fun(_, V) -> number_ast(V) end, Env),
+        Instrs = lists:append([lower_instr(I, K, Sub, Env, C) || {K, I} <- lists:enumerate(0, C#circuit.instrs)]),
+        Unused = [K || K <- maps:keys(Binding), not lists:member(K, all_symbols(C))],
+        Meta = (C#circuit.meta)#{lowered => true, binding => Env,
+                                 warnings => [{unused_bindings, lists:sort(Unused)} || Unused =/= []]},
+        Low = C#circuit{instrs = Instrs, params = #{}, meta = Meta},
+        ok = ok_or_fail(validate(Low)),
+        {ok, Low}
+    catch
+        throw:{error, _} = E -> E
+    end.
+
+ok_or_fail(ok) -> ok;
+ok_or_fail({ok, _} = R) -> R;
+ok_or_fail({error, R}) -> fail(R).
+
+number_ast(X) when is_float(X) -> X;
+number_ast({complex, R, I}) -> {complex, R, I}.
+
+lower_instr({custom, Name, Args}, K, _Sub, Env, C) ->
+    Mod = custom_module(Name),
+    case Mod:expand(Args, Env) of
+        {ok, Instrs} ->
+            [fail({unsupported_instruction, custom, #{instr_index => K, nested => true}}) ||
+                I <- Instrs, element(1, I) =:= custom],
+            lists:append([lower_instr(I, K, maps:map(fun(_, V) -> number_ast(V) end, Env), Env, C) || I <- Instrs]);
+        {error, R} -> fail({unsupported_instruction, Name, #{instr_index => K, reason => R}})
+    end;
+lower_instr({unitary, Ms, {cmat, _, _, _} = U}, _K, _Sub, _Env, _C) -> [{unitary, Ms, U}];
+lower_instr({unitary, Ms, U}, K, Sub, _Env, C) ->
+    case pq_symbolic:evaluate(pq_symbolic:substitute(U, Sub), #{}, #{domains => C#circuit.symbols}) of
+        {ok, {cmat, _, _, _} = P} -> [{unitary, Ms, P}];
+        {ok, _} -> fail({bad_shape, #{unitary => U, instr_index => K}});
+        {error, R} -> fail(R)
+    end;
+lower_instr(I, K, Sub, _Env, C) ->
+    [map_params(I, fun(E) -> real_value(E, K, Sub, C) end)].
+
+real_value(E, K, Sub, C) ->
+    case pq_symbolic:evaluate(pq_symbolic:substitute(E, Sub), #{}, #{domains => C#circuit.symbols}) of
+        {ok, X} when is_float(X) -> X;
+        {ok, {complex, Re, Im}} when abs(Im) =< 1.0e-12 * (1 + abs(Re)) -> Re;
+        {ok, V} -> fail({unsupported_input, #{complex_parameter => V, instr_index => K}});
+        {error, R} -> fail(R)
+    end.
+
+%% FS 5.3 and FR-M06: every instruction kind supported by the backend; a measurement the backend allows only at
+%% the end ('terminal') must be followed by measurements only.
+-spec check_capabilities(circuit(), module()) -> ok | {error, pq_core:reason()}.
+check_capabilities(#circuit{instrs = Is}, Backend) ->
+    Caps = Backend:capabilities(),
+    Name = Backend:name(),
+    try
+        lists:foreach(
+          fun({K, I}) ->
+                  Kind = element(1, I),
+                  case maps:get(Kind, Caps, unsupported) of
+                      unsupported when Kind =/= custom -> fail({unsupported_instruction, Kind, Name});
+                      terminal ->
+                          Later = lists:nthtail(K + 1, Is),
+                          [fail({unsupported_instruction, Kind, #{backend => Name, placement => midcircuit,
+                                                                  instr_index => K}})
+                           || L <- Later, not is_measurement(L)];
+                      _ -> ok
+                  end
+          end, lists:enumerate(0, Is)),
+        ok
+    catch
+        throw:{error, _} = E -> E
     end.
 
 %%% FR-C05: composition

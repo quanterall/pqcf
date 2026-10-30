@@ -2,7 +2,9 @@
 -module(pq_nif).
 -export([nif_version/0, check_version/0, cancel_token_new/0, cancel_token_set/1, rng_u64/3,
          permanent/2, permanent_repeated/4, bs_probability/4, sample_boson/4,
-         hafnian/2, hafnian_repeated/3, loop_hafnian/4, torontonian/2]).
+         hafnian/2, hafnian_repeated/3, loop_hafnian/4, torontonian/2,
+         gaussian_apply_symplectic/5, gaussian_apply_passive/4, gaussian_apply_loss/5, gaussian_marginal/3,
+         gaussian_physicality/2, sample_gaussian/6]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -91,3 +93,35 @@ loop_hafnian(_M, _Diag, _Mult, _Opts) -> erlang:nif_error(nif_not_loaded).
 -spec torontonian(pq_core:packed_cmatrix(), opts()) ->
           {ok, {float(), #{scale := float(), terms := non_neg_integer()}}} | kernel_error().
 torontonian(_M, _Opts) -> erlang:nif_error(nif_not_loaded).
+
+%%% Gaussian states (FS 8.4, A.2-A.6, A.12): Mean is a packed rvec of 2m, Cov a packed rmat 2m x 2m, xxpp.
+
+-type gauss() :: {ok, {pq_core:packed_rvector(), pq_core:packed_rmatrix()}} | kernel_error().
+
+%% mu' = S mu + D, Sigma' = S Sigma S^T on Modes; S must be symplectic within physicality_tol (not_symplectic)
+-spec gaussian_apply_symplectic(pq_core:packed_rvector(), pq_core:packed_rmatrix(), pq_core:packed_rmatrix(),
+                                pq_core:packed_rvector(), [non_neg_integer()]) -> gauss().
+gaussian_apply_symplectic(Mean, Cov, S, D, Modes) ->
+    gaussian_apply_symplectic_raw(Mean, Cov, S, D, Modes, float(pq_core:get(physicality_tol))).
+
+gaussian_apply_symplectic_raw(_Mean, _Cov, _S, _D, _Modes, _Tol) -> erlang:nif_error(nif_not_loaded).
+
+-spec gaussian_apply_passive(pq_core:packed_rvector(), pq_core:packed_rmatrix(), pq_core:packed_cmatrix(),
+                             [non_neg_integer()]) -> gauss().
+gaussian_apply_passive(_Mean, _Cov, _U, _Modes) -> erlang:nif_error(nif_not_loaded).
+
+-spec gaussian_apply_loss(pq_core:packed_rvector(), pq_core:packed_rmatrix(), non_neg_integer(), float(), float()) ->
+          gauss().
+gaussian_apply_loss(_Mean, _Cov, _Mode, _Eta, _Hbar) -> erlang:nif_error(nif_not_loaded).
+
+-spec gaussian_marginal(pq_core:packed_rvector(), pq_core:packed_rmatrix(), [non_neg_integer()]) -> gauss().
+gaussian_marginal(_Mean, _Cov, _Modes) -> erlang:nif_error(nif_not_loaded).
+
+%% the smallest eigenvalue of Cov + i (hbar/2) Omega: physical when it is at least -physicality_tol
+-spec gaussian_physicality(pq_core:packed_rmatrix(), float()) -> {ok, float()} | kernel_error().
+gaussian_physicality(_Cov, _Hbar) -> erlang:nif_error(nif_not_loaded).
+
+%% Detector {homodyne, Phi}: x_Phi on every mode; Opts: seed, stream_start, cancel. Shots x m packed rmat.
+-spec sample_gaussian(pq_core:packed_rvector(), pq_core:packed_rmatrix(), non_neg_integer(), {homodyne, float()},
+                      float(), opts() | map()) -> {ok, {pq_core:packed_rmatrix(), map()}} | kernel_error().
+sample_gaussian(_Mean, _Cov, _NShots, _Detector, _Hbar, _Opts) -> erlang:nif_error(nif_not_loaded).

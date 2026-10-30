@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub mod boson;
 pub mod fock;
+pub mod gaussian;
 pub mod hafnian;
 pub mod num;
 pub mod perm;
@@ -19,7 +20,7 @@ mod atoms {
         cancel, threads, scale, positions, blocks, input, output, permanent_scale,
         algorithm, seed, stream_start, max_enumeration, clifford_clifford, brute_force, imat, shots, patterns,
         probability_sum, photon_number_overflow, cvec, subsets, terms, non_physical_state, not_positive_definite,
-        size
+        size, rvec, rmat, not_symplectic, homodyne, pnr, threshold, unsupported_input
     }
 }
 
@@ -371,6 +372,186 @@ fn torontonian<'a>(env: Env<'a>, m: Term<'a>, opts: Term<'a>) -> NifResult<Term<
             error(env, (atoms::non_finite(), if w == "input" { atoms::input() } else { atoms::output() }))
         }
         Err(toronto::Error::NotPositiveDefinite) => error(env, (atoms::non_physical_state(), atoms::not_positive_definite())),
+    }))
+}
+
+fn rvec(term: Term) -> Result<Vec<f64>, String> {
+    let (tag, len, bin): (Atom, usize, Binary) = term.decode().map_err(|_| "not an rvec".to_string())?;
+    if tag != atoms::rvec() || bin.len() != 8 * len {
+        return Err("not an rvec of its length".into());
+    }
+    Ok((0..len).map(|k| f64::from_le_bytes(bin[8 * k..8 * k + 8].try_into().unwrap())).collect())
+}
+
+fn rmat(term: Term) -> Result<(Vec<f64>, usize, usize), String> {
+    let (tag, r, c, bin): (Atom, usize, usize, Binary) = term.decode().map_err(|_| "not an rmat".to_string())?;
+    if tag != atoms::rmat() || bin.len() != 8 * r * c {
+        return Err("not an rmat of its size".into());
+    }
+    Ok(((0..r * c).map(|k| f64::from_le_bytes(bin[8 * k..8 * k + 8].try_into().unwrap())).collect(), r, c))
+}
+
+fn put_rvec<'a>(env: Env<'a>, v: &[f64]) -> Term<'a> {
+    let mut bin = rustler::OwnedBinary::new(v.len() * 8).expect("binary");
+    for (k, x) in v.iter().enumerate() {
+        bin.as_mut_slice()[8 * k..8 * k + 8].copy_from_slice(&x.to_le_bytes());
+    }
+    (atoms::rvec(), v.len(), bin.release(env)).encode(env)
+}
+
+fn put_rmat<'a>(env: Env<'a>, v: &[f64], r: usize, c: usize) -> Term<'a> {
+    let mut bin = rustler::OwnedBinary::new(v.len() * 8).expect("binary");
+    for (k, x) in v.iter().enumerate() {
+        bin.as_mut_slice()[8 * k..8 * k + 8].copy_from_slice(&x.to_le_bytes());
+    }
+    (atoms::rmat(), r, c, bin.release(env)).encode(env)
+}
+
+/// mean (2m) and covariance (2m x 2m) of a Gaussian state, checked against each other
+fn gauss(mean: Term, cov: Term) -> Result<(Vec<f64>, Vec<f64>, usize), String> {
+    let mu = rvec(mean)?;
+    let (sig, r, c) = rmat(cov)?;
+    if r != c || r != mu.len() || r % 2 == 1 || r == 0 {
+        return Err("mean of length 2m and covariance 2m x 2m".into());
+    }
+    if mu.iter().chain(&sig).any(|x| !x.is_finite()) {
+        return Err("non-finite".into());
+    }
+    Ok((mu, sig, r / 2))
+}
+
+fn modes_ok(modes: &[usize], m: usize) -> bool {
+    let mut s = modes.to_vec();
+    s.sort();
+    s.dedup();
+    s.len() == modes.len() && modes.iter().all(|&j| j < m)
+}
+
+fn gauss_result<'a>(env: Env<'a>, r: Result<(Vec<f64>, Vec<f64>), gaussian::Error>) -> Term<'a> {
+    match r {
+        Ok((mu, sig)) => {
+            let n = mu.len();
+            (atoms::ok(), (put_rvec(env, &mu), put_rmat(env, &sig, n, n))).encode(env)
+        }
+        Err(gaussian::Error::BadShape(m)) => bad_shape(env, m),
+        Err(gaussian::Error::NotSymplectic(d)) => error(env, (atoms::not_symplectic(), d)),
+        Err(gaussian::Error::NonPhysical(l)) => error(env, (atoms::non_physical_state(), l)),
+        Err(gaussian::Error::Cancelled) => error(env, atoms::cancelled()),
+    }
+}
+
+/// gaussian_apply_symplectic(Mean, Cov, S, D, Modes, Tol) (FS 8.4, A.2); Tol from pq_nif.erl (physicality_tol)
+#[rustler::nif]
+fn gaussian_apply_symplectic_raw<'a>(
+    env: Env<'a>,
+    mean: Term<'a>,
+    cov: Term<'a>,
+    s: Term<'a>,
+    d: Term<'a>,
+    modes: Vec<usize>,
+    tol: f64,
+) -> NifResult<Term<'a>> {
+    let ((mut mu, mut sig, m), (sm, r, c), dv) = match (gauss(mean, cov), rmat(s), rvec(d)) {
+        (Ok(g), Ok(sm), Ok(dv)) => (g, sm, dv),
+        _ => return Ok(bad_shape(env, "mean, covariance, S or D")),
+    };
+    if r != c || r != 2 * modes.len() || dv.len() != r || !modes_ok(&modes, m) {
+        return Ok(bad_shape(env, "S is 2k x 2k and D has length 2k for k distinct modes"));
+    }
+    let res = gaussian::apply_symplectic(&mut mu, &mut sig, m, &sm, &dv, &modes, Some(tol)).map(|_| (mu, sig));
+    Ok(gauss_result(env, res))
+}
+
+/// gaussian_apply_passive(Mean, Cov, U, Modes) (FS 8.4, A.3)
+#[rustler::nif]
+fn gaussian_apply_passive<'a>(env: Env<'a>, mean: Term<'a>, cov: Term<'a>, u: Term<'a>, modes: Vec<usize>) -> NifResult<Term<'a>> {
+    let ((mut mu, mut sig, m), (uv, r, c)) = match (gauss(mean, cov), cmat(u)) {
+        (Ok(g), Ok(x)) => (g, x),
+        _ => return Ok(bad_shape(env, "mean, covariance or U")),
+    };
+    if r != c || r != modes.len() || !modes_ok(&modes, m) {
+        return Ok(bad_shape(env, "U is k x k for k distinct modes"));
+    }
+    let sm = gaussian::passive_symplectic(&uv, r);
+    let zero = vec![0.0; 2 * r];
+    let res = gaussian::apply_symplectic(&mut mu, &mut sig, m, &sm, &zero, &modes, None).map(|_| (mu, sig));
+    Ok(gauss_result(env, res))
+}
+
+/// gaussian_apply_loss(Mean, Cov, Mode, Eta, Hbar) (FS 8.4, A.6)
+#[rustler::nif]
+fn gaussian_apply_loss<'a>(env: Env<'a>, mean: Term<'a>, cov: Term<'a>, mode: usize, eta: f64, hbar: f64) -> NifResult<Term<'a>> {
+    let (mut mu, mut sig, m) = match gauss(mean, cov) {
+        Ok(g) => g,
+        Err(e) => return Ok(bad_shape(env, &e)),
+    };
+    if !(0.0..=1.0).contains(&eta) {
+        return Ok(bad_shape(env, "eta outside [0, 1]"));
+    }
+    let res = gaussian::apply_loss(&mut mu, &mut sig, m, mode, eta, hbar).map(|_| (mu, sig));
+    Ok(gauss_result(env, res))
+}
+
+/// gaussian_marginal(Mean, Cov, Modes) (FS 8.4)
+#[rustler::nif]
+fn gaussian_marginal<'a>(env: Env<'a>, mean: Term<'a>, cov: Term<'a>, modes: Vec<usize>) -> NifResult<Term<'a>> {
+    let (mu, sig, m) = match gauss(mean, cov) {
+        Ok(g) => g,
+        Err(e) => return Ok(bad_shape(env, &e)),
+    };
+    if modes.is_empty() || !modes_ok(&modes, m) {
+        return Ok(bad_shape(env, "distinct modes in range"));
+    }
+    Ok(gauss_result(env, Ok(gaussian::marginal(&mu, &sig, m, &modes))))
+}
+
+/// the smallest eigenvalue of Cov + i (hbar/2) Omega (A.12), for pq_state:check_physical/1
+#[rustler::nif(schedule = "DirtyCpu")]
+fn gaussian_physicality<'a>(env: Env<'a>, cov: Term<'a>, hbar: f64) -> NifResult<Term<'a>> {
+    match rmat(cov) {
+        Ok((sig, r, c)) if r == c && r % 2 == 0 && r > 0 => {
+            Ok((atoms::ok(), gaussian::physicality(&sig, r / 2, hbar)).encode(env))
+        }
+        _ => Ok(bad_shape(env, "covariance 2m x 2m")),
+    }
+}
+
+/// sample_gaussian(Mean, Cov, NShots, Detector, Hbar, Opts) (FS 8.4): {homodyne, Phi} measures x_Phi on every mode
+/// (rotated into x by a phase -Phi); photon counting comes with Gaussian boson sampling (Phase 2).
+#[rustler::nif(schedule = "DirtyCpu")]
+fn sample_gaussian<'a>(
+    env: Env<'a>,
+    mean: Term<'a>,
+    cov: Term<'a>,
+    shots: usize,
+    detector: Term<'a>,
+    _hbar: f64,
+    opts: Term<'a>,
+) -> NifResult<Term<'a>> {
+    let o = kernel_opts(opts)?;
+    let (mut mu, mut sig, m) = match gauss(mean, cov) {
+        Ok(g) => g,
+        Err(e) => return Ok(bad_shape(env, &e)),
+    };
+    let phi = match detector.decode::<(Atom, f64)>() {
+        Ok((tag, phi)) if tag == atoms::homodyne() => phi,
+        _ => return Ok(error(env, (atoms::unsupported_input(), detector))),
+    };
+    let seed: u64 = opt(opts, atoms::seed(), 0u64)?;
+    let start: u64 = opt(opts, atoms::stream_start(), 0u64)?;
+    if phi != 0.0 {
+        let rot = C64::new((-phi).cos(), (-phi).sin());
+        for j in 0..m {
+            let sm = gaussian::passive_symplectic(&[rot], 1);
+            gaussian::apply_symplectic(&mut mu, &mut sig, m, &sm, &[0.0, 0.0], &[j], None).expect("rotation");
+        }
+    }
+    let cancel = cancelled_fn(&o);
+    Ok(guarded(env, || match gaussian::sample_homodyne(&mu, &sig, m, shots, seed, start, &cancel) {
+        Ok(y) => (atoms::ok(), (put_rmat(env, &y, shots, m), Term::map_new(env))).encode(env),
+        Err(gaussian::Error::NonPhysical(l)) => error(env, (atoms::non_physical_state(), l)),
+        Err(gaussian::Error::Cancelled) => error(env, atoms::cancelled()),
+        Err(_) => bad_shape(env, "state"),
     }))
 }
 

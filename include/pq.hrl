@@ -28,3 +28,10 @@
     cutoff  :: non_neg_integer(),
     rho     :: term()                                % packed_cmatrix(), D x D
 }).
+
+-record(result, {
+    kind     :: pnr | threshold | homodyne | mixed,
+    measured :: [non_neg_integer()],              % column order of every sample
+    samples  :: [[non_neg_integer() | float()]],  % accepted shots only
+    metadata :: #{atom() => term()}
+}).
