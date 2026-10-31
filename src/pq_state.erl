@@ -4,7 +4,7 @@
 -include("pq.hrl").
 -export([basis_size/2, index/3, pattern/3,
          vacuum/2, coherent/3, squeezed_vacuum/3, thermal/3,
-         to_xpxp/1, from_xpxp/2, reduce/2, check_physical/1,
+         to_xpxp/1, from_xpxp/1, from_xpxp/2, reduce/2, check_physical/1,
          mean_cov/1, from_mean_cov/3]).
 
 %%% Fock basis (FS 3.4): all occupation tuples with total at most Cutoff, ordered by total photon number, then
@@ -143,6 +143,10 @@ to_xpxp(#gaussian_state{n_modes = N} = S) ->
     {Mean, Cov} = mean_cov(S),
     P = xpxp_order(N),
     {[lists:nth(I + 1, Mean) || I <- P], [[lists:nth(J + 1, lists:nth(I + 1, Cov)) || J <- P] || I <- P]}.
+
+%% FS 7: with the configured hbar
+-spec from_xpxp({[number()], [[number()]]}) -> #gaussian_state{}.
+from_xpxp(MC) -> from_xpxp(MC, pq_core:get(hbar)).
 
 -spec from_xpxp({[number()], [[number()]]}, number()) -> #gaussian_state{}.
 from_xpxp({Mean, Cov}, Hbar) ->

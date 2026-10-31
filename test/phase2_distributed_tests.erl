@@ -85,6 +85,19 @@ distributed_test_() ->
                            %% the isolated nodes are gone afterwards
                            ?assertEqual([], [N || N <- nodes(), string:prefix(atom_to_list(N), "pq_isolated") =/= nomatch])
                        end)}},
+              {"circuits other than boson sampling distribute too (GBS through pq_api)",
+               ?_test(begin
+                          {ok, G0} = pq_circuit:new(3),
+                          G = G0#circuit{instrs = [{squeezing, 0, 0.6, 0}, {squeezing, 1, 0.4, 0}, {beamsplitter, 0, 1, 0.5, 0.1},
+                                                   {beamsplitter, 1, 2, 0.7, 0}, {measure_pnr, [0, 1, 2]}]},
+                          {ok, #result{samples = L}} = pq_api:run(G, #{shots => 600, seed => 2, max_inflight => 2}),
+                          Self = self(),
+                          {ok, #result{samples = Dd}} = pq_api:run(G, #{shots => 600, seed => 2, distributed => true, chunk => 50,
+                                                                        notify => Self}),
+                          Job = receive {pq_job, J} -> J after 0 -> error(no_notify) end,
+                          ?assert(is_pid(Job)),
+                          ?assertEqual(L, Dd)
+                      end)},
               {"memory pre-check",
                ?_assertMatch({error, {dimension_limit, _, 10}},
                              pq_sampling:sample(boson, c(), #{shots => 1000, seed => 1, max_job_memory => 10}))}]

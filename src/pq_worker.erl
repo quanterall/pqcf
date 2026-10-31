@@ -31,7 +31,7 @@ remote(Node, Spec, First, N) ->
     end.
 
 %% on the worker node: the cached spec's chunk, or spec_missing
--spec run_cached(binary(), non_neg_integer(), non_neg_integer()) -> {ok, [list()]} | {error, term()} | spec_missing.
+-spec run_cached(binary(), non_neg_integer(), non_neg_integer()) -> {ok, [list()]} | {ok, [list()], map()} | {error, term()} | spec_missing.
 run_cached(Hash, First, N) ->
     case pq_spec_cache:get(Hash) of
         {ok, #{halt_node := Node}} when Node =:= node() -> erlang:halt(1);       % the FR-P07 test hook
@@ -40,7 +40,9 @@ run_cached(Hash, First, N) ->
     end.
 
 %% {Spec, FirstShot, NShots} -> {ok, Samples} | {error, Reason}; shot k uses stream (Seed, k)
--spec run_chunk({map(), non_neg_integer(), non_neg_integer()}) -> {ok, [list()]} | {error, term()}.
+-spec run_chunk({map(), non_neg_integer(), non_neg_integer()}) -> {ok, [list()]} | {ok, [list()], map()} | {error, term()}.
+run_chunk({#{kind := circuit, terminal := true} = Spec, First, N}) ->
+    pq_simulator:terminal(Spec, First, N);
 run_chunk({#{kind := circuit} = Spec, First, N}) ->
     pq_simulator:shots(Spec, First, N);
 run_chunk({#{kind := boson, unitary := U, input := In, seed := Seed} = Spec, First, N}) ->

@@ -3,7 +3,8 @@
 %% the circuit has loss; `boson` (pq_sampling) for passive circuits with a Fock input.
 -module(pq_api).
 -include("pq.hrl").
--export([circuit/1, circuit/2, run/2, sample/2, evolve/2, probabilities/2, run_batch/3, backend_for/2]).
+-export([circuit/1, circuit/2, run/2, run/3, sample/2, sample/3, evolve/2, evolve/3, probabilities/2, run_batch/3,
+         backend_for/2]).
 
 -type result(T) :: {ok, T} | {error, pq_core:reason()}.
 
@@ -19,6 +20,16 @@ run(C, Opts) ->
         boson -> pq_sampling:sample(boson, C, Opts);
         B -> pq_simulator:run(backend_module(B), C, Opts)
     end.
+
+%% FS 7: the three-argument forms take the backend first, like pq_simulator and pq_sampling
+-spec run(gaussian | fock | fock_dm | boson, #circuit{}, map()) -> result(#result{}).
+run(Backend, C, Opts) -> run(C, Opts#{backend => Backend}).
+
+-spec sample(gaussian | fock | fock_dm | boson, #circuit{}, map()) -> result(#result{}).
+sample(Backend, C, Opts) -> sample(C, Opts#{backend => Backend}).
+
+-spec evolve(gaussian | fock | fock_dm, #circuit{}, map()) -> {ok, term(), [{atom(), term()}]} | {error, pq_core:reason()}.
+evolve(Backend, C, Opts) -> evolve(C, Opts#{backend => Backend}).
 
 %% the same as run/2, with shots required
 -spec sample(#circuit{}, map()) -> result(#result{}).

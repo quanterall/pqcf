@@ -115,7 +115,7 @@ gaussian = pq_api:backend_for(C, #{}),
 
 | Function | Returns |
 | --- | --- |
-| `pq_api:run(C, Opts)` | `{ok, #result{}}`; `shots` defaults to 1 |
+| `pq_api:run(C, Opts)` | `{ok, #result{}}`; `shots` defaults to 1. `run(Backend, C, Opts)`, `sample/3` and `evolve/3` name the backend |
 | `pq_api:sample(C, Opts)` | the same, with `shots` required |
 | `pq_api:evolve(C, Opts)` | `{ok, State, Warnings}`: the state before any measurement |
 | `pq_api:probabilities(C, Opts)` | `{ok, #{Pattern => P}, Meta}`: exact probabilities of the measured modes' outcomes |
@@ -140,6 +140,8 @@ Common options:
 | `max_photons` | 16 | Gaussian enumeration and GBS bound |
 | `max_enumeration` | 1 000 000 | the largest outcome set `probabilities/2` will list |
 | `max_inflight`, `chunk` | derived | job server parallelism; they never change the samples |
+| `timeout` | `infinity` | ms; `{error, timeout}`, or with `partial_results => true` the samples finished so far |
+| `notify` | none | a pid that receives `{pq_job, Job}` when the sampling job starts, see Jobs |
 | `strict` | false | turn truncation warnings into errors |
 
 `pq_core:defaults/0` lists every option. Application environment values override the defaults, and call options
@@ -249,6 +251,7 @@ The predicates are:
   the run is distributed.
 
 If nothing is accepted within `max_attempts`, the run fails with `postselection_exhausted`.
+`pq_sampling:postselect(Result, Predicate)` applies a predicate after the run.
 
 ## 11. The symbolic engine
 
@@ -306,7 +309,29 @@ The conventions of both converters are checked against the libraries themselves 
 {ok, Back} = pq_circuit:from_json(Json).
 ```
 
-## 13. Several nodes
+## 13. Jobs
+
+Every run with at least `parallel_threshold` shots (64 by default) is a job. The job server splits the shots
+into chunks, runs at most `max_inflight` chunks at a time in worker processes, retries a crashed chunk up to
+`max_retries` times and merges the results in shot order. If the `pq` application isn't started, the job runs
+in the calling process instead, with the same samples.
+
+```erlang
+Self = self(),
+spawn(fun() -> Self ! {done, pq_api:run(C, #{shots => 1000000, seed => 1, notify => Self})} end),
+receive {pq_job, Job} -> ok end,
+{ok, #{state := running, done := Done, chunks := Total}} = pq_parallel:status(Job),
+ok = pq_parallel:cancel(Job).                 %% the run returns {error, cancelled}
+```
+
+With `timeout => Ms, partial_results => true`, a timeout returns
+`{error, {timeout, #{partial => #{samples => Rows, shot_indices => Is}}}}`. These are the rows the full run would
+have had at those shot indices, as the worker produced them, before any projection to columns.
+
+When the `telemetry` library is loaded, jobs emit `[pq, job, start | stop | exception]` and
+`[pq, chunk, start | stop | retry]`. PQCF doesn't depend on it: add it to your application to get the events.
+
+## 14. Several nodes
 
 Connect the nodes and start `pq` on each. Nodes find each other through the `pq` process group and a version
 handshake (same NIF, same architecture unless `allow_heterogeneous_arch`). Then:
@@ -317,9 +342,9 @@ handshake (same NIF, same architecture unless `allow_heterogeneous_arch`). Then:
 - `isolate_kernels => true` runs the kernels on peer nodes, so a crash in native code takes down only the
   peer.
 - A job is refused up front if its estimated memory is more than `max_job_memory` (default: half of the
-  machine's memory).
+  machine's memory). With `auto_throttle => true`, it runs with fewer chunks in flight instead.
 
-## 14. Errors
+## 15. Errors
 
 Every error is `{error, {Category, Detail}}` or `{error, Category}`. `pq_core:categories/0` lists the
 categories. The common ones are:

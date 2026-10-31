@@ -8,7 +8,7 @@ close(A, B) -> abs(A - B) < 1.0e-9.
 guide_test_() ->
     {setup, fun() -> {ok, _} = application:ensure_all_started(pq) end, fun(_) -> ok end,
      [fun hom/0, fun determinism/0, fun squeezed/0, fun parameters/0, fun gradient/0, fun symbolic/0, fun json/0,
-      fun loss/0, fun postselection/0, fun errors/0]}.
+      fun loss/0, fun postselection/0, fun jobs/0, fun errors/0]}.
 
 %% 1. Hong-Ou-Mandel
 hom() ->
@@ -133,3 +133,17 @@ postselection() ->
         pq_api:sample(C, #{shots => 100, seed => 5, postselect => {eq, 1, 0}, shots_mode => accepted}),
     ?assertEqual(lists:duplicate(100, [1, 0]), S),
     ?assertEqual(100, maps:get(shots_accepted, M)).
+
+%% 13. Jobs
+jobs() ->
+    {ok, C0} = pq_api:circuit(12, {fock, lists:duplicate(8, 1) ++ lists:duplicate(4, 0)}),
+    C = lists:foldl(fun(I, Acc) -> pq_circuit:add(Acc, I) end, C0,
+                    [{beamsplitter, J, J + 1, 0.3 + 0.05 * J, 0.1 * L} || L <- lists:seq(0, 11), J <- lists:seq(L rem 2, 10, 2)]
+                    ++ [{measure_pnr, lists:seq(0, 11)}]),
+    Self = self(),
+    spawn(fun() -> Self ! {done, pq_api:run(C, #{backend => boson, shots => 1000000, seed => 1, notify => Self})} end),
+    Job = receive {pq_job, J} -> J end,
+    {ok, #{state := running, done := Done, chunks := Total}} = pq_parallel:status(Job),
+    ?assert(Done < Total),
+    ok = pq_parallel:cancel(Job),
+    ?assertEqual({error, cancelled}, receive {done, R} -> R end).

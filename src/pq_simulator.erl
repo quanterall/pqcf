@@ -11,7 +11,7 @@
 %% attempt index is the stream index, so results do not depend on chunking.
 -module(pq_simulator).
 -include("pq.hrl").
--export([evolve/3, run/3, shots/3, eval/3]).
+-export([evolve/3, run/3, shots/3, terminal/3, eval/3]).
 
 -spec evolve(module(), #circuit{}, map()) -> {ok, term(), [{atom(), term()}]} | {error, pq_core:reason()}.
 evolve(Backend, C, Opts) ->
@@ -46,7 +46,9 @@ run(Backend, C, Opts0) ->
         Mid andalso (erlang:function_exported(Backend, measure, 3) orelse
                      throw({error, {unsupported_instruction, midcircuit_measurement, Backend:name()}})),
         {S0, Warnings} = ok2(evolve_instrs(Backend, Low, Body, Opts)),
-        Spec = #{kind => circuit, backend => Backend, state => S0, rest => Rest, opts => Opts, seed => Seed},
+        %% the predicate and the notify pid stay here: post-selection runs in this process (FS 4.7)
+        Spec = #{kind => circuit, backend => Backend, state => S0, rest => Rest, opts => maps:without([postselect, notify], Opts),
+                 seed => Seed},
         Rows = fun(Start, N) -> rows(Spec, Mid, Start, N, Opts) end,
         Measured = lists:append([modes(I) || I <- Rest, measurement(I)]),
         {Samples, Attempts, Extra} = postselected(Rows, Shots, Opts#{measured_columns => Measured}),
@@ -72,15 +74,25 @@ ok2({error, _} = E) -> throw(E).
 
 %% the samples of shots Start .. Start + N - 1, and what the backend adds to the metadata
 rows(#{backend := Backend, state := S0, rest := Rest} = Spec, false, Start, N, Opts) ->
-    _ = Spec,
-    case Backend:sample(Rest, S0, Opts#{shots => N, stream_start => Start}) of
-        {ok, _Kind, _Modes, Samples, Extra} -> {Samples, Extra};
-        {error, _} = E -> throw(E)
+    %% terminal sampling: one call, or chunks through the job server like every other run (FR-P01), each chunk
+    %% from stream_start, so the samples are the same
+    case maps:get(parallel, Opts, true) andalso N >= pq_core:get(parallel_threshold, Opts) of
+        false ->
+            case Backend:sample(Rest, S0, Opts#{shots => N, stream_start => Start}) of
+                {ok, _Kind, _Modes, Samples, Extra} -> {Samples, Extra};
+                {error, _} = E -> throw(E)
+            end;
+        true ->
+            case pq_parallel:run_job(Spec#{terminal => true}, (pq_parallel:job_opts(Opts))#{shots => N, offset => Start}) of
+                {ok, Samples, Extras} -> {Samples, merge_extra(Extras, Opts)};
+                {ok, Samples} -> {Samples, #{}};
+                {error, _} = E -> throw(E)
+            end
     end;
 rows(Spec, true, Start, N, Opts) ->
     Parallel = maps:get(parallel, Opts, true) andalso N >= pq_core:get(parallel_threshold, Opts),
     R = case Parallel of
-            true -> pq_parallel:run_job(Spec, (maps:with([max_inflight, max_retries, max_chunk, chunk, timeout], Opts))#{shots => N, offset => Start});
+            true -> pq_parallel:run_job(Spec, (pq_parallel:job_opts(Opts))#{shots => N, offset => Start});
             false -> shots(Spec, Start, N)
         end,
     case R of
@@ -95,6 +107,35 @@ shots(#{backend := Backend, state := S0, rest := Rest, opts := Opts, seed := See
         {ok, [shot(Backend, S0, Rest, Opts, pq_nif:stream_new(Seed, K), []) || K <- lists:seq(First, First + N - 1)]}
     catch
         throw:{error, _} = E -> E
+    end.
+
+%% a worker's chunk of terminal sampling: the backend's sampler from stream_start, with what it adds to the
+%% metadata; strict is judged on the merged metadata (merge_extra/2)
+-spec terminal(map(), non_neg_integer(), non_neg_integer()) -> {ok, [list()], map()} | {error, term()}.
+terminal(#{backend := Backend, state := S0, rest := Rest, opts := Opts} = Spec, First, N) ->
+    COpts = maps:merge(Opts#{shots => N, stream_start => First, strict => false}, maps:with([cancel], Spec)),
+    case Backend:sample(Rest, S0, COpts) of
+        {ok, _Kind, _Modes, Samples, Extra} -> {ok, Samples, Extra};
+        {error, _} = E -> E
+    end.
+
+%% the chunks' metadata as one call's: truncated_mass (the GBS sampler's mean over shots, FS 5.7) weighted by the
+%% chunks' shots, its warning and strict judged on that mean; the rest is the same in every chunk. The mean equals
+%% the one-call value up to the order of the floating-point sums.
+merge_extra([{_, E0} | _] = Extras, Opts) ->
+    Base = maps:without([truncated_mass, extra_warnings], E0),
+    case lists:all(fun({_, E}) -> maps:is_key(truncated_mass, E) end, Extras) of
+        true ->
+            Total = lists:sum([N || {N, _} <- Extras]),
+            T = lists:sum([N * maps:get(truncated_mass, E) || {N, E} <- Extras]) / max(1, Total),
+            W = [{gbs_truncation, #{truncated_mass => T}} || T > pq_core:get(truncation_tol, Opts)],
+            W =/= [] andalso pq_core:get(strict, Opts) andalso throw({error, {gbs_truncation, #{truncated_mass => T}}}),
+            Base#{truncated_mass => T, extra_warnings => W};
+        false ->
+            case lists:usort(lists:append([maps:get(extra_warnings, E, []) || {_, E} <- Extras])) of
+                [] -> Base;
+                W -> Base#{extra_warnings => W}
+            end
     end.
 
 shot(_Backend, _S, [], _Opts, _R, Acc) -> Acc;

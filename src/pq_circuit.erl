@@ -7,7 +7,7 @@
 -export([new/1, new/2, add/2, insert/3, replace/3, delete/2,
          validate/1, effective_binding/2, compose/2, compose/3,
          free_symbols/1, all_symbols/1, to_binary/1, from_binary/1, lower/2, check_capabilities/2, check_capabilities/3, mesh/1, to_json/1, from_json/1, from_json/2,
-         two_mode_squeezing/4, mzi/4]).
+         two_mode_squeezing/3, two_mode_squeezing/4, mzi/4]).
 
 -export_type([circuit/0, instruction/0, input_spec/0]).
 
@@ -520,6 +520,10 @@ from_json(Bin, Opts) -> pq_json:from_json(Bin, Opts).
 %%% FR-C11: the gate library, as instruction lists
 
 %% B(pi/4, 0)^dagger (S(z) x S(-z)) B(pi/4, 0), z = R e^(i Phi): the Strawberry Fields decomposition
+%% FS 7: phase 0
+-spec two_mode_squeezing(mode(), mode(), param()) -> [instruction()].
+two_mode_squeezing(M1, M2, R) -> two_mode_squeezing(M1, M2, R, 0).
+
 -spec two_mode_squeezing(mode(), mode(), param(), param()) -> [instruction()].
 two_mode_squeezing(M1, M2, R, Phi) ->
     Q = {mul, [{rat, 1, 4}, {const, pi}]},

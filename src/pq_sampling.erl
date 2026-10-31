@@ -2,7 +2,25 @@
 %% every mode, through the job server for parallel shots (FR-B04, FS 9.1).
 -module(pq_sampling).
 -include("pq.hrl").
--export([sample/3, passive_unitary/1]).
+-export([sample/3, probabilities/3, postselect/2, passive_unitary/1]).
+
+%% FS 7.1: exact probabilities with the backend given (pq_api:probabilities/2 with backend => Backend)
+-spec probabilities(gaussian | fock | fock_dm | boson, #circuit{}, map()) ->
+          {ok, #{[non_neg_integer()] => float()}, map()} | {error, pq_core:reason()}.
+probabilities(Backend, C, Opts) -> pq_api:probabilities(C, Opts#{backend => Backend}).
+
+%% FS 7.1: the samples of a result that satisfy a predicate (FS 4.7; modes are circuit modes); the metadata
+%% counts the accepted ones. Applied after the run, so it does not change the stream of any shot.
+-spec postselect(#result{}, term()) -> {ok, #result{}} | {error, pq_core:reason()}.
+postselect(#result{measured = Measured, samples = S, metadata = M} = R, Pred) ->
+    try [Row || Row <- S, pq_simulator:eval(Pred, Row, #{measured_columns => Measured}) =:= true] of
+        Kept ->
+            Acc = case S of [] -> 0.0; _ -> length(Kept) / length(S) end,
+            {ok, R#result{samples = Kept, metadata = M#{shots_accepted => length(Kept),
+                                                        acceptance_rate => Acc * maps:get(acceptance_rate, M, 1.0)}}}
+    catch
+        error:_ -> {error, {bad_term, #{predicate => Pred}}}
+    end.
 
 -spec sample(boson, #circuit{}, map()) -> {ok, #result{}} | {error, pq_core:reason()}.
 sample(boson, C, Opts) ->
@@ -35,8 +53,7 @@ sample(boson, C, Opts) ->
         E -> E
     end.
 
-job_opts(Opts) -> maps:with([max_inflight, max_retries, max_chunk, chunk, timeout, distributed, max_job_memory,
-                             isolate_kernels, isolated_nodes, halt_first_isolated], Opts).
+job_opts(Opts) -> pq_parallel:job_opts(Opts).
 
 %% the lowered circuit's single-photon unitary, its Fock input and the measured modes
 prepare(C, Opts) ->
