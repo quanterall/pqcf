@@ -5,7 +5,8 @@
 -export([basis_size/2, index/3, pattern/3,
          vacuum/2, coherent/3, squeezed_vacuum/3, thermal/3,
          to_xpxp/1, from_xpxp/1, from_xpxp/2, reduce/2, check_physical/1,
-         mean_cov/1, from_mean_cov/3]).
+         mean_cov/1, from_mean_cov/3,
+         fock_state/2, fock_superposition/2, fock_dm/1]).
 
 %%% Fock basis (FS 3.4): all occupation tuples with total at most Cutoff, ordered by total photon number, then
 %%% lexicographically ascending from mode 0. D = C(Cutoff + m, m).
@@ -176,3 +177,61 @@ check_physical(#gaussian_state{hbar = H, cov = C}) ->
             end;
         {error, _} = E -> E
     end.
+
+%%% FR-F01: Fock states from occupation patterns, superpositions within the cutoff, density matrices from pure states
+
+%% the basis state |Pattern> with the given cutoff (n_modes = length(Pattern))
+-spec fock_state([non_neg_integer()], non_neg_integer()) -> {ok, #fock_state{}} | {error, pq_core:reason()}.
+fock_state(Pattern, Cutoff) -> fock_superposition([{1, Pattern}], Cutoff).
+
+%% sum of Coeff |Pattern>, normalised; Coeff a number or {complex, Re, Im}; repeated patterns add up
+-spec fock_superposition([{number() | {complex, number(), number()}, [non_neg_integer()]}], non_neg_integer()) ->
+          {ok, #fock_state{}} | {error, pq_core:reason()}.
+fock_superposition([{_, P0} | _] = Terms, Cutoff) when is_integer(Cutoff), Cutoff >= 0 ->
+    N = length(P0),
+    try
+        N >= 1 orelse throw({bad_shape, #{pattern => P0}}),
+        Acc = lists:foldl(fun({C, P}, M) ->
+                                  length(P) =:= N orelse throw({bad_shape, #{pattern => P, n_modes => N}}),
+                                  lists:all(fun(X) -> is_integer(X) andalso X >= 0 end, P) orelse throw({bad_shape, #{pattern => P}}),
+                                  lists:sum(P) =< Cutoff orelse throw({unsupported_input, #{pattern => P, cutoff => Cutoff}}),
+                                  {ok, I} = index(P, N, Cutoff),
+                                  {Re, Im} = coeff(C),
+                                  maps:update_with(I, fun({A, B}) -> {A + Re, B + Im} end, {Re, Im}, M)
+                          end, #{}, Terms),
+        Norm = math:sqrt(lists:sum([A * A + B * B || {A, B} <- maps:values(Acc)])),
+        Norm > 0 orelse throw({bad_shape, zero_norm}),
+        D = basis_size(N, Cutoff),
+        Amps = << <<(element(1, Z) / Norm):64/float-little, (element(2, Z) / Norm):64/float-little>>
+                  || K <- lists:seq(0, D - 1), Z <- [maps:get(K, Acc, {0.0, 0.0})] >>,
+        {ok, #fock_state{n_modes = N, cutoff = Cutoff, amps = {cvec, D, Amps}}}
+    catch
+        throw:{Cat, _} = R when is_atom(Cat) -> {error, R}
+    end;
+fock_superposition(Terms, Cutoff) -> {error, {bad_shape, #{terms => Terms, cutoff => Cutoff}}}.
+
+coeff({complex, Re, Im}) when is_number(Re), is_number(Im) -> {float(Re), float(Im)};
+coeff(X) when is_number(X) -> {float(X), 0.0};
+coeff(X) -> throw({bad_shape, #{coefficient => X}}).
+
+%% |psi><psi| of a pure state, or the mixture sum w_i |psi_i><psi_i| (weights normalised, states of one shape)
+-spec fock_dm(#fock_state{} | [{number(), #fock_state{}}]) -> {ok, #fock_dm{}} | {error, pq_core:reason()}.
+fock_dm(#fock_state{} = S) -> {ok, pq_fock_dm:from_pure(S)};
+fock_dm([{_, #fock_state{n_modes = N, cutoff = C}} | _] = Mix) ->
+    W = lists:sum([X || {X, _} <- Mix]),
+    case lists:all(fun({X, #fock_state{n_modes = N1, cutoff = C1}}) -> is_number(X) andalso X >= 0 andalso N1 =:= N andalso C1 =:= C;
+                      (_) -> false
+                   end, Mix) andalso W > 0 of
+        false -> {error, {bad_shape, mixture}};
+        true ->
+            Rhos = [{X / W, element(2, pq_core:unpack((pq_fock_dm:from_pure(S))#fock_dm.rho))} || {X, S} <- Mix],
+            D = basis_size(N, C),
+            Sum = [[lists:foldl(fun({Wi, {cmat, R}}, {complex, A, B}) ->
+                                        {complex, Ai, Bi} = lists:nth(J, lists:nth(I, R)),
+                                        {complex, A + Wi * Ai, B + Wi * Bi}
+                                end, {complex, 0.0, 0.0}, Rhos) || J <- lists:seq(1, D)] || I <- lists:seq(1, D)],
+            {ok, Rho} = pq_core:pack({cmat, Sum}),
+            {ok, #fock_dm{n_modes = N, cutoff = C, rho = Rho}}
+    end;
+fock_dm(Other) -> {error, {bad_shape, #{fock_dm => Other}}}.
+

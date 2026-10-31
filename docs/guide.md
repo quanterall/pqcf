@@ -79,6 +79,13 @@ Measurements may sit in the middle of a circuit. A measured mode can't be used a
 
 Inputs: `vacuum`, `{fock, Pattern}`, `{gaussian, #gaussian_state{}}` or `{fock_state, #fock_state{}}`.
 
+`pq_state` builds input states:
+
+- **Gaussian:** `vacuum/2`, `coherent/3`, `squeezed_vacuum/3`, `thermal/3`, `from_mean_cov/3`.
+- **Fock:** `fock_state(Pattern, Cutoff)`, and `fock_superposition([{Coeff, Pattern}], Cutoff)`, which is
+  normalised for you.
+- **Density matrices:** `fock_dm(PureState)`, or `fock_dm([{Weight, PureState}])` for a mixture.
+
 ## 4. Backends
 
 `pq_api:backend_for/2` picks a backend unless you pass `backend => B`:
@@ -143,6 +150,8 @@ Common options:
 | `timeout` | `infinity` | ms; `{error, timeout}`, or with `partial_results => true` the samples finished so far |
 | `notify` | none | a pid that receives `{pq_job, Job}` when the sampling job starts, see Jobs |
 | `strict` | false | turn truncation warnings into errors |
+| `collision_free` | false | boson sampling: keep only outcomes with at most one photon per mode. This is post-selection, so `attempts` and `acceptance_rate` are reported |
+| `check_physical` | false | Gaussian backend: validate the state after every instruction, not only the input |
 
 `pq_core:defaults/0` lists every option. Application environment values override the defaults, and call options
 override both.

@@ -32,21 +32,34 @@ init({gaussian, #gaussian_state{} = S}, _C, Opts) ->
 init({fock, _}, _C, _Opts) -> {error, {unsupported_input, fock}};
 init(Other, _C, _Opts) -> {error, {unsupported_input, Other}}.
 
-apply({beamsplitter, A, B, T, P}, S, _Opts) ->
+%% FR-G06: with check_physical => true the state is validated after every instruction, not only on init
+apply(I, S, #{check_physical := true} = Opts) ->
+    case gate(I, S, Opts) of
+        {ok, S2, W} ->
+            case pq_state:check_physical(S2) of
+                ok -> {ok, S2, W};
+                {error, {Cat, D}} when is_map(D) -> {error, {Cat, D#{after_instruction => I}}};
+                E -> E
+            end;
+        E -> E
+    end;
+apply(I, S, Opts) -> gate(I, S, Opts).
+
+gate({beamsplitter, A, B, T, P}, S, _Opts) ->
     passive(S, [[{complex, math:cos(T), 0.0}, {complex, -math:cos(-P) * math:sin(T), -math:sin(-P) * math:sin(T)}],
                 [{complex, math:cos(P) * math:sin(T), math:sin(P) * math:sin(T)}, {complex, math:cos(T), 0.0}]], [A, B]);
-apply({phaseshift, M, P}, S, _Opts) -> passive(S, [[{complex, math:cos(P), math:sin(P)}]], [M]);
-apply({unitary, Ms, U}, #gaussian_state{mean = Mu, cov = C} = S, _Opts) ->
+gate({phaseshift, M, P}, S, _Opts) -> passive(S, [[{complex, math:cos(P), math:sin(P)}]], [M]);
+gate({unitary, Ms, U}, #gaussian_state{mean = Mu, cov = C} = S, _Opts) ->
     result(S, pq_nif:gaussian_apply_passive(Mu, C, U, Ms));
-apply({displacement, M, R, P}, #gaussian_state{hbar = H} = S, _Opts) ->
+gate({displacement, M, R, P}, #gaussian_state{hbar = H} = S, _Opts) ->
     K = math:sqrt(2 * H) * R,
     symplectic(S, [[1, 0], [0, 1]], [K * math:cos(P), K * math:sin(P)], [M]);
-apply({squeezing, M, R, P}, S, _Opts) ->
+gate({squeezing, M, R, P}, S, _Opts) ->
     C = math:cosh(R), Sh = math:sinh(R),
     symplectic(S, [[C - math:cos(P) * Sh, -math:sin(P) * Sh], [-math:sin(P) * Sh, C + math:cos(P) * Sh]], [0, 0], [M]);
-apply({loss, M, Eta}, #gaussian_state{hbar = H, mean = Mu, cov = C} = S, _Opts) ->
+gate({loss, M, Eta}, #gaussian_state{hbar = H, mean = Mu, cov = C} = S, _Opts) ->
     result(S, pq_nif:gaussian_apply_loss(Mu, C, M, float(Eta), float(H)));
-apply(I, _S, _Opts) -> {error, {unsupported_instruction, element(1, I), gaussian}}.
+gate(I, _S, _Opts) -> {error, {unsupported_instruction, element(1, I), gaussian}}.
 
 passive(#gaussian_state{mean = Mu, cov = C} = S, Rows, Modes) ->
     {ok, U} = pq_core:pack({cmat, Rows}),

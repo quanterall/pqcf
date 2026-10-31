@@ -484,9 +484,10 @@ prop_slp() ->
                 {{ok, P}, {ok, V}} ->
                     {ok, [W]} = ?S:eval_slp(P, B),
                     close(as_pair(V), as_pair(W)) andalso
-                        %% SY 8.1: evaluate is eval_slp of compile([E], free_symbols(E)), the same doubles
+                        %% SY 8.1: evaluate is eval_slp of compile([E], free_symbols(E)), the same doubles, under
+                        %% the same options (the domains change the canonical form: sqrt(-p^3) is i p^(3/2) for p > 0)
                         ?S:evaluate(E, B, ?DOM) =:= begin
-                                                        {ok, Q} = ?S:compile([E], ?S:free_symbols(E)),
+                                                        {ok, Q} = ?S:compile([E], ?S:free_symbols(E), ?DOM),
                                                         {ok, [X]} = ?S:eval_slp(Q, B),
                                                         {ok, X}
                                                     end;
@@ -504,6 +505,14 @@ slp_test_() ->
                  ?assert(abs(C - math:cos(0.3)) < 1.0e-15),
                  ?assertMatch({cmat, 2, 2, _}, B),
                  ?assertEqual({error, {unbound_symbols, [t]}}, ?S:eval_slp(P, #{}))
+             end),
+      %% the counterexample PropEr found: with p positive, compile must use the domain like evaluate does
+      ?_test(begin
+                 E = {pow, {mul, [{mul, [-1, {sym, p}]}, {mul, [{sym, p}, {sym, p}]}]}, {rat, 1, 2}},
+                 B = #{p => 1.593539478449718},
+                 {ok, Q} = ?S:compile([E], [p], ?DOM),
+                 {ok, [V]} = ?S:eval_slp(Q, B),
+                 ?assertEqual({ok, V}, ?S:evaluate(E, B, ?DOM))
              end),
       %% an identity matrix compiles to a matrix, not to a list of entries
       ?_test(begin

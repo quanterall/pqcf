@@ -32,25 +32,45 @@ sample(boson, C, Opts) ->
             Spec = maps:merge(maps:with([loss, burn_in, thin, chains], Opts),
                               #{kind => boson, unitary => U, input => In, seed => Seed, algorithm => Alg,
                                 max_enumeration => pq_core:get(max_enumeration, Opts), crash => maps:get(crash, Opts, [])}),
-            %% metropolis carries its chains' state across shots: one call (FR-B03)
-            Parallel = maps:get(parallel, Opts, true) andalso Alg =/= metropolis
-                andalso Shots >= pq_core:get(parallel_threshold, Opts),
-            R = case Parallel of
-                    %% brute_force builds the whole distribution per call: one chunk (A-5)
-                    true when Alg =:= brute_force -> pq_parallel:run_job(Spec, (job_opts(Opts))#{shots => Shots, chunk => Shots});
-                    true -> pq_parallel:run_job(Spec, (job_opts(Opts))#{shots => Shots});
-                    false -> pq_worker:run_chunk({Spec, 0, Shots})
-                end,
-            case R of
-                {ok, Rows} ->
-                    Cols = [[lists:nth(M + 1, Row) || M <- Measured] || Row <- Rows],
-                    {ok, #result{kind = pnr, measured = Measured, samples = Cols,
-                                 metadata = #{seed => Seed, shots_requested => Shots, shots_accepted => length(Rows),
-                                              acceptance_rate => 1.0, backend => boson, algorithm => Alg,
-                                              warnings => []}}};
-                {error, _} = E -> E
+            Rows = fun(Start, N) -> {[[lists:nth(M + 1, Row) || M <- Measured] || Row <- rows(Spec, Alg, Start, N, Opts)], #{}} end,
+            %% FR-B06: collision-free sampling is post-selection on at most one photon per measured mode, with the
+            %% acceptance statistics, not another distribution; it combines with any postselect predicate
+            CF = maps:get(collision_free, Opts, false),
+            Pred = case {CF, maps:find(postselect, Opts)} of
+                       {false, error} -> none;
+                       {false, {ok, P}} -> P;
+                       {true, error} -> collision_free(Measured);
+                       {true, {ok, P}} -> {'and', [collision_free(Measured), P]}
+                   end,
+            POpts = case Pred of none -> maps:remove(postselect, Opts); _ -> Opts#{postselect => Pred} end,
+            try pq_simulator:postselected(Rows, Shots, POpts#{measured_columns => Measured}) of
+                {Samples, Attempts, _} ->
+                    {ok, #result{kind = pnr, measured = Measured, samples = Samples,
+                                 metadata = #{seed => Seed, shots_requested => Shots, shots_accepted => length(Samples),
+                                              attempts => Attempts, acceptance_rate => length(Samples) / max(1, Attempts),
+                                              backend => boson, algorithm => Alg, collision_free => CF, warnings => []}}}
+            catch
+                throw:{error, _} = E -> E
             end;
         E -> E
+    end.
+
+collision_free(Measured) -> {'and', [{le, M, 1} || M <- Measured]}.
+
+%% the full output patterns of shots Start .. Start + N - 1
+rows(Spec, Alg, Start, N, Opts) ->
+    %% metropolis carries its chains' state across shots: one call (FR-B03)
+    Parallel = maps:get(parallel, Opts, true) andalso Alg =/= metropolis
+        andalso N >= pq_core:get(parallel_threshold, Opts),
+    R = case Parallel of
+            %% brute_force builds the whole distribution per call: one chunk (A-5)
+            true when Alg =:= brute_force -> pq_parallel:run_job(Spec, (job_opts(Opts))#{shots => N, chunk => N, offset => Start});
+            true -> pq_parallel:run_job(Spec, (job_opts(Opts))#{shots => N, offset => Start});
+            false -> pq_worker:run_chunk({Spec, Start, N})
+        end,
+    case R of
+        {ok, Rs} -> Rs;
+        {error, _} = E -> throw(E)
     end.
 
 job_opts(Opts) -> pq_parallel:job_opts(Opts).

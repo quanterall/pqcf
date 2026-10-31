@@ -12,7 +12,7 @@
          matmul/2, kron/2, smul/2, madd/1, dagger/1, transpose/1,
          shape/1, free_symbols/1, size/1, hash/1, domain_of/2,
          pretty/1, pretty/2, to_latex/1, parse/1, parse/2,
-         resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, gaussian_evolve/2, is_unitary/1, is_unitary/2, permanent/1, bs_probability/3, compile/2, eval_slp/2, eval_batch/2, equiv/3,
+         resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, gaussian_evolve/2, is_unitary/1, is_unitary/2, permanent/1, bs_probability/3, compile/2, compile/3, eval_slp/2, eval_batch/2, equiv/3,
          substitute/2]).
 
 -export_type([sym_expr/0, binding/0, opts/0]).
@@ -382,8 +382,12 @@ decisive(_) -> true.
 
 %% Exprs (scalars, or one matrix) compiled for repeated evaluation; Symbols are the inputs
 -spec compile([sym_expr()], [atom()]) -> result(tuple()).
-compile(Exprs, Symbols) ->
-    run({add, [0 | [E || E <- Exprs, sh_ok(E)]]}, #{}, fun(Ctx) ->
+compile(Exprs, Symbols) -> compile(Exprs, Symbols, #{}).
+
+%% Opts as for evaluate/3 (domains above all): evaluate(E, B, Opts) is eval_slp(compile([E], free_symbols(E), Opts), B)
+-spec compile([sym_expr()], [atom()], opts()) -> result(tuple()).
+compile(Exprs, Symbols, Opts) ->
+    run({add, [0 | [E || E <- Exprs, sh_ok(E)]]}, Opts, fun(Ctx) ->
                                                        Vs = [pq_sym_norm:norm(E, Ctx) || E <- Exprs],
                                                        pq_sym_slp:compile(Vs, Symbols)
                                                end).

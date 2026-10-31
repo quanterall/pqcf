@@ -11,7 +11,7 @@
 %% attempt index is the stream index, so results do not depend on chunking.
 -module(pq_simulator).
 -include("pq.hrl").
--export([evolve/3, run/3, shots/3, terminal/3, eval/3]).
+-export([evolve/3, run/3, shots/3, terminal/3, eval/3, postselected/3]).
 
 -spec evolve(module(), #circuit{}, map()) -> {ok, term(), [{atom(), term()}]} | {error, pq_core:reason()}.
 evolve(Backend, C, Opts) ->
@@ -175,6 +175,9 @@ modes({_, Ms}) -> Ms.
 
 %%% Post-selection (FR-M05, FS 4.7)
 
+%% Rows(Start, N) -> {Samples, Extra}: the shots Start .. Start + N - 1 (also used by pq_sampling)
+-spec postselected(fun((non_neg_integer(), non_neg_integer()) -> {list(), map()}), non_neg_integer(), map()) ->
+          {list(), non_neg_integer(), map()}.
 postselected(Rows, Shots, Opts) ->
     case maps:find(postselect, Opts) of
         error ->
