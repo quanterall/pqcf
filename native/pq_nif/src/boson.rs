@@ -70,6 +70,46 @@ pub fn lossy_shot(u: &[C64], m: usize, input: &[u32], loss: &Loss, s: &mut Strea
     out
 }
 
+/// The permanents of the k minors of the (k-1) x k matrix U[rows; cols] (minor l without column l), by one
+/// Glynn walk over the rows in Gray-code order: per position the column sums v_j, and for every l the product of
+/// the others from prefix and suffix products (no division). O(k 2^k) instead of k Glynn sums (AN 5.1, Phase 3).
+pub fn minor_permanents(u: &[C64], m: usize, rows: &[usize], cols: &[usize]) -> Vec<C64> {
+    let k = cols.len();
+    let r = rows.len();
+    if r == 0 {
+        return vec![C64::ONE; k];
+    }
+    let at = |i: usize, j: usize| u[rows[i] * m + cols[j]];
+    // delta_0 = +1; delta_i = -1 when bit i-1 of the Gray code is set
+    let mut delta = vec![1.0f64; r];
+    let mut v: Vec<C64> = (0..k).map(|j| (0..r).fold(C64::ZERO, |acc, i| acc.add(at(i, j)))).collect();
+    let positions = 1u64 << (r - 1);
+    let mut sums: Vec<crate::num::CSum> = (0..k).map(|_| crate::num::CSum::new(positions)).collect();
+    let mut prefix = vec![C64::ONE; k + 1];
+    let mut suffix = vec![C64::ONE; k + 1];
+    for pos in 0..positions {
+        if pos > 0 {
+            let i = pos.trailing_zeros() as usize + 1;
+            delta[i] = -delta[i];
+            for (j, vj) in v.iter_mut().enumerate() {
+                *vj = vj.add(at(i, j).scale(2.0 * delta[i]));
+            }
+        }
+        let sign: f64 = delta.iter().product();
+        for j in 0..k {
+            prefix[j + 1] = prefix[j].mul(v[j]);
+        }
+        for j in (0..k).rev() {
+            suffix[j] = suffix[j + 1].mul(v[j]);
+        }
+        for (l, sl) in sums.iter_mut().enumerate() {
+            sl.add(prefix[l].mul(suffix[l + 1]).scale(sign));
+        }
+    }
+    let norm = 0.5f64.powi((r - 1) as i32);
+    sums.iter().map(|sl| sl.value().scale(norm)).collect()
+}
+
 /// One Clifford-Clifford shot: the output pattern (length m).
 pub fn clifford_clifford_shot(u: &[C64], m: usize, input: &[u32], s: &mut Stream) -> Vec<u32> {
     let mut cols: Vec<usize> = (0..m).flat_map(|i| std::iter::repeat_n(i, input[i] as usize)).collect();
@@ -78,20 +118,8 @@ pub fn clifford_clifford_shot(u: &[C64], m: usize, input: &[u32], s: &mut Stream
     let mut ys: Vec<usize> = Vec::with_capacity(n);
     let mut w = vec![0.0f64; m];
     for k in 1..=n {
-        // p_l = perm of the (k-1) x (k-1) matrix: rows ys, columns c_1..c_k without c_l
-        let p: Vec<C64> = (0..k)
-            .map(|l| {
-                if k == 1 {
-                    return C64::ONE;
-                }
-                let sub: Vec<C64> = ys
-                    .iter()
-                    .flat_map(|&y| (0..k).filter(move |&c| c != l).map(move |c| (y, c)))
-                    .map(|(y, c)| u[y * m + cols[c]])
-                    .collect();
-                perm::permanent(&sub, k - 1, 1, &never).expect("permanent").value
-            })
-            .collect();
+        // p_l = perm of the (k-1) x (k-1) matrix: rows ys, columns c_1..c_k without c_l, all l at once
+        let p = minor_permanents(u, m, &ys, &cols[..k]);
         for (j, wj) in w.iter_mut().enumerate() {
             let mut acc = C64::ZERO;
             for l in 0..k {
@@ -347,6 +375,24 @@ mod tests {
         assert_eq!(ms.len(), 8000);
         assert_eq!(ms.chunks(2).filter(|t| t == &[1, 1]).count(), 0);
         assert!(rate > 0.0 && rate <= 1.0);
+    }
+
+    #[test]
+    fn minor_permanents_equal_separate_glynn_sums() {
+        let m = 7;
+        let mut st = Stream::new(3, 3);
+        let u: Vec<C64> = (0..m * m).map(|_| { let (a, b) = st.normal_pair(); C64::new(a, b) }).collect();
+        for k in 1..=7 {
+            let rows: Vec<usize> = (0..k - 1).map(|i| (3 * i + 1) % m).collect();
+            let cols: Vec<usize> = (0..k).map(|j| (2 * j) % m).collect();
+            let fast = minor_permanents(&u, m, &rows, &cols);
+            let ur = &u;
+            for (l, f) in fast.iter().enumerate() {
+                let sub: Vec<C64> = rows.iter().flat_map(|&y| cols.iter().enumerate().filter(move |&(c, _)| c != l).map(move |(_, &cc)| ur[y * m + cc])).collect();
+                let slow = if k == 1 { C64::ONE } else { perm::permanent(&sub, k - 1, 1, &never).unwrap().value };
+                assert!((f.re - slow.re).abs() + (f.im - slow.im).abs() < 1e-12, "k = {k}, l = {l}");
+            }
+        }
     }
 
     #[test]

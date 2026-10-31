@@ -43,8 +43,11 @@ All pass; the mutant is rejected in every case. Also: no (1,1) in 20,000 Hong-Ou
 | 16 | 32 | 0.017 |
 | 20 | 40 | 0.50 |
 
-The growth is the O(n^2 2^n) of AN 5.1; computing all minors' permanents from shared Gray-code sums
-(O(n 2^n)) is the planned Phase 3 optimisation.
+The growth is the O(n^2 2^n) of AN 5.1. **Phase 3 (31 October 2026):** all k minors' permanents now come from one
+Glynn walk over the rows with prefix and suffix products of the column sums (`boson::minor_permanents`, O(n 2^n)).
+The samples are unchanged (the same chi-square statistics in all 8 cases; GT-S7 still bit for bit), and the time
+per sample fell to 0.0002 / 0.0037 / 0.078 s at n = 12 / 16 / 20 (3x, 4.6x, 6.4x; not on a pinned core, so the
+ratios are approximate).
 
 ## Proposed amendment A-8 (AN 5.1)
 
