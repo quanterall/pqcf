@@ -34,6 +34,7 @@ remote(Node, Spec, First, N) ->
 -spec run_cached(binary(), non_neg_integer(), non_neg_integer()) -> {ok, [list()]} | {error, term()} | spec_missing.
 run_cached(Hash, First, N) ->
     case pq_spec_cache:get(Hash) of
+        {ok, #{halt_node := Node}} when Node =:= node() -> erlang:halt(1);       % the FR-P07 test hook
         {ok, Spec} -> run_chunk({Spec, First, N});
         error -> spec_missing
     end.

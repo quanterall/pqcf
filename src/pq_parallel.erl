@@ -8,8 +8,38 @@
 %% max_chunk, chunk (a fixed chunk size), timeout, distributed. Returns the samples in shot order.
 -spec run_job(map(), map()) -> {ok, [list()]} | {error, pq_core:reason()}.
 run_job(Spec, Opts) ->
+    case maps:get(isolate_kernels, Opts, false) of
+        true -> isolated(Spec, Opts);
+        false -> run_job(Spec, Opts, maps:get(distributed, Opts, false))
+    end.
+
+%% FR-P07: the job's chunks run on peer nodes it starts (isolate_kernels nodes, default 2) and stops afterwards; a
+%% hard fault in a kernel kills only its node, and the job retries the chunk on another (FS 9.4)
+isolated(Spec, Opts) ->
+    case is_alive() of
+        false -> {error, {unsupported_input, isolate_kernels_needs_distribution}};
+        true ->
+            Paths = lists:append([["-pa", P] || P <- code:get_path()]),
+            Peers = [begin
+                         {ok, Pid, Node} = peer:start(#{name => peer:random_name(pq_isolated), args => Paths}),
+                         {ok, _} = erpc:call(Node, application, ensure_all_started, [pq]),
+                         {Pid, Node}
+                     end || _ <- lists:seq(1, maps:get(isolated_nodes, Opts, 2))],
+            Nodes = [N || {_, N} <- Peers],
+            %% test hook (FS 12.5): the first isolated node halts inside its first chunk, like a crashed kernel
+            Spec2 = case maps:get(halt_first_isolated, Opts, false) of
+                        true -> Spec#{halt_node => hd(Nodes)};
+                        false -> Spec
+                    end,
+            try run_job(Spec2, Opts#{nodes => Nodes}, nodes)
+            after [catch peer:stop(P) || {P, _} <- Peers]
+            end
+    end.
+
+run_job(Spec, Opts, Mode) ->
     Shots = maps:get(shots, Opts),
-    {Nodes, _Hetero} = case maps:get(distributed, Opts, false) of
+    {Nodes, _Hetero} = case Mode of
+                           nodes -> {maps:get(nodes, Opts), false};
                            true ->
                                case pq_node_registry:eligible_nodes(Opts) of
                                    {[], H} -> {[node()], H};

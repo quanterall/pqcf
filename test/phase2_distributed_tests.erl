@@ -75,6 +75,16 @@ distributed_test_() ->
                            after 100000 -> error(timeout)
                            end
                        end)}},
+              {"kernel isolation: a node that dies in a kernel takes only itself down (FR-P07)",
+               {timeout, 120,
+                ?_test(begin
+                           Local = samples(#{shots => 3000, seed => 21, max_inflight => 2}),
+                           ?assertEqual(Local, samples(#{shots => 3000, seed => 21, isolate_kernels => true, chunk => 100})),
+                           ?assertEqual(Local, samples(#{shots => 3000, seed => 21, isolate_kernels => true, chunk => 100,
+                                                         isolated_nodes => 2, halt_first_isolated => true, max_retries => 3})),
+                           %% the isolated nodes are gone afterwards
+                           ?assertEqual([], [N || N <- nodes(), string:prefix(atom_to_list(N), "pq_isolated") =/= nomatch])
+                       end)}},
               {"memory pre-check",
                ?_assertMatch({error, {dimension_limit, _, 10}},
                              pq_sampling:sample(boson, c(), #{shots => 1000, seed => 1, max_job_memory => 10}))}]
