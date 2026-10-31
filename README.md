@@ -22,7 +22,7 @@ Everything builds in a container with OTP 27 and the pinned Rust toolchain (`nat
 
 ```sh
 docker build -t pqcf-dev .
-docker run --rm pqcf-dev            # EUnit tests and clippy
+docker run --rm pqcf-dev            # EUnit (incl. property and 1,000,000-shot statistical tests), Dialyzer, xref, cargo test, clippy
 ```
 
 Without the container: OTP 27 or later, rebar3 and Rust 1.90, then `rebar3 eunit`. Supported targets are
