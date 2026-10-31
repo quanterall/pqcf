@@ -81,7 +81,7 @@ Plain values come back only where nothing can fail:
 - **`kernel_hard_timeout`:** satisfied by construction. A cancelled or timed-out job replies at once and kills
   its local workers; it never waits for a kernel, so no kernel can hold it.
 
-## Deviations, open for a decision
+## Deviations, accepted (31 October 2026)
 
 - **`ordered => false` (FR-P03, arrival-order merge) is not offered.** The samples of a run depend only on the
   circuit, the options and the seed, never on scheduling. An arrival-order merge would break that for no gain
@@ -90,3 +90,5 @@ Plain values come back only where nothing can fail:
 - **`[pq, nif, call]` telemetry is not emitted.** The Fock backends call small kernels in loops, sometimes
   millions of calls per run, and an event per call would cost more than many of the calls themselves. The chunk
   events carry each chunk's duration, and a chunk is one kernel call for boson sampling and terminal sampling.
+
+Both deviations were accepted by the project owner on 31 October 2026. The API is frozen with them.

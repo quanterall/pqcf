@@ -1,0 +1,35 @@
+# The full suite in the dev container on both supported targets (NFR-11): EUnit (property, statistical and
+# distributed tests), Dialyzer, xref, cargo test, clippy. Weekly and on demand: the sanitizer runs (FS 12.6).
+name: CI
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+jobs:
+  suite:
+    if: github.event_name != 'schedule'
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the dev image
+        run: docker build -t pqcf-dev .
+      - name: Run the suite
+        run: docker run --rm pqcf-dev
+
+  sanitize:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Rust tests under AddressSanitizer
+        run: sh tools/sanitize.sh
