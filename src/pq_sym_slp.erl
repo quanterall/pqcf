@@ -12,7 +12,8 @@
 -record(st, {ops = [], keys = #{}, next = 0, ctx}).
 
 -spec compile([pq_sym_norm:value()], [atom()]) -> {slp, 1, [atom()], [tuple()], [non_neg_integer()] | {matrix, pos_integer(), pos_integer(), [non_neg_integer()]}}.
-compile(Values, Inputs) ->
+compile(Values0, Inputs) ->
+    Values = [expand_identity(V) || V <- Values0],
     St0 = lists:foldl(fun(X, S) -> element(2, slot({input, X}, fun(Sl) -> {input, Sl, X} end, S)) end, #st{}, Inputs),
     {Outs, St} = lists:mapfoldl(fun out/2, St0, Values),
     Outputs = case {Values, Outs} of
@@ -21,11 +22,12 @@ compile(Values, Inputs) ->
               end,
     {slp, 1, Inputs, lists:reverse(St#st.ops), Outputs}.
 
+expand_identity({identity, N}) ->
+    {mat, N, N, [[case I =:= J of true -> pq_sym_poly:one(); false -> #{} end || J <- lists:seq(1, N)] || I <- lists:seq(1, N)]};
+expand_identity(V) -> V.
+
 out({scalar, P}, S) -> {Sl, S2} = poly(P, S), {[Sl], S2};
-out({mat, _, _, Rows}, S) -> lists:mapfoldl(fun(P, Acc) -> poly(P, Acc) end, S, lists:append(Rows));
-out({identity, N}, S) ->
-    Rows = [[case I =:= J of true -> pq_sym_poly:one(); false -> #{} end || J <- lists:seq(1, N)] || I <- lists:seq(1, N)],
-    out({mat, N, N, Rows}, S).
+out({mat, _, _, Rows}, S) -> lists:mapfoldl(fun(P, Acc) -> poly(P, Acc) end, S, lists:append(Rows)).
 
 %% a slot for a structural key, made once
 slot(Key, Make, #st{keys = K} = S) ->

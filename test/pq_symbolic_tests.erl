@@ -480,10 +480,16 @@ diff_property_test_() ->
 
 prop_slp() ->
     ?FORALL({E, B}, {expr(3), binding()},
-            case {?S:compile([E], [x, y, p]), ?S:evaluate(E, B, ?DOM)} of
+            case {?S:compile([E], [x, y, p]), ?S:evaluate(E, B, maps:put(tree, true, ?DOM))} of
                 {{ok, P}, {ok, V}} ->
                     {ok, [W]} = ?S:eval_slp(P, B),
-                    close(as_pair(V), as_pair(W));
+                    close(as_pair(V), as_pair(W)) andalso
+                        %% SY 8.1: evaluate is eval_slp of compile([E], free_symbols(E)), the same doubles
+                        ?S:evaluate(E, B, ?DOM) =:= begin
+                                                        {ok, Q} = ?S:compile([E], ?S:free_symbols(E)),
+                                                        {ok, [X]} = ?S:eval_slp(Q, B),
+                                                        {ok, X}
+                                                    end;
                 _ -> true
             end).
 
@@ -498,6 +504,14 @@ slp_test_() ->
                  ?assert(abs(C - math:cos(0.3)) < 1.0e-15),
                  ?assertMatch({cmat, 2, 2, _}, B),
                  ?assertEqual({error, {unbound_symbols, [t]}}, ?S:eval_slp(P, #{}))
+             end),
+      %% an identity matrix compiles to a matrix, not to a list of entries
+      ?_test(begin
+                 {ok, I} = ?S:canonicalise({matrix, [[1, 0], [0, 1]]}),
+                 {ok, P} = ?S:compile([I], []),
+                 {ok, Mi} = ?S:eval_slp(P, #{}),
+                 ?assertMatch({cmat, 2, 2, _}, Mi),
+                 ?assertEqual({ok, Mi}, ?S:evaluate(I, #{}))
              end)]}.
 
 equiv_test() ->

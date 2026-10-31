@@ -1,5 +1,5 @@
-%% Evaluation of a canonical value under a binding (SY 5.2): complex doubles term by term in canonical key order,
-%% principal branch for powers; or, with exact => true, exact Gaussian rationals for the algebraic fragment.
+%% Evaluation of a canonical value under a binding (SY 5.2): complex doubles through the straight-line program
+%% (SY 8.1; the tree evaluator stays as the test oracle, tree => true), principal branch for powers; or, with exact => true, exact Gaussian rationals for the algebraic fragment.
 -module(pq_sym_eval).
 -export([eval/3, cpow/2, rpow/2, free_symbols/1, check_binding/2, value/1]).
 
@@ -13,9 +13,18 @@ eval(V, Binding, Opts) ->
         Missing -> throw({unbound_symbols, Missing})
     end,
     check_binding(maps:with(Syms, Binding), maps:get(domains, Opts, #{})),
-    case maps:get(exact, Opts, false) of
-        true -> exact_value(V, Binding);
-        false -> float_value(V, Binding)
+    case {maps:get(exact, Opts, false), maps:get(tree, Opts, false)} of
+        {true, _} -> exact_value(V, Binding);
+        {false, true} -> float_value(V, Binding);
+        {false, false} -> slp_value(V, Syms, Binding)
+    end.
+
+%% SY 8.1: evaluate(E, B) is eval_slp(compile([E], free_symbols(E)), B), so both share one operation order
+slp_value(V, Syms, Binding) ->
+    case pq_sym_slp:eval(pq_sym_slp:compile([V], Syms), Binding) of
+        {ok, [X]} -> X;
+        {ok, M} -> M;
+        {error, R} -> throw(R)
     end.
 
 %%% Symbols

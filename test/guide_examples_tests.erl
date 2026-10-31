@@ -77,7 +77,7 @@ gradient() ->
     {ok, V} = pq_symbolic:evaluate(E, #{theta => T}),
     ?assert(close(re(V), -math:sin(2 * T))).
 
-re({c, Re, _Im}) -> Re;
+re({complex, Re, _Im}) -> Re;
 re(X) when is_number(X) -> X.
 
 %% 6. The symbolic engine
