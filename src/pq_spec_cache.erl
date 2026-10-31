@@ -24,6 +24,8 @@ get(Hash) ->
 
 init([]) ->
     ?T = ets:new(?T, [named_table, set, protected, {read_concurrency, true}]),
+    %% the cancel tokens of chunks running here for jobs on other nodes (pq_worker:run_cached/4)
+    pq_remote_cancel = ets:new(pq_remote_cancel, [named_table, set, public]),
     {ok, #{bytes => 0, seq => 0}}.
 
 handle_call({put, Hash, Spec}, _From, #{bytes := B, seq := Q} = S) ->

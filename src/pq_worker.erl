@@ -1,7 +1,7 @@
 %% A worker (FS 2.2): runs one chunk of shots and reports to its job, then exits. Temporary under pq_worker_sup;
 %% the job decides on retries.
 -module(pq_worker).
--export([start_link/3, run_chunk/1, run_cached/3]).
+-export([start_link/3, run_chunk/1, run_cached/4, cancel_remote/1]).
 
 %% The worker links to its job before anything else, so the job always sees the real exit reason (linking from
 %% the job after the start raced with an early crash: noproc).
@@ -20,23 +20,52 @@ run({Id, First, N, Spec}, Attempt) ->
     end.
 
 %% a chunk on another node (FS 9.5): erpc with only the spec's hash; the spec itself only when the node lacks it.
-%% A lost node or a crash there exits this proxy, and the job retries the chunk elsewhere.
+%% A lost node or a crash there exits this proxy, and the job retries the chunk elsewhere. The proxy traps exits:
+%% when its job stops (cancelled, timed out, failed), it sets the chunk's cancel token on that node, so the remote
+%% kernel stops within its polling interval instead of running to the end of the chunk (FS 9.4).
 remote(Node, Spec, First, N) ->
+    process_flag(trap_exit, true),
     Hash = pq_spec_cache:hash(Spec),
-    case erpc:call(Node, ?MODULE, run_cached, [Hash, First, N]) of
+    Key = make_ref(),
+    case await(Node, Key, erpc:send_request(Node, ?MODULE, run_cached, [Hash, First, N, Key])) of
         spec_missing ->
             ok = erpc:call(Node, pq_spec_cache, put, [Hash, Spec]),
-            erpc:call(Node, ?MODULE, run_cached, [Hash, First, N]);
+            await(Node, Key, erpc:send_request(Node, ?MODULE, run_cached, [Hash, First, N, Key]));
         R -> R
     end.
 
-%% on the worker node: the cached spec's chunk, or spec_missing
--spec run_cached(binary(), non_neg_integer(), non_neg_integer()) -> {ok, [list()]} | {ok, [list()], map()} | {error, term()} | spec_missing.
-run_cached(Hash, First, N) ->
+await(Node, Key, Req) ->
+    receive
+        {'EXIT', _From, Reason} ->
+            erpc:cast(Node, ?MODULE, cancel_remote, [Key]),
+            exit(Reason);
+        Msg ->
+            case erpc:check_response(Msg, Req) of
+                {response, R} -> R;
+                no_response -> await(Node, Key, Req)
+            end
+    end.
+
+%% on the worker node: the cached spec's chunk under a cancel token of this node, or spec_missing
+-spec run_cached(binary(), non_neg_integer(), non_neg_integer(), reference()) ->
+          {ok, [list()]} | {ok, [list()], map()} | {error, term()} | spec_missing.
+run_cached(Hash, First, N, Key) ->
     case pq_spec_cache:get(Hash) of
         {ok, #{halt_node := Node}} when Node =:= node() -> erlang:halt(1);       % the FR-P07 test hook
-        {ok, Spec} -> run_chunk({Spec, First, N});
+        {ok, Spec} ->
+            Token = pq_nif:cancel_token_new(),
+            true = ets:insert(pq_remote_cancel, {Key, Token}),
+            try run_chunk({Spec#{cancel => Token}, First, N})
+            after ets:delete(pq_remote_cancel, Key)
+            end;
         error -> spec_missing
+    end.
+
+-spec cancel_remote(reference()) -> ok.
+cancel_remote(Key) ->
+    case ets:lookup(pq_remote_cancel, Key) of
+        [{_, Token}] -> _ = pq_nif:cancel_token_set(Token), ok;
+        [] -> ok
     end.
 
 %% {Spec, FirstShot, NShots} -> {ok, Samples} | {error, Reason}; shot k uses stream (Seed, k)

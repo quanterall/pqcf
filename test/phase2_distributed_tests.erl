@@ -98,12 +98,39 @@ distributed_test_() ->
                           ?assert(is_pid(Job)),
                           ?assertEqual(L, Dd)
                       end)},
+              {"cancel reaches a chunk running on another node (FS 9.4)",
+               {timeout, 60,
+                ?_test(begin
+                           {_, N2} = lists:last(Peers),
+                           Self = self(),
+                           %% one chunk of 2,000,000 shots on one node: seconds of kernel time if nothing stops it
+                           spawn(fun() -> Self ! {res, pq_sampling:sample(boson, big(), #{shots => 2000000, seed => 3, chunk => 2000000,
+                                                                                         distributed => nodes, nodes => [N2],
+                                                                                         notify => Self})} end),
+                           Job = receive {pq_job, J} -> J after 10000 -> error(no_job) end,
+                           ok = wait_remote(N2, 1, 100),
+                           T0 = erlang:monotonic_time(millisecond),
+                           ok = pq_parallel:cancel(Job),
+                           ?assertEqual({error, cancelled}, receive {res, R} -> R after 10000 -> error(no_result) end),
+                           ok = wait_remote(N2, 0, 400),
+                           Stopped = erlang:monotonic_time(millisecond) - T0,
+                           io:format(user, "~nremote kernel stopped ~p ms after the cancel~n", [Stopped]),
+                           ?assert(Stopped < 1500)
+                       end)}},
               {"memory pre-check",
                ?_assertMatch({error, {dimension_limit, _, 10}},
                              pq_sampling:sample(boson, c(), #{shots => 1000, seed => 1, max_job_memory => 10}))}]
      end}.
 
 samples(Opts) -> samples(c(), Opts).
+
+%% the number of chunks running on Node for jobs elsewhere reaches Want (polled every 10 ms)
+wait_remote(_Node, _Want, 0) -> error(remote_chunks);
+wait_remote(Node, Want, T) ->
+    case erpc:call(Node, ets, info, [pq_remote_cancel, size]) of
+        Want -> ok;
+        _ -> timer:sleep(10), wait_remote(Node, Want, T - 1)
+    end.
 
 samples(C, Opts) ->
     {ok, #result{samples = S}} = pq_sampling:sample(boson, C, Opts),

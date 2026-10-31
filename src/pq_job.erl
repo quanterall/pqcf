@@ -116,7 +116,8 @@ finish_or_continue(D, _Id) -> {keep_state, D}.
 
 stop_with(Reply, D, _Id) ->
     pq_nif:cancel_token_set(D#d.token),
-    [exit(P, kill) || P <- maps:keys(D#d.inflight)],
+    %% not kill: a proxy of a remote chunk traps this and cancels the kernel on its node
+    [exit(P, {shutdown, cancelled}) || P <- maps:keys(D#d.inflight)],
     gen_statem:reply(D#d.from, Reply),
     {error, R} = Reply,
     job_stop(D, element(1, if is_tuple(R) -> R; true -> {R} end)),

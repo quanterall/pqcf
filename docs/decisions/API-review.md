@@ -71,12 +71,22 @@ Plain values come back only where nothing can fail:
 - **Telemetry** (FS 9.6): the events `[pq, job, start | stop | exception]` and `[pq, chunk, start | stop | retry]`,
   sent through `telemetry` when the application has it. It is a soft dependency, used only in tests here.
 
-## Still open
+## Settled after the review
 
-- `ordered => false` (FR-P03): merging in arrival order, with `shot_indices`. Samples are always merged in shot
-  order.
-- `[pq, nif, call]` telemetry for each kernel call.
-- Cancellation of chunks already running on another node. The job stops waiting and kills the local proxies, but
-  the remote kernel runs to the end of its chunk, because cancel tokens are node-local resources.
-- `kernel_hard_timeout`. A cancelled or timed-out job already returns without waiting for its kernels, so the
-  option is not used yet.
+- **Cancelling chunks on other nodes** (FS 9.4): done. A proxy worker traps exits. When its job stops
+  (cancelled, timed out or failed), it sets the chunk's cancel token on the remote node; each node keeps the
+  tokens of its running chunks in the table `pq_remote_cancel`. Test: one chunk of 2,000,000 shots on a peer
+  stops 11 ms after the cancel. Without the cancel, the chunk was still running 4 s later, which is the mutation
+  check.
+- **`kernel_hard_timeout`:** satisfied by construction. A cancelled or timed-out job replies at once and kills
+  its local workers; it never waits for a kernel, so no kernel can hold it.
+
+## Deviations, open for a decision
+
+- **`ordered => false` (FR-P03, arrival-order merge) is not offered.** The samples of a run depend only on the
+  circuit, the options and the seed, never on scheduling. An arrival-order merge would break that for no gain
+  in throughput, because merging is not the bottleneck. Callers who want early samples have `notify`/`status`
+  and `partial_results`.
+- **`[pq, nif, call]` telemetry is not emitted.** The Fock backends call small kernels in loops, sometimes
+  millions of calls per run, and an event per call would cost more than many of the calls themselves. The chunk
+  events carry each chunk's duration, and a chunk is one kernel call for boson sampling and terminal sampling.
