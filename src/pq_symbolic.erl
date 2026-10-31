@@ -12,7 +12,7 @@
          matmul/2, kron/2, smul/2, madd/1, dagger/1, transpose/1,
          shape/1, free_symbols/1, size/1, hash/1, domain_of/2,
          pretty/1, pretty/2, to_latex/1, parse/1, parse/2,
-         resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, is_unitary/1, is_unitary/2,
+         resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, is_unitary/1, is_unitary/2, permanent/1, bs_probability/3,
          substitute/2]).
 
 -export_type([sym_expr/0, binding/0, opts/0]).
@@ -192,6 +192,63 @@ rows(U, Ms, G, Ctx) ->
     New = [list_to_tuple([pq_sym_poly:sum([pq_sym_poly:mul(Gij, element(Col, Row), Ctx) || {Gij, Row} <- lists:zip(GRow, Old)])
                           || Col <- lists:seq(1, tuple_size(element(1, U)))]) || GRow <- G],
     lists:foldl(fun({M, R}, Acc) -> setelement(M + 1, Acc, R) end, U, lists:zip(Ms, New)).
+
+%% SY 6.3: the permanent of a symbolic k x k matrix by Glynn's formula in canonical arithmetic,
+%% 2^(k-1) terms, k at most max_symbolic_photons
+-spec permanent(sym_expr()) -> result(sym_expr()).
+permanent(M) ->
+    run(M, #{}, fun(Ctx) ->
+                        {mat, K, K2, Rows} = case pq_sym_norm:norm(M, Ctx) of
+                                                 {mat, _, _, _} = X -> X;
+                                                 _ -> throw({bad_shape, permanent})
+                                             end,
+                        K =:= K2 orelse throw({bad_shape, {permanent, K, K2}}),
+                        output({scalar, glynn(Rows, K, Ctx)}, Ctx)
+                end).
+
+glynn(Rows, K, Ctx) ->
+    Max = pq_core:get(max_symbolic_photons),
+    K =< Max orelse throw({symbolic_limit, #{photons => K, max_symbolic_photons => Max}}),
+    case K of
+        0 -> pq_sym_poly:one();
+        _ ->
+            Cols = transpose_lists(Rows),
+            Terms = [begin
+                         Deltas = [1 | [case (Bits bsr (I - 1)) band 1 of 1 -> -1; 0 -> 1 end || I <- lists:seq(1, K - 1)]],
+                         Sign = lists:foldl(fun erlang:'*'/2, 1, Deltas),
+                         Prod = lists:foldl(fun(Col, Acc) ->
+                                                    S = pq_sym_poly:sum([pq_sym_poly:scale(E, pq_sym_exact:c(D)) || {D, E} <- lists:zip(Deltas, Col)]),
+                                                    pq_sym_poly:mul(Acc, S, Ctx)
+                                            end, pq_sym_poly:one(), Cols),
+                         pq_sym_poly:scale(Prod, pq_sym_exact:c(Sign))
+                     end || Bits <- lists:seq(0, (1 bsl (K - 1)) - 1)],
+            pq_sym_poly:scale(pq_sym_poly:sum(Terms), pq_sym_exact:c(pq_sym_exact:rat(1, 1 bsl (K - 1))))
+    end.
+
+transpose_lists([[] | _]) -> [];
+transpose_lists(Rows) -> [[hd(R) || R <- Rows] | transpose_lists([tl(R) || R <- Rows])].
+
+%% SY 6.3: |perm(U_(T,S))|^2 / (prod S! prod T!) for a symbolic unitary (rows repeated by T, columns by S)
+-spec bs_probability(sym_expr(), [non_neg_integer()], [non_neg_integer()]) -> result(sym_expr()).
+bs_probability(U, S, T) ->
+    run(U, #{}, fun(Ctx) ->
+                        {mat, M, M, Rows} = case pq_sym_norm:norm(U, Ctx) of
+                                                {mat, R, R, _} = X when length(S) =:= R, length(T) =:= R -> X;
+                                                _ -> throw({bad_shape, bs_probability})
+                                            end,
+                        _ = M,
+                        lists:sum(S) =:= lists:sum(T) orelse throw({bad_shape, {photon_numbers, S, T}}),
+                        RowIdx = lists:append([lists:duplicate(Tj, J) || {J, Tj} <- lists:enumerate(1, T)]),
+                        ColIdx = lists:append([lists:duplicate(Si, I) || {I, Si} <- lists:enumerate(1, S)]),
+                        Sub = [[lists:nth(C, lists:nth(R, Rows)) || C <- ColIdx] || R <- RowIdx],
+                        P = glynn(Sub, length(RowIdx), Ctx),
+                        Fact = lists:foldl(fun(X, A) -> A * fact(X) end, 1, S ++ T),
+                        Prob = pq_sym_poly:mul(P, pq_sym_poly:conj(P, Ctx), Ctx),
+                        output({scalar, pq_sym_poly:scale(Prob, pq_sym_exact:c(pq_sym_exact:rat(1, Fact)))}, Ctx)
+                end).
+
+fact(0) -> 1;
+fact(N) -> N * fact(N - 1).
 
 %% SY 6.1: U U^dagger against the identity by canonical form: true or false for entries in E (SY 3.5; circuits of
 %% beamsplitters and phase shifts), unknown when an entry holds an opaque base or a float
