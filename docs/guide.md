@@ -85,6 +85,9 @@ Inputs: `vacuum`, `{fock, Pattern}`, `{gaussian, #gaussian_state{}}` or `{fock_s
 - **Fock:** `fock_state(Pattern, Cutoff)`, and `fock_superposition([{Coeff, Pattern}], Cutoff)`, which is
   normalised for you.
 - **Density matrices:** `fock_dm(PureState)`, or `fock_dm([{Weight, PureState}])` for a mixture.
+- **Gaussian to Fock:** `gaussian_to_fock_dm(GaussianState, Cutoff)` converts a Gaussian state into a density
+  matrix within the cutoff, for cross-validation. It returns `{ok, Dm, #{truncated_mass := M}}`; the matrix is not
+  renormalised.
 
 ## 4. Backends
 

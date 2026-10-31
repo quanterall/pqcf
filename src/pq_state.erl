@@ -6,7 +6,7 @@
          vacuum/2, coherent/3, squeezed_vacuum/3, thermal/3,
          to_xpxp/1, from_xpxp/1, from_xpxp/2, reduce/2, check_physical/1,
          mean_cov/1, from_mean_cov/3,
-         fock_state/2, fock_superposition/2, fock_dm/1]).
+         fock_state/2, fock_superposition/2, fock_dm/1, gaussian_to_fock_dm/2]).
 
 %%% Fock basis (FS 3.4): all occupation tuples with total at most Cutoff, ordered by total photon number, then
 %%% lexicographically ascending from mode 0. D = C(Cutoff + m, m).
@@ -234,4 +234,41 @@ fock_dm([{_, #fock_state{n_modes = N, cutoff = C}} | _] = Mix) ->
             {ok, #fock_dm{n_modes = N, cutoff = C, rho = Rho}}
     end;
 fock_dm(Other) -> {error, {bad_shape, #{fock_dm => Other}}}.
+
+%% FR-F06: a Gaussian state as a density matrix within a cutoff, for cross-validation. Each element is a loop
+%% hafnian of the state's A matrix with the repeated multiplicities Bra ++ Ket (FS A.9, the conventions of
+%% thewalrus's density_matrix_element): rho(i, j) = lhaf(A, gamma; j ++ i) / (sqrt(i! j!) Norm), checked against the
+%% coherent state's closed form, which fixes the order. Not renormalised:
+%% the mass beyond the cutoff is reported as truncated_mass = 1 - trace.
+-spec gaussian_to_fock_dm(#gaussian_state{}, non_neg_integer()) ->
+          {ok, #fock_dm{}, #{truncated_mass := float()}} | {error, pq_core:reason()}.
+gaussian_to_fock_dm(#gaussian_state{n_modes = N, hbar = H, mean = Mu, cov = C}, Cutoff) when is_integer(Cutoff), Cutoff >= 0 ->
+    D = basis_size(N, Cutoff),
+    Max = pq_core:get(max_dm_dim),
+    case D =< Max of
+        false -> {error, {dimension_limit, D, Max}};
+        true ->
+            case pq_nif:gaussian_to_amat(Mu, C, float(H)) of
+                {ok, {A, Gamma, Norm}} ->
+                    Pats = list_to_tuple([element(2, pattern(K, N, Cutoff)) || K <- lists:seq(0, D - 1)]),
+                    Elem = fun(I, J) ->
+                                   Pi = element(I + 1, Pats), Pj = element(J + 1, Pats),
+                                   {ok, {{Re, Im}, _}} = pq_nif:loop_hafnian(A, Gamma, Pj ++ Pi, #{}),
+                                   F = math:sqrt(facts(Pi) * facts(Pj)) * Norm,
+                                   {Re / F, Im / F}
+                           end,
+                    Upper = maps:from_list([{{I, J}, Elem(I, J)} || I <- lists:seq(0, D - 1), J <- lists:seq(I, D - 1)]),
+                    Rows = [[case I =< J of
+                                 true -> {Re, Im} = maps:get({I, J}, Upper), {complex, Re, Im};
+                                 false -> {Re, Im} = maps:get({J, I}, Upper), {complex, Re, -Im}
+                             end || J <- lists:seq(0, D - 1)] || I <- lists:seq(0, D - 1)],
+                    Trace = lists:sum([element(1, maps:get({I, I}, Upper)) || I <- lists:seq(0, D - 1)]),
+                    {ok, Rho} = pq_core:pack({cmat, Rows}),
+                    {ok, #fock_dm{n_modes = N, cutoff = Cutoff, rho = Rho}, #{truncated_mass => max(0.0, 1 - Trace)}};
+                {error, _} = E -> E
+            end
+    end;
+gaussian_to_fock_dm(_S, Cutoff) -> {error, {bad_shape, #{cutoff => Cutoff}}}.
+
+facts(P) -> lists:foldl(fun(K, Acc) -> Acc * lists:foldl(fun erlang:'*'/2, 1, lists:seq(1, K)) end, 1, P).
 
