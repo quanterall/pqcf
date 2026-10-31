@@ -2,7 +2,7 @@
 %% 65,536 bytes and nesting depth 200. Errors: {sym_parse, Position} (1-based byte offset). Atom safety: symbol
 %% names become atoms only after every name has been checked (allowed_symbols, or at most max_symbols names).
 -module(pq_sym_parse).
--export([parse/2]).
+-export([parse/2, names/1]).
 
 -define(MAX_BYTES, 65536).
 -define(MAX_DEPTH, 200).
@@ -23,6 +23,21 @@ parse(Bin, Opts) when is_binary(Bin) ->
         throw:{symbolic_limit, _} = R -> {error, R}
     end;
 parse(_, _) -> {error, {sym_parse, 1}}.
+
+%% the symbol names of a parameter string as binaries, without creating atoms (for whole-document atom safety)
+-spec names(binary()) -> {ok, [binary()]} | {error, {sym_parse, pos_integer()}}.
+names(Bin) when is_binary(Bin) ->
+    try
+        byte_size(Bin) > ?MAX_BYTES andalso throw({sym_parse, ?MAX_BYTES + 1}),
+        {E, Rest} = expr(tokens(Bin, 1, []), 0),
+        case Rest of
+            [{eof, _, _}] -> ok;
+            [{_, _, Pos} | _] -> throw({sym_parse, Pos})
+        end,
+        {ok, lists:usort([N || {N, _} <- names(E, [])])}
+    catch
+        throw:{sym_parse, _} = R -> {error, R}
+    end.
 
 %%% Tokens: {num, Value, Pos} | {id, Binary, Pos} | {op, Char, Pos} | {eof, none, Pos}
 

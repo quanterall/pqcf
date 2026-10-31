@@ -6,7 +6,7 @@
 -include("pq.hrl").
 -export([new/1, new/2, add/2, insert/3, replace/3, delete/2,
          validate/1, effective_binding/2, compose/2, compose/3,
-         free_symbols/1, all_symbols/1, to_binary/1, from_binary/1, lower/2, check_capabilities/2, check_capabilities/3, mesh/1,
+         free_symbols/1, all_symbols/1, to_binary/1, from_binary/1, lower/2, check_capabilities/2, check_capabilities/3, mesh/1, to_json/1, from_json/1, from_json/2,
          two_mode_squeezing/4, mzi/4]).
 
 -export_type([circuit/0, instruction/0, input_spec/0]).
@@ -505,6 +505,17 @@ mesh({cmat, K, K, _} = U) ->
         {error, _} = E -> E
     end;
 mesh(U) -> {error, {bad_shape, #{unitary => U}}}.
+
+%%% FR-C09: JSON interchange (Appendix B), in pq_json
+
+-spec to_json(circuit()) -> result(binary()).
+to_json(C) -> pq_json:to_json(C).
+
+-spec from_json(binary()) -> result(circuit()).
+from_json(Bin) -> pq_json:from_json(Bin).
+
+-spec from_json(binary(), map()) -> result(circuit()).
+from_json(Bin, Opts) -> pq_json:from_json(Bin, Opts).
 
 %%% FR-C11: the gate library, as instruction lists
 
