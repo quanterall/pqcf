@@ -180,6 +180,10 @@ pub fn sample_chain_rule(
     }
     let mut out = Vec::with_capacity(shots * m);
     let mut beyond_total = 0u64;
+    // prefix probabilities memoised across the call's shots (AN 6.3's prefix caching); a cached value is the value
+    // the computation gives, so samples do not depend on the cache (D1)
+    let mut cache: std::collections::HashMap<Vec<u32>, f64> = std::collections::HashMap::new();
+    const CACHE_MAX: usize = 1_000_000;
     for i in 0..shots {
         if cancel() {
             return Err(Error::Cancelled);
@@ -207,10 +211,20 @@ pub fn sample_chain_rule(
             let mut chosen = None;
             for (j, &c) in candidates.iter().enumerate() {
                 pattern.push(c);
-                let p = if threshold {
-                    threshold_probability(state, &pattern, cancel)?
-                } else {
-                    pnr_probability(state, &pattern, cancel)?
+                let p = match cache.get(&pattern) {
+                    Some(&p) => p,
+                    None => {
+                        let p = if threshold {
+                            threshold_probability(state, &pattern, cancel)?
+                        } else {
+                            pnr_probability(state, &pattern, cancel)?
+                        };
+                        if cache.len() >= CACHE_MAX {
+                            cache.clear();
+                        }
+                        cache.insert(pattern.clone(), p);
+                        p
+                    }
                 };
                 pattern.pop();
                 probs.push(p);
