@@ -12,6 +12,7 @@
 //! D1 (AN 2.1, FS 8.5): the positions are cut into blocks of BLOCK steps; each block starts from w computed
 //! directly, refreshes it directly every REFRESH steps, and the block sums are added in block order. The thread
 //! count only decides which thread computes which block, so results are identical for any thread count.
+#![forbid(unsafe_code)] // NFR-04: kernels are safe Rust; unsafe only in the Rustler glue (lib.rs)
 use crate::num::{CSum, Sum, C64};
 
 pub const BLOCK: u64 = 1 << 16;

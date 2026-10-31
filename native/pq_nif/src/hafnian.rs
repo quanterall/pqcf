@@ -13,6 +13,7 @@
 //!
 //! D1: subsets are visited in Gray-code order of their index p (subset = bits of p ^ (p >> 1)), in blocks of
 //! 2^12, block sums added in block order (FS 8.5). Odd M: haf = 0; lhaf pads one vertex with loop weight 1.
+#![forbid(unsafe_code)] // NFR-04: kernels are safe Rust; unsafe only in the Rustler glue (lib.rs)
 use crate::num::{CSum, Sum, C64};
 
 pub const BLOCK: u64 = 1 << 12;

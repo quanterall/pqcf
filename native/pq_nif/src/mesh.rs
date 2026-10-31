@@ -6,6 +6,7 @@
 //! The left blocks commute through D, B(theta, phi) D = D B(theta, phi + a - b) for D = diag(e^(ia), e^(ib)) on the
 //! block's modes, so U = D L'_1 .. L'_k R_n .. R_1: in circuit order R_1 .. R_n, L'_k .. L'_1, then the phases.
 //! k(k-1)/2 beamsplitters and k phases.
+#![forbid(unsafe_code)] // NFR-04: kernels are safe Rust; unsafe only in the Rustler glue (lib.rs)
 use crate::num::C64;
 
 pub type Mesh = (Vec<(usize, f64, f64)>, Vec<f64>);

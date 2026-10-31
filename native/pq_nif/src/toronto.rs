@@ -9,6 +9,7 @@
 //!
 //! D1: the first min(6, c) decisions split the tree into at most 64 subtrees, the blocks of FS 8.5, processed
 //! and summed in the order of their index (bit t = mode t included).
+#![forbid(unsafe_code)] // NFR-04: kernels are safe Rust; unsafe only in the Rustler glue (lib.rs)
 use crate::num::{Sum, C64};
 
 pub const SUBTREE_DEPTH: usize = 6;

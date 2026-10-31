@@ -8,6 +8,7 @@
 //!   beta = (alpha, conj(alpha)),  alpha = (mu_x + i mu_p) / sqrt(2 hbar);   gamma = conj(beta) - A beta
 //!   P(S) = lhaf(A_S, gamma_S) / (prod S! Norm),  Norm = sqrt(det Q) exp(1/2 beta^T Q^-1 conj(beta))
 //!   threshold, zero mean: P(B) = tor(O_B) / sqrt(det Q),  O = I - Q^-1
+#![forbid(unsafe_code)] // NFR-04: kernels are safe Rust; unsafe only in the Rustler glue (lib.rs)
 use crate::hafnian::hafnian_repeated;
 use crate::num::{Sum, C64};
 use crate::rng::Source;

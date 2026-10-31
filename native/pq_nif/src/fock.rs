@@ -11,6 +11,7 @@
 //! recurrences of AN 7.4 lose accuracy exponentially with the cutoff. Displacement uses the Laguerre form along
 //! each diagonal; squeezing the Bargmann recurrence where it is accurate, else the exponential of the generator in
 //! a padded space, computed per parity by a tridiagonal eigendecomposition.
+#![forbid(unsafe_code)] // NFR-04: kernels are safe Rust; unsafe only in the Rustler glue (lib.rs)
 use crate::num::C64;
 use nalgebra::{DMatrix, SymmetricEigen};
 

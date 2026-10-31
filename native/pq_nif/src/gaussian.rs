@@ -1,6 +1,7 @@
 //! Gaussian states (FS 3.2, A.2-A.6, A.12; AN 6.4, 8): mean `mu` (2m) and covariance `sigma` (2m x 2m, row-major),
 //! xxpp order: index j is x_j, index m + j is p_j. Maps are applied one instruction at a time (AN 8); nothing is
 //! composed or projected.
+#![forbid(unsafe_code)] // NFR-04: kernels are safe Rust; unsafe only in the Rustler glue (lib.rs)
 use crate::num::{Sum, C64};
 use crate::rng::Source;
 use nalgebra::{DMatrix, SymmetricEigen};

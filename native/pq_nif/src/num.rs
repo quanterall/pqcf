@@ -1,5 +1,6 @@
 //! Complex numbers and summation with the rules of AN 2.2: plain f64 products, no fused multiply-add, Neumaier
 //! compensated summation for sums of more than 64 terms (real and imaginary parts separately).
+#![forbid(unsafe_code)] // NFR-04: kernels are safe Rust; unsafe only in the Rustler glue (lib.rs)
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct C64 {

@@ -1,5 +1,6 @@
 //! FS 8.3: ChaCha8, the 64-bit seed expanded to a 256-bit key with SplitMix64, the 64-bit stream selecting an
 //! independent sequence. Part of the NIF contract: any change is a major NIF version bump.
+#![forbid(unsafe_code)] // NFR-04: kernels are safe Rust; unsafe only in the Rustler glue (lib.rs)
 use rand_chacha::ChaCha8Rng;
 use rand_core::{RngCore, SeedableRng};
 

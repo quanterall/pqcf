@@ -1,5 +1,6 @@
 //! Pure states in the truncated Fock space (FS 3.4, 3.5, 5.5; AN 7): amplitudes in the basis of FS 3.4 (total
 //! photon number ascending, then lexicographic from mode 0), D = C(cutoff + m, m).
+#![forbid(unsafe_code)] // NFR-04: kernels are safe Rust; unsafe only in the Rustler glue (lib.rs)
 use crate::fock::{beamsplitter_sector, displacement_matrix, squeezing_matrix};
 use crate::mesh;
 use crate::num::{Sum, C64};

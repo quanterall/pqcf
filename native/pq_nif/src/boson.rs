@@ -10,6 +10,7 @@
 //!
 //! Stream order per shot: the Fisher-Yates integers for the photons' input columns (listed in mode order), then one
 //! uniform per photon for the output draws. brute_force: one uniform.
+#![forbid(unsafe_code)] // NFR-04: kernels are safe Rust; unsafe only in the Rustler glue (lib.rs)
 use crate::num::{Sum, C64};
 use crate::perm;
 use crate::rng::Stream;
