@@ -1,0 +1,337 @@
+# PQCF user guide
+
+This guide covers the Erlang API of the `pq` application. Every example here is also a test,
+`test/guide_examples_tests.erl`, so the examples run as written. If you change one, change the test as well.
+
+PQCF is not ready for use yet and the API may still change. It will be frozen at the end of Phase 3.
+
+## 1. Setup
+
+Build and test in the container (see the README), or with OTP 27+, rebar3 and Rust 1.90:
+
+```sh
+rebar3 compile
+rebar3 shell
+```
+
+Start the application before you sample. The job server, the worker pool and the node registry run under it:
+
+```erlang
+{ok, _} = application:ensure_all_started(pq).
+```
+
+The examples use the records in `include/pq.hrl` (`#circuit{}`, `#result{}` and the states). In the shell, load
+them with `rr("include/pq.hrl").`
+
+## 2. Conventions
+
+| | |
+| --- | --- |
+| Modes | numbered from 0 |
+| ħ | 2 by default (option `hbar`), so the vacuum covariance is the identity |
+| Phase space | means and covariances are ordered `x_0 .. x_{m-1}, p_0 .. p_{m-1}` |
+| Beamsplitter | `{beamsplitter, M1, M2, Theta, Phi}` acts on the mode operators as `[[cos θ, -e^{-iφ} sin θ], [e^{iφ} sin θ, cos θ]]`, so θ = π/4 is 50:50 |
+| Loss | `{loss, M, Eta}`: `Eta` is the transmissivity, 1 means no loss |
+| Fock basis | patterns are lists of photon numbers per mode, e.g. `[2, 0]` |
+| Results | `{ok, Value}` or `{error, Reason}`. No exceptions, except for programming errors such as a bad record |
+
+## 3. A first circuit: Hong–Ou–Mandel
+
+Two photons enter a 50:50 beamsplitter. They always leave on the same side:
+
+```erlang
+{ok, C0} = pq_api:circuit(2, {fock, [1, 1]}),
+C1 = pq_circuit:add(C0, {beamsplitter, 0, 1, math:pi() / 4, 0}),
+C  = pq_circuit:add(C1, {measure_pnr, [0, 1]}),
+
+fock = pq_api:backend_for(C, #{}),
+{ok, P, _Meta} = pq_api:probabilities(C, #{}),
+%% P: [2,0] => 0.5, [0,2] => 0.5, [1,1] => ~0
+
+{ok, #result{kind = pnr, measured = [0, 1], samples = S}} =
+    pq_api:sample(C, #{shots => 1000, seed => 42}).
+%% S has 1000 rows, none of them [1, 1]
+```
+
+Circuits are plain values, and every edit returns a new circuit: `add/2`, `insert/3`, `replace/3`, `delete/2`,
+`compose/2,3` (with a mode map). `pq_circuit:validate/1` checks modes, parameters, unitarity and measured-mode
+reuse. The functions in `pq_api` call it for you.
+
+### Instructions
+
+| Instruction | |
+| --- | --- |
+| `{beamsplitter, M1, M2, Theta, Phi}` | see Conventions |
+| `{phaseshift, M, Phi}` | |
+| `{displacement, M, R, Phi}` | α = r e^{iφ} |
+| `{squeezing, M, R, Phi}` | |
+| `{kerr, M, Kappa}` | Fock backends only |
+| `{loss, M, Eta}` | pure-loss channel |
+| `{unitary, Modes, U}` | a passive unitary on the listed modes (numeric or symbolic matrix) |
+| `{measure_pnr, Modes}` | photon counting |
+| `{measure_threshold, Modes}` | click / no click |
+| `{measure_homodyne, M, Phi}` | quadrature x cos φ + p sin φ |
+| `{custom, Name, Params}` | a registered custom instruction (option `custom_instructions`) |
+
+Measurements may sit in the middle of a circuit. A measured mode can't be used again.
+`pq_circuit:two_mode_squeezing/4` and `pq_circuit:mzi/4` return lists of instructions for common blocks.
+`pq_circuit:mesh/1` turns every `unitary` into a Clements mesh of beamsplitters and phases.
+
+Inputs: `vacuum`, `{fock, Pattern}`, `{gaussian, #gaussian_state{}}` or `{fock_state, #fock_state{}}`.
+
+## 4. Backends
+
+`pq_api:backend_for/2` picks a backend unless you pass `backend => B`:
+
+| Backend | Chosen when | State |
+| --- | --- | --- |
+| `gaussian` | the input is vacuum or Gaussian, and every instruction is Gaussian (no Kerr) | mean and covariance |
+| `fock` | otherwise, without loss | amplitudes under a cutoff |
+| `fock_dm` | otherwise, with loss | density matrix under a cutoff |
+| `boson` | only when asked for: passive circuits with a Fock input | none; exact boson sampling (Clifford–Clifford) |
+
+On the Fock backends, the cutoff defaults to the input's photon number. Pass `cutoff => N` when displacement or
+squeezing creates photons; a vacuum input without a cutoff is `{unsupported_input, cutoff_required}`. Truncation is reported as a warning (above `truncation_tol`), or as an error under
+`strict => true`.
+
+Gaussian circuits with photon-counting measurements are Gaussian boson sampling. The samplers use the hafnian
+(PNR) or the torontonian (threshold). Probabilities lost to the `max_photons` bound are reported as
+`truncated_mass`:
+
+```erlang
+R = 0.5,
+{ok, C0} = pq_api:circuit(1),
+C = pq_circuit:add(pq_circuit:add(C0, {squeezing, 0, R, 0}), {measure_pnr, [0]}),
+gaussian = pq_api:backend_for(C, #{}),
+{ok, P, #{truncated_mass := T}} = pq_api:probabilities(C, #{}),
+%% P: [0] => 1 / cosh(R), [1] => 0.0, ...; T < 1e-6
+
+{ok, S, _Warnings} = pq_api:evolve(C0#circuit{instrs = [{squeezing, 0, R, 0}]}, #{}),
+{ok, N} = pq_stats:mean_photon_number(S, [0]).
+%% N = sinh(R)^2
+```
+
+## 5. Running
+
+| Function | Returns |
+| --- | --- |
+| `pq_api:run(C, Opts)` | `{ok, #result{}}`; `shots` defaults to 1 |
+| `pq_api:sample(C, Opts)` | the same, with `shots` required |
+| `pq_api:evolve(C, Opts)` | `{ok, State, Warnings}`: the state before any measurement |
+| `pq_api:probabilities(C, Opts)` | `{ok, #{Pattern => P}, Meta}`: exact probabilities of the measured modes' outcomes |
+| `pq_api:run_batch(C, [Binding], Opts)` | `{ok, [#result{}]}`: one run per binding, in parallel, in binding order |
+
+`#result{}` has `kind` (`pnr | threshold | homodyne | mixed`), `measured` (the column order, i.e. the modes in
+measurement order), `samples` (one list per accepted shot) and `metadata` (`seed`, `shots_requested`,
+`shots_accepted`, warnings, ...).
+
+Common options:
+
+| Option | Default | |
+| --- | --- | --- |
+| `shots` | 1 | |
+| `seed` | random, reported in metadata | see Determinism |
+| `bindings` | `#{}` | values for the circuit's symbols |
+| `backend` | chosen | `gaussian`, `fock`, `fock_dm`, `boson` |
+| `cutoff` | the input's photon number | Fock backends |
+| `noise` | `none` | `trajectory`: sample loss as quantum jumps on pure states instead of a density matrix |
+| `postselect` | none | a predicate, see Post-selection |
+| `shots_mode` | `attempts` | `accepted`: keep going until `shots` samples are accepted (at most `max_attempts`) |
+| `max_photons` | 16 | Gaussian enumeration and GBS bound |
+| `max_enumeration` | 1 000 000 | the largest outcome set `probabilities/2` will list |
+| `max_inflight`, `chunk` | derived | job server parallelism; they never change the samples |
+| `strict` | false | turn truncation warnings into errors |
+
+`pq_core:defaults/0` lists every option. Application environment values override the defaults, and call options
+override both.
+
+## 6. Determinism
+
+A run is a function of the circuit, the bindings, the options and the seed. Shot k always uses the random stream
+(seed, k), whatever the number of workers, the chunk size or the nodes:
+
+```erlang
+{ok, A} = pq_api:sample(C, #{backend => boson, shots => 2000, seed => 7, max_inflight => 1}),
+{ok, B} = pq_api:sample(C, #{backend => boson, shots => 2000, seed => 7, max_inflight => 8, chunk => 37}),
+A#result.samples =:= B#result.samples.   %% true
+```
+
+With mid-circuit measurements, a shot draws from its stream in instruction order. With post-selection, the
+attempt index is the stream index. Without a seed, a random seed is drawn and recorded in
+`metadata`, so any run can be repeated.
+
+## 7. Parameters
+
+Parameters can be symbols, written as expressions. Bind them per run:
+
+```erlang
+{ok, Th} = pq_symbolic:parse(<<"theta">>),
+{ok, C0} = pq_api:circuit(2, {fock, [1, 0]}),
+C = pq_circuit:add(pq_circuit:add(C0, {beamsplitter, 0, 1, Th, 0}), {measure_pnr, [0, 1]}),
+[theta] = pq_circuit:free_symbols(C),
+{error, {unbound_symbols, [theta]}} = pq_api:probabilities(C, #{}),
+{ok, P, _} = pq_api:probabilities(C, #{bindings => #{theta => math:pi() / 3}}),
+%% P: [1,0] => 0.25
+
+{ok, [R0, R1]} = pq_api:run_batch(C, [#{theta => 0}, #{theta => math:pi() / 2}], #{shots => 10, seed => 1}).
+%% R0: ten [1,0]; R1: ten [0,1]
+```
+
+A circuit can carry default bindings (`#circuit.params`) and symbol domains (`real`, `positive`, `nonnegative`,
+`complex`). `pq_circuit:effective_binding/2` shows what a run will use.
+
+## 8. Gradients
+
+`pq_gradient:gradient(C, Observable, Binding, Opts)` differentiates an observable with respect to the
+symbols in `Binding`. The observables are:
+
+- `{probability, Modes, Pattern}`
+- `{mean_photon_number, Modes}`
+- `{weighted_sum, [{Weight, Obs}]}`
+
+```erlang
+C = pq_circuit:add(C0, {beamsplitter, 0, 1, Th, 0}),
+Obs = {probability, [0, 1], [1, 0]},
+{ok, #{theta := Gn}} = pq_gradient:gradient(C, Obs, #{theta => 0.3}, #{}),                    %% central differences
+{ok, #{theta := Gs}} = pq_gradient:gradient(C, Obs, #{theta => 0.3}, #{mode => symbolic}),  %% exact
+{ok, #{theta := E}}  = pq_gradient:symbolic_gradient(C, Obs, [theta]).                      %% the expression, -sin(2 theta)
+```
+
+Symbolic gradients are available for passive circuits with a Fock input: the gradient is computed from the
+symbolic unitary and the permanent. In every other case the call returns `differentiate_unsupported`; use
+numeric mode instead. A custom rule can be plugged in with `strategy => Module`, a module implementing the
+`pq_gradient` behaviour.
+
+## 9. Loss and noise
+
+Loss moves the circuit to the density-matrix backend, which applies the exact Kraus sum. With
+`noise => trajectory`, the pure-state backend samples the same distribution instead:
+
+```erlang
+{ok, C0} = pq_api:circuit(1, {fock, [2]}),
+C = pq_circuit:add(pq_circuit:add(C0, {loss, 0, 0.5}), {measure_pnr, [0]}),
+fock_dm = pq_api:backend_for(C, #{}),
+{ok, P, _} = pq_api:probabilities(C, #{}),          %% [0] => 0.25, [1] => 0.5, [2] => 0.25
+{ok, _} = pq_api:sample(C, #{shots => 500, seed => 3, noise => trajectory}).
+```
+
+`pq_noise:insert_loss/3` and `pq_noise:detector_efficiency/2` add loss to an existing circuit. Boson sampling
+takes loss at the inputs or the outputs, and has a Metropolis sampler for large instances.
+
+`pq_stats` provides:
+
+- `mean_photon_number/2`
+- `g2/2`
+- `tv_distance/2`
+- `histogram/2`
+- `fidelity/2`
+
+## 10. Post-selection
+
+`postselect => Predicate` keeps only the samples that satisfy the predicate. Modes in the predicate are circuit
+modes, not column numbers:
+
+```erlang
+{ok, C0} = pq_api:circuit(2, {fock, [1, 0]}),
+C = pq_circuit:add(pq_circuit:add(C0, {beamsplitter, 0, 1, math:pi() / 4, 0}), {measure_pnr, [0, 1]}),
+{ok, #result{samples = S}} =
+    pq_api:sample(C, #{shots => 100, seed => 5, postselect => {eq, 1, 0}, shots_mode => accepted}).
+%% S: a hundred [1, 0]
+```
+
+The predicates are:
+
+- `{eq | ge | le, Mode, N}`
+- `{in, Mode, Ns}`
+- `{total_eq | total_ge | total_le, Modes, N}`
+- `{'and', Ps}`, `{'or', Ps}`, `{'not', P}`
+- `{local_fun, F}`: an Erlang fun. It can't be sent to other nodes, so it gives `predicate_not_distributable` when
+  the run is distributed.
+
+If nothing is accepted within `max_attempts`, the run fails with `postselection_exhausted`.
+
+## 11. The symbolic engine
+
+`pq_symbolic` keeps expressions in an exact canonical form: Gaussian rationals, radicals, π, e, and
+trigonometric functions written as exponentials:
+
+```erlang
+{ok, E} = pq_symbolic:parse(<<"cos(x)^2 + sin(x)^2">>),
+{ok, One} = pq_symbolic:simplify(E),
+<<"1">> = pq_symbolic:pretty(One),
+
+{ok, F} = pq_symbolic:parse(<<"x^3 * exp(i*y)">>),
+{ok, Dx} = pq_symbolic:differentiate(F, x),
+{ok, Prog} = pq_symbolic:compile([Dx], [x, y]),          %% a straight-line program
+{ok, [V]} = pq_symbolic:eval_slp(Prog, #{x => 2.0, y => 0.0}),   %% 12
+
+{ok, A} = pq_symbolic:parse(<<"sqrt(x^2)">>),
+{ok, X} = pq_symbolic:parse(<<"x">>),
+{ok, {false, _Witness}} = pq_symbolic:equiv(A, X, #{numeric => 8}).
+```
+
+The engine also provides:
+
+- **Substitution and evaluation:** `subs`, `evaluate` (complex doubles, or `exact`).
+- **Derivatives:** `gradient`, `jacobian`.
+- **Matrices:** `matmul`, `kron`, `dagger`, ...
+- **Printing:** `to_latex`.
+- **Circuits:** `circuit_unitary/1` (the symbolic unitary of a passive circuit), `is_unitary`, `permanent`,
+  `bs_probability`.
+
+`equiv/3` returns `true` or `false` only when the canonical form decides the question. Otherwise it returns
+`unknown`, or, with `numeric => N`, it may find a binding where the two expressions differ.
+
+Every call is bounded by `max_expr_nodes`, `sym_timeout_ms` and `sym_max_heap_words`. When a limit is hit, the
+call returns `symbolic_limit` instead of running away. The parser creates atoms only for allowed names
+(`allowed_symbols`, or at most `max_symbols`).
+
+Use `compile/2` and `eval_slp/2` (or `eval_batch/2`) when one expression is evaluated many times. They share
+common subexpressions and run about 20× faster than evaluating the expression tree.
+
+## 12. Interchange
+
+- **JSON:** `pq_circuit:to_json/1` and `pq_circuit:from_json/1,2`. Symbols survive the round trip, and
+  `from_json/2` takes options such as `allowed_symbols`.
+- **Erlang binary:** `pq_circuit:to_binary/1` and `pq_circuit:from_binary/1`, a safe format for Erlang peers.
+- **Perceval:** `pq_convert:to_perceval/2` and `from_perceval/1`.
+- **Piquasso:** `pq_convert:to_piquasso/2` and `from_piquasso/1`. Their covariances use ħ = 1 against our 2; the
+  converter rescales.
+
+The conventions of both converters are checked against the libraries themselves in
+`test/oracle/converter_conventions.py`.
+
+```erlang
+{ok, Json} = pq_circuit:to_json(C),
+{ok, Back} = pq_circuit:from_json(Json).
+```
+
+## 13. Several nodes
+
+Connect the nodes and start `pq` on each. Nodes find each other through the `pq` process group and a version
+handshake (same NIF, same architecture unless `allow_heterogeneous_arch`). Then:
+
+- `distributed => true` spreads the chunks of a sampling job over the registered nodes. To choose the nodes
+  yourself, pass `distributed => nodes, nodes => [...]`.
+- If a node goes down, its chunks are retried on another node. The samples are the same as on one node.
+- `isolate_kernels => true` runs the kernels on peer nodes, so a crash in native code takes down only the
+  peer.
+- A job is refused up front if its estimated memory is more than `max_job_memory` (default: half of the
+  machine's memory).
+
+## 14. Errors
+
+Every error is `{error, {Category, Detail}}` or `{error, Category}`. `pq_core:categories/0` lists the
+categories. The common ones are:
+
+| Category | Meaning |
+| --- | --- |
+| `bad_shape`, `mode_out_of_range`, `duplicate_modes`, `measured_mode_reuse` | the circuit or the input is malformed |
+| `unbound_symbols`, `param_conflict`, `domain_violation` | parameters |
+| `unsupported_instruction`, `unsupported_input` | the backend can't run this, e.g. Kerr on `gaussian`, or a missing cutoff |
+| `dimension_limit`, `symbolic_limit` | a configured bound was hit, and the detail names it |
+| `postselection_exhausted`, `cancelled`, `timeout`, `node_down` | jobs |
+| `sym_parse`, `json_*` | parsing, with the byte position |
+
+Warnings (`truncation`, `gbs_truncation`, `unused_bindings`) never fail a run. They are returned in the
+metadata, or as the third element of `evolve/2`.
