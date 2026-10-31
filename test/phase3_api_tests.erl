@@ -63,8 +63,11 @@ cancel() ->
     timer:sleep(50),
     {ok, #{state := running, chunks := 1000, done := D, nodes := [_]}} = pq_parallel:status(Job),
     ?assert(D < 1000),
+    T0 = erlang:monotonic_time(millisecond),
     ok = pq_parallel:cancel(Job),
     ?assertEqual({error, cancelled}, receive {res, R} -> R after 10000 -> error(no_result) end),
+    %% FS 12.5: cancellation latency at most 100 ms
+    ?assert(erlang:monotonic_time(millisecond) - T0 =< 100),
     timer:sleep(20),
     ?assertEqual({ok, #{state => done}}, pq_parallel:status(Job)).
 

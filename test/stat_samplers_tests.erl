@@ -38,6 +38,9 @@ stat_test_() ->
        {"boson sampling, brute force", fun() ->
             pass({boson(), #{backend => boson}},
                  fun() -> pq_api:sample(boson, boson(), #{shots => ?SHOTS, seed => 102, algorithm => brute_force}) end) end},
+       {"boson sampling, Metropolis (independence sampler, thinned)", fun() ->
+            pass({boson(), #{backend => boson}},
+                 fun() -> pq_api:sample(boson, boson(), #{shots => ?SHOTS, seed => 112, algorithm => metropolis}) end) end},
        {"lossy boson sampling (loss at the inputs) against the density matrix", fun lossy/0},
        {"Gaussian boson sampling, photon counting", fun() ->
             pass({gbs(measure_pnr), #{}}, fun() -> pq_api:sample(gbs(measure_pnr), #{shots => ?SHOTS, seed => 103}) end) end},
