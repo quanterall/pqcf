@@ -1,7 +1,7 @@
 %% Evaluation of a canonical value under a binding (SY 5.2): complex doubles term by term in canonical key order,
 %% principal branch for powers; or, with exact => true, exact Gaussian rationals for the algebraic fragment.
 -module(pq_sym_eval).
--export([eval/3, cpow/2, free_symbols/1, check_binding/2]).
+-export([eval/3, cpow/2, rpow/2, free_symbols/1, check_binding/2, value/1]).
 
 -define(ZERO, {0.0, 0.0}).
 -define(ONEC, {1.0, 0.0}).
@@ -48,6 +48,7 @@ fits({_, Im}, real) -> Im == 0;
 fits({Re, Im}, nonnegative) -> Im == 0 andalso Re >= 0;
 fits({Re, Im}, positive) -> Im == 0 andalso Re > 0.
 
+%% a binding's value as a complex pair
 value(N) when is_integer(N) -> {float(N), 0.0};
 value(X) when is_float(X) -> {X, 0.0};
 value({rat, N, D}) when is_integer(N), is_integer(D), D > 0 -> {N / D, 0.0};

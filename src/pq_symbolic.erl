@@ -12,7 +12,7 @@
          matmul/2, kron/2, smul/2, madd/1, dagger/1, transpose/1,
          shape/1, free_symbols/1, size/1, hash/1, domain_of/2,
          pretty/1, pretty/2, to_latex/1, parse/1, parse/2,
-         resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, is_unitary/1, is_unitary/2, permanent/1, bs_probability/3,
+         resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, is_unitary/1, is_unitary/2, permanent/1, bs_probability/3, compile/2, eval_slp/2, eval_batch/2, equiv/3,
          substitute/2]).
 
 -export_type([sym_expr/0, binding/0, opts/0]).
@@ -279,6 +279,85 @@ decisive({pow, B, E}) -> not is_tuple(B) orelse element(1, B) =/= add andalso de
 decisive(T) when is_tuple(T) -> lists:all(fun decisive/1, tuple_to_list(T));
 decisive(L) when is_list(L) -> lists:all(fun decisive/1, L);
 decisive(_) -> true.
+
+%%% Straight-line programs (SY 5.5, FR-S10) and equivalence (SY 5.4, FR-S11)
+
+%% Exprs (scalars, or one matrix) compiled for repeated evaluation; Symbols are the inputs
+-spec compile([sym_expr()], [atom()]) -> result(tuple()).
+compile(Exprs, Symbols) ->
+    run({add, [0 | [E || E <- Exprs, sh_ok(E)]]}, #{}, fun(Ctx) ->
+                                                       Vs = [pq_sym_norm:norm(E, Ctx) || E <- Exprs],
+                                                       pq_sym_slp:compile(Vs, Symbols)
+                                               end).
+
+sh_ok(E) -> shape(E) =:= {ok, scalar}.
+
+-spec eval_slp(tuple(), binding()) -> result(term()).
+eval_slp(P, B) -> pq_sym_slp:eval(P, B).
+
+-spec eval_batch(tuple(), [binding()]) -> result(list()).
+eval_batch(P, Bs) -> pq_sym_slp:eval_batch(P, Bs).
+
+%% true: identical canonical forms (sound for all inputs); false: different forms of two expressions in E (SY 3.5),
+%% where the form is faithful -- no opaque base, no float, no exponential of pi (finding: exp(i pi/5) equals a
+%% radical expression that E also contains), and not a constant-only difference with e or pi (transcendence);
+%% unknown otherwise, then with numeric => N, N random real bindings may show a difference: {false, Binding}.
+-spec equiv(sym_expr(), sym_expr(), opts()) -> {ok, true | false | unknown | {false, binding()}} | {error, pq_core:reason()}.
+equiv(A, B, Opts) ->
+    case {canonicalise(A, Opts), canonicalise(B, Opts)} of
+        {{ok, X}, {ok, X}} -> {ok, true};
+        {{ok, X}, {ok, Y}} ->
+            {ok, D} = canonicalise({add, [X, {mul, [-1, Y]}]}, Opts),
+            Faithful = faithful(X) andalso faithful(Y) andalso not (free_symbols(D) =:= [] andalso has_transcendental(D)),
+            case Faithful of
+                true -> {ok, false};
+                false -> numeric_equiv(D, maps:get(numeric, Opts, 0), Opts)
+            end;
+        {{error, _} = E, _} -> E;
+        {_, E} -> E
+    end.
+
+faithful(T) when is_float(T) -> false;
+faithful({pow, B, _}) when is_tuple(B), element(1, B) =:= add -> false;
+faithful({pow, {mul, _} , _}) -> false;
+faithful({conj, {pow, _, _}}) -> false;
+faithful({exp, Arg}) -> not lists:member({const, pi}, flatten(Arg)) andalso faithful(Arg);
+faithful(T) when is_tuple(T) -> lists:all(fun faithful/1, tuple_to_list(T));
+faithful(L) when is_list(L) -> lists:all(fun faithful/1, L);
+faithful(_) -> true.
+
+has_transcendental(D) -> lists:any(fun(X) -> X =:= {const, pi} orelse (is_tuple(X) andalso element(1, X) =:= exp) end, flatten(D)).
+
+flatten(T) when is_tuple(T) -> [T | lists:append([flatten(X) || X <- tuple_to_list(T)])];
+flatten(L) when is_list(L) -> lists:append([flatten(X) || X <- L]);
+flatten(X) -> [X].
+
+numeric_equiv(_D, 0, _Opts) -> {ok, unknown};
+numeric_equiv(D, N, Opts) ->
+    Syms = free_symbols(D),
+    Domains = maps:get(domains, Opts, #{}),
+    Draw = fun(K) ->
+                   maps:from_list([{S, case maps:get(S, Domains, real) of
+                                           real -> 2 * frac(K, I) - 1;
+                                           complex -> {complex, 2 * frac(K, I) - 1, 2 * frac(K + 7, I) - 1};
+                                           _ -> 0.1 + frac(K, I)
+                                       end} || {I, S} <- lists:enumerate(Syms)])
+           end,
+    Diff = [B || K <- lists:seq(1, N), B <- [Draw(K)],
+                 case evaluate(D, B, Opts) of
+                     {ok, V} -> magnitude(V) > 1.0e-9;
+                     _ -> false
+                 end],
+    case Diff of
+        [B | _] -> {ok, {false, B}};
+        [] -> {ok, unknown}
+    end.
+
+%% deterministic points in [0, 1) (a fixed low-discrepancy sequence: no rand)
+frac(K, I) -> X = K * 0.6180339887498949 + I * 0.4142135623730951, X - math:floor(X).
+
+magnitude({complex, R, I}) -> math:sqrt(R * R + I * I);
+magnitude(X) -> abs(X).
 
 %%% Inspection
 

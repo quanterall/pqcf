@@ -1,6 +1,7 @@
 -module(pq_symbolic_tests).
 -include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include("../include/pq.hrl").
 
 -define(S, pq_symbolic).
 
@@ -474,3 +475,68 @@ prop_diff_mutant() ->
 diff_property_test_() ->
     {timeout, 300, [?_assert(proper:quickcheck(prop_diff_numeric(), [{numtests, 800}, {to_file, user}])),
                     ?_assertNot(proper:quickcheck(prop_diff_mutant(), [{numtests, 800}, quiet]))]}.
+
+%%% Straight-line programs (SY 5.5, FR-S10) and equivalence (SY 5.4, FR-S11)
+
+prop_slp() ->
+    ?FORALL({E, B}, {expr(3), binding()},
+            case {?S:compile([E], [x, y, p]), ?S:evaluate(E, B, ?DOM)} of
+                {{ok, P}, {ok, V}} ->
+                    {ok, [W]} = ?S:eval_slp(P, B),
+                    close(as_pair(V), as_pair(W));
+                _ -> true
+            end).
+
+slp_test_() ->
+    {timeout, 120,
+     [?_assert(proper:quickcheck(prop_slp(), [{numtests, 600}, {to_file, user}])),
+      ?_test(begin
+                 M = {matrix, [[{cos, {sym, t}}, {mul, [-1, {sin, {sym, t}}]}], [{sin, {sym, t}}, {cos, {sym, t}}]]},
+                 {ok, P} = ?S:compile([M], [t]),
+                 {ok, [A, B]} = ?S:eval_batch(P, [#{t => 0.3}, #{t => 1.0}]),
+                 {ok, {cmat, [[{complex, C, _}, _], _]}} = pq_core:unpack(A),
+                 ?assert(abs(C - math:cos(0.3)) < 1.0e-15),
+                 ?assertMatch({cmat, 2, 2, _}, B),
+                 ?assertEqual({error, {unbound_symbols, [t]}}, ?S:eval_slp(P, #{}))
+             end)]}.
+
+equiv_test() ->
+    X = {sym, x},
+    ?assertEqual({ok, true}, ?S:equiv({pow, {add, [X, 1]}, 2}, {add, [{pow, X, 2}, {mul, [2, X]}, 1]}, #{})),
+    ?assertEqual({ok, false}, ?S:equiv({pow, X, 2}, {pow, X, 3}, #{})),
+    ?assertEqual({ok, true}, ?S:equiv({add, [{pow, {sin, X}, 2}, {pow, {cos, X}, 2}]}, 1, #{})),
+    %% the scope fence (SY 10.3)
+    ?assertEqual({ok, unknown}, ?S:equiv({mul, [{add, [{pow, X, 2}, -1]}, {pow, {add, [X, -1]}, -1}]}, {add, [X, 1]}, #{})),
+    %% the counter-example to SY 3.5: equal, different forms, so not decidable here
+    Cos5 = {cos, {mul, [{rat, 1, 5}, {const, pi}]}},
+    Rad5 = {mul, [{rat, 1, 4}, {add, [1, {pow, 5, {rat, 1, 2}}]}]},
+    ?assertEqual({ok, unknown}, ?S:equiv(Cos5, Rad5, #{})),
+    ?assertEqual({ok, unknown}, ?S:equiv(Cos5, Rad5, #{numeric => 5})),
+    %% sqrt(x^2) is |x|, not x: a negative point shows it
+    ?assertMatch({ok, {false, #{x := V}}} when V < 0, ?S:equiv({pow, {pow, X, 2}, {rat, 1, 2}}, X, #{numeric => 20})).
+
+%% SS3: the straight-line program against tree evaluation on a symbolic Clements mesh unitary
+ss3_test_() ->
+    {timeout, 300,
+     [?_test(begin
+                 [begin
+                      Instrs = [{beamsplitter, J, J + 1, {sym, list_to_atom("t" ++ integer_to_list(I))},
+                                 {sym, list_to_atom("p" ++ integer_to_list(I))}}
+                                || {I, J} <- lists:enumerate([J0 || L <- lists:seq(0, K - 1), J0 <- lists:seq(L rem 2, K - 2, 2)])],
+                      {ok, C0} = pq_circuit:new(K),
+                      Syms = lists:usort(lists:append([[element(2, element(4, I)), element(2, element(5, I))] || I <- Instrs])),
+                      {Tu, {ok, U}} = timer:tc(fun() -> pq_symbolic:circuit_unitary(C0#circuit{instrs = Instrs}) end),
+                      {Tc, {ok, P}} = timer:tc(fun() -> ?S:compile([U], Syms) end),
+                      B = maps:from_list([{S, 0.1 * N} || {N, S} <- lists:enumerate(Syms)]),
+                      Reps = 20,
+                      {Ts, _} = timer:tc(fun() -> [?S:eval_slp(P, B) || _ <- lists:seq(1, Reps)] end),
+                      {Tt, _} = timer:tc(fun() -> [?S:evaluate(U, B) || _ <- lists:seq(1, Reps)] end),
+                      {ok, A1} = ?S:eval_slp(P, B), {ok, A2} = ?S:evaluate(U, B),
+                      {ok, {cmat, R1}} = pq_core:unpack(A1), {ok, {cmat, R2}} = pq_core:unpack(A2),
+                      ?assert(lists:all(fun({{complex, Ar, Ai}, {complex, Br, Bi}}) -> abs(Ar - Br) + abs(Ai - Bi) < 1.0e-12 end,
+                                        lists:zip(lists:append(R1), lists:append(R2)))),
+                      {slp, 1, _, Ops, _} = P,
+                      io:format(user, "~nSS3 k = ~p: unitary ~.2f s, compile ~.2f s, ~p ops; eval ~.3f ms (slp) vs ~.3f ms (tree): ~.1fx~n",
+                                [K, Tu / 1.0e6, Tc / 1.0e6, length(Ops), Ts / Reps / 1000, Tt / Reps / 1000, Tt / Ts])
+                  end || K <- [4, 6]]
+             end)]}.

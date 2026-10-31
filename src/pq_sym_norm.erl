@@ -3,6 +3,7 @@
 %% until it is combined. Throws {Category, Detail}; pq_symbolic catches.
 -module(pq_sym_norm).
 -export([norm/2, to_ast/1, value_to_ast/1, coeff_to_ast/1]).
+-export_type([value/0]).
 
 -import(pq_sym_exact, [c/1]).
 
