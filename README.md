@@ -25,6 +25,8 @@ docker build -t pqcf-dev .
 docker run --rm pqcf-dev            # EUnit (incl. property and 1,000,000-shot statistical tests), Dialyzer, xref, cargo test, clippy
 ```
 
+Sanitizer runs (AddressSanitizer over the Rust tests, nightly compiler in its own container): `sh tools/sanitize.sh`.
+
 Without the container: OTP 27 or later, rebar3 and Rust 1.90, then `rebar3 eunit`. Supported targets are
 `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`; no kernel uses a system BLAS or LAPACK.
 
