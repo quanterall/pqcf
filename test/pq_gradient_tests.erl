@@ -34,10 +34,12 @@ hom_test() ->
     ?assert(abs(maps:get(t, Gw) - maps:get(t, Gwn)) < 1.0e-6).
 
 gaussian_test() ->
-    %% <n> = sinh^2 r for squeezed vacuum: d/dr = sinh(2r); numeric only (symbolic Gaussian evolution, FR-G04, is
-    %% not built)
+    %% <n> = sinh^2 r for squeezed vacuum: d/dr = sinh(2r), numeric and symbolic (FR-G04)
     C = c(1, vacuum, [{squeezing, 0, {sym, r}, 0}]),
     {ok, #{r := G}} = pq_gradient:gradient(C, {mean_photon_number, [0]}, #{r => 0.4}, #{}),
     ?assert(abs(G - math:sinh(0.8)) < 1.0e-6),
+    {ok, #{r := Gs}} = pq_gradient:gradient(C, {mean_photon_number, [0]}, #{r => 0.4}, #{mode => symbolic}),
+    ?assert(abs(Gs - math:sinh(0.8)) < 1.0e-12),
+    %% probabilities of Gaussian states have no symbolic form here
     ?assertMatch({error, {differentiate_unsupported, _}},
-                 pq_gradient:gradient(C, {mean_photon_number, [0]}, #{r => 0.4}, #{mode => symbolic})).
+                 pq_gradient:gradient(C, {probability, [0], [0]}, #{r => 0.4}, #{mode => symbolic})).

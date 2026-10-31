@@ -12,7 +12,7 @@
          matmul/2, kron/2, smul/2, madd/1, dagger/1, transpose/1,
          shape/1, free_symbols/1, size/1, hash/1, domain_of/2,
          pretty/1, pretty/2, to_latex/1, parse/1, parse/2,
-         resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, is_unitary/1, is_unitary/2, permanent/1, bs_probability/3, compile/2, eval_slp/2, eval_batch/2, equiv/3,
+         resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, gaussian_evolve/2, is_unitary/1, is_unitary/2, permanent/1, bs_probability/3, compile/2, eval_slp/2, eval_batch/2, equiv/3,
          substitute/2]).
 
 -export_type([sym_expr/0, binding/0, opts/0]).
@@ -192,6 +192,104 @@ rows(U, Ms, G, Ctx) ->
     New = [list_to_tuple([pq_sym_poly:sum([pq_sym_poly:mul(Gij, element(Col, Row), Ctx) || {Gij, Row} <- lists:zip(GRow, Old)])
                           || Col <- lists:seq(1, tuple_size(element(1, U)))]) || GRow <- G],
     lists:foldl(fun({M, R}, Acc) -> setelement(M + 1, Acc, R) end, U, lists:zip(Ms, New)).
+
+%% SY 6.2, FR-G04: the symbolic mean (a 2m x 1 matrix) and covariance (2m x 2m), xxpp, of a Gaussian circuit from
+%% Mean0 and Cov0 (canonical, or numbers), with Hbar a number. The maps of A.2-A.6 are applied locally (rows of the
+%% mean, rows and columns of the covariance on the instruction's modes): displacement, squeezing (cosh and sinh as
+%% exponentials), phase shift, beamsplitter, passive unitary (the real symplectic [[Re U, -Im U], [Im U, Re U]],
+%% Re and Im through conj, exact for real symbols) and loss (sqrt(eta) a power 1/2; declare eta nonnegative).
+-spec gaussian_evolve(tuple(), map()) -> {ok, {sym_expr(), sym_expr()}} | {error, pq_core:reason()}.
+gaussian_evolve(C, Opts) ->
+    N = element(2, C),              % #circuit.n_modes
+    Instrs = element(5, C),         % #circuit.instrs
+    Domains = element(7, C),        % #circuit.symbols
+    #{mean := Mean0, cov := Cov0, hbar := H} = Opts,
+    Max = pq_core:get(max_symbolic_modes, Opts),
+    try
+        N =< Max orelse throw({symbolic_limit, #{n_modes => N, max_symbolic_modes => Max}}),
+        Ctx = context(Opts#{domains => maps:merge(Domains, maps:get(domains, Opts, #{}))}),
+        Mu = list_to_tuple([scalar_poly(X, Ctx) || X <- Mean0]),
+        Sig = list_to_tuple([list_to_tuple([scalar_poly(X, Ctx) || X <- Row]) || Row <- Cov0]),
+        {Mu2, Sig2} = lists:foldl(fun(I, Acc) -> gaussian_step(I, Acc, N, H, Ctx) end, {Mu, Sig}, Instrs),
+        {ok, {pq_sym_norm:value_to_ast({mat, 2 * N, 1, [[X] || X <- tuple_to_list(Mu2)]}),
+              pq_sym_norm:value_to_ast({mat, 2 * N, 2 * N, [tuple_to_list(R) || R <- tuple_to_list(Sig2)]})}}
+    catch
+        throw:{Cat, _} = R when is_atom(Cat) -> {error, R}
+    end.
+
+gaussian_step({beamsplitter, A, B, T, P}, St, N, _H, Ctx) ->
+    I = {complex, 0, 1},
+    U = [[{cos, T}, {mul, [-1, {exp, {mul, [{mul, [-1, I]}, P]}}, {sin, T}]}],
+         [{mul, [{exp, {mul, [I, P]}}, {sin, T}]}, {cos, T}]],
+    passive_step(U, [A, B], St, N, Ctx);
+gaussian_step({phaseshift, M, P}, St, N, _H, Ctx) ->
+    passive_step([[{exp, {mul, [{complex, 0, 1}, P]}}]], [M], St, N, Ctx);
+gaussian_step({unitary, Ms, {cmat, _, _, _} = Packed}, St, N, _H, Ctx) ->
+    {ok, {cmat, G}} = pq_core:unpack(Packed),
+    passive_step(G, Ms, St, N, Ctx);
+gaussian_step({unitary, Ms, {matrix, G}}, St, N, _H, Ctx) ->
+    passive_step(G, Ms, St, N, Ctx);
+gaussian_step({displacement, M, R, P}, {Mu, Sig}, N, H, Ctx) ->
+    K = {mul, [{pow, 2 * H, {rat, 1, 2}}, R]},
+    X = M + 1, Pp = N + M + 1,
+    Mu2 = setelement(Pp, setelement(X, Mu, pq_sym_poly:sum([element(X, Mu), scalar_poly({mul, [K, {cos, P}]}, Ctx)])),
+                     pq_sym_poly:sum([element(Pp, Mu), scalar_poly({mul, [K, {sin, P}]}, Ctx)])),
+    {Mu2, Sig};
+gaussian_step({squeezing, M, R, P}, St, N, _H, Ctx) ->
+    Ch = {mul, [{rat, 1, 2}, {add, [{exp, R}, {exp, {mul, [-1, R]}}]}]},
+    Sh = {mul, [{rat, 1, 2}, {add, [{exp, R}, {mul, [-1, {exp, {mul, [-1, R]}}]}]}]},
+    E = fun(X) -> scalar_poly(X, Ctx) end,
+    S = [[E({add, [Ch, {mul, [-1, {cos, P}, Sh]}]}), E({mul, [-1, {sin, P}, Sh]})],
+         [E({mul, [-1, {sin, P}, Sh]}), E({add, [Ch, {mul, [{cos, P}, Sh]}]})]],
+    symplectic_step(S, [M], St, N, Ctx);
+gaussian_step({loss, M, Eta}, {Mu, Sig}, N, H, Ctx) ->
+    R = scalar_poly({pow, Eta, {rat, 1, 2}}, Ctx),
+    Add = scalar_poly({mul, [{add, [1, {mul, [-1, Eta]}]}, H, {rat, 1, 2}]}, Ctx),
+    Idx = [M + 1, N + M + 1],
+    Mu2 = lists:foldl(fun(K, A) -> setelement(K, A, pq_sym_poly:mul(R, element(K, A), Ctx)) end, Mu, Idx),
+    %% rows and columns of the mode times sqrt(eta) (its own block by eta), then (1 - eta) hbar/2 on its diagonal
+    Scaled = lists:foldl(fun(K, A) -> scale_row_col(A, K, R, Ctx) end, Sig, Idx),
+    Sig2 = lists:foldl(fun(K, A) -> set2(A, K, K, pq_sym_poly:sum([get2(A, K, K), Add])) end, Scaled, Idx),
+    {Mu2, Sig2};
+gaussian_step(I, _St, _N, _H, _Ctx) -> throw({unsupported_instruction, {element(1, I), symbolic_gaussian}}).
+
+passive_step(U0, Ms, St, N, Ctx) ->
+    U = [[scalar_poly(Z, Ctx) || Z <- Row] || Row <- U0],
+    Half = pq_sym_exact:c(pq_sym_exact:rat(1, 2)),
+    MinusHalfI = pq_sym_exact:cq(pq_sym_exact:rat(0, 1), pq_sym_exact:rat(-1, 2)),
+    Re = fun(Z) -> pq_sym_poly:scale(pq_sym_poly:sum([Z, pq_sym_poly:conj(Z, Ctx)]), Half) end,
+    %% Im z = (z - conj z) / (2i) = -(i/2)(z - conj z)
+    Im = fun(Z) -> pq_sym_poly:scale(pq_sym_poly:sum([Z, pq_sym_poly:scale(pq_sym_poly:conj(Z, Ctx), pq_sym_exact:c(-1))]), MinusHalfI) end,
+    Neg = fun(Z) -> pq_sym_poly:scale(Z, pq_sym_exact:c(-1)) end,
+    S = [[Re(Z) || Z <- Row] ++ [Neg(Im(Z)) || Z <- Row] || Row <- U] ++
+        [[Im(Z) || Z <- Row] ++ [Re(Z) || Z <- Row] || Row <- U],
+    symplectic_step(S, Ms, St, N, Ctx).
+
+%% mu <- S mu on the indices of Ms (x then p), Sigma <- S Sigma S^T on those rows and columns
+symplectic_step(S, Ms, {Mu, Sig}, N, Ctx) ->
+    Idx = [M + 1 || M <- Ms] ++ [N + M + 1 || M <- Ms],
+    Dot = fun(Row, Vals) -> pq_sym_poly:sum([pq_sym_poly:mul(A, B, Ctx) || {A, B} <- lists:zip(Row, Vals)]) end,
+    OldMu = [element(K, Mu) || K <- Idx],
+    Mu2 = lists:foldl(fun({K, Row}, A) -> setelement(K, A, Dot(Row, OldMu)) end, Mu, lists:zip(Idx, S)),
+    Dim = tuple_size(Sig),
+    %% rows: Sigma[Idx, :] <- S Sigma[Idx, :]
+    OldRows = [element(K, Sig) || K <- Idx],
+    NewRows = [list_to_tuple([Dot(Row, [element(J, R) || R <- OldRows]) || J <- lists:seq(1, Dim)]) || Row <- S],
+    Sig1 = lists:foldl(fun({K, R}, A) -> setelement(K, A, R) end, Sig, lists:zip(Idx, NewRows)),
+    %% columns: Sigma[:, Idx] <- Sigma[:, Idx] S^T
+    Sig2 = list_to_tuple([begin
+                              Old = [element(K, R) || K <- Idx],
+                              lists:foldl(fun({K, SRow}, A) -> setelement(K, A, Dot(SRow, Old)) end, R, lists:zip(Idx, S))
+                          end || R <- tuple_to_list(Sig1)]),
+    {Mu2, Sig2}.
+
+scale_row_col(Sig, K, F, Ctx) ->
+    Row = list_to_tuple([pq_sym_poly:mul(F, X, Ctx) || X <- tuple_to_list(element(K, Sig))]),
+    Sig1 = setelement(K, Sig, Row),
+    list_to_tuple([setelement(K, R, pq_sym_poly:mul(F, element(K, R), Ctx)) || R <- tuple_to_list(Sig1)]).
+
+get2(T, I, J) -> element(J, element(I, T)).
+set2(T, I, J, V) -> setelement(I, T, setelement(J, element(I, T), V)).
 
 %% SY 6.3: the permanent of a symbolic k x k matrix by Glynn's formula in canonical arithmetic,
 %% 2^(k-1) terms, k at most max_symbolic_photons

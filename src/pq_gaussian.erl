@@ -6,6 +6,8 @@
 -compile({no_auto_import, [apply/3]}).
 -include("pq.hrl").
 -export([name/0, capabilities/0, init/3, apply/3, sample/3, measure/3]).
+%% FR-G04: symbolic evolution and the conversions between symbolic and numeric states
+-export([symbolic_evolve/2, to_symbolic/1, lower/2]).
 
 name() -> gaussian.
 
@@ -57,6 +59,61 @@ symplectic(#gaussian_state{mean = Mu, cov = C} = S, Rows, D, Modes) ->
 
 result(S, {ok, {Mu, C}}) -> {ok, S#gaussian_state{mean = Mu, cov = C}, []};
 result(_S, {error, _} = E) -> E.
+
+%%% FR-G04, SY 6.2: symbolic states hold mean and covariance as canonical matrices (2m x 1 and 2m x 2m, xxpp)
+
+%% The state before any measurement of a Gaussian circuit with symbolic parameters, from vacuum or a Gaussian input
+%% (numeric or symbolic); n_modes at most max_symbolic_modes. Terminal measurements are ignored; sampling needs
+%% lower/2 first.
+-spec symbolic_evolve(#circuit{}, map()) -> {ok, #gaussian_state{}} | {error, pq_core:reason()}.
+symbolic_evolve(#circuit{n_modes = N, input = In, instrs = Is} = C, Opts) ->
+    Measurement = fun(I) -> lists:member(element(1, I), [measure_pnr, measure_threshold, measure_homodyne]) end,
+    {Body, Tail} = lists:splitwith(fun(I) -> not Measurement(I) end, Is),
+    H = hbar(C),
+    Start = case In of
+                vacuum -> {ok, lists:duplicate(2 * N, 0),
+                           [[case I =:= J of true -> {mul, [H, {rat, 1, 2}]}; false -> 0 end || J <- lists:seq(1, 2 * N)]
+                            || I <- lists:seq(1, 2 * N)]};
+                {gaussian, #gaussian_state{mean = {matrix, M}, cov = {matrix, Cv}}} -> {ok, [X || [X] <- M], Cv};
+                {gaussian, #gaussian_state{} = S0} -> {Mv, Cv} = pq_state:mean_cov(S0), {ok, Mv, Cv};
+                Other -> {error, {unsupported_input, Other}}
+            end,
+    case {Start, lists:all(Measurement, Tail)} of
+        {_, false} -> {error, {unsupported_instruction, {midcircuit_measurement, symbolic_gaussian}}};
+        {{error, _} = E, _} -> E;
+        {{ok, Mean0, Cov0}, true} ->
+            case pq_symbolic:gaussian_evolve(C#circuit{instrs = Body}, Opts#{mean => Mean0, cov => Cov0, hbar => H}) of
+                {ok, {Mean, Cov}} -> {ok, #gaussian_state{n_modes = N, hbar = H, mean = Mean, cov = Cov}};
+                E -> E
+            end
+    end.
+
+%% a numeric state as a symbolic one (its entries become float constants)
+-spec to_symbolic(#gaussian_state{}) -> #gaussian_state{}.
+to_symbolic(#gaussian_state{mean = {matrix, _}} = S) -> S;
+to_symbolic(#gaussian_state{} = S) ->
+    {Mv, Cv} = pq_state:mean_cov(S),
+    S#gaussian_state{mean = {matrix, [[X] || X <- Mv]}, cov = {matrix, Cv}}.
+
+%% a symbolic state evaluated under Binding: numeric, ready for sampling; complex entries are an error
+-spec lower(#gaussian_state{}, map()) -> {ok, #gaussian_state{}} | {error, pq_core:reason()}.
+lower(#gaussian_state{mean = {matrix, _} = M, cov = {matrix, _} = Cv, hbar = H}, Binding) ->
+    case {pq_symbolic:evaluate(M, Binding), pq_symbolic:evaluate(Cv, Binding)} of
+        {{ok, Mp}, {ok, Cp}} ->
+            {ok, {cmat, MRows}} = pq_core:unpack(Mp),
+            {ok, {cmat, CRows}} = pq_core:unpack(Cp),
+            try
+                {ok, pq_state:from_mean_cov([real_entry(X) || [X] <- MRows], [[real_entry(X) || X <- R] || R <- CRows], H)}
+            catch
+                throw:{non_physical_state, _} = R -> {error, R}
+            end;
+        {{error, _} = E, _} -> E;
+        {_, {error, _} = E} -> E
+    end;
+lower(#gaussian_state{} = S, _Binding) -> {ok, S}.
+
+real_entry({complex, Re, Im}) when abs(Im) =< 1.0e-12 * (1 + abs(Re)) -> Re;
+real_entry({complex, _, _} = Z) -> throw({non_physical_state, #{complex_entry => Z}}).
 
 %% FR-G08: homodyne on one mode of one shot, the rest conditioned (A.7); the measured mode is then reset to vacuum
 %% in place, so no mode is renumbered (no later instruction may use it, FR-M06)

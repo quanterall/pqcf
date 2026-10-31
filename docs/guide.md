@@ -199,8 +199,11 @@ Obs = {probability, [0, 1], [1, 0]},
 {ok, #{theta := E}}  = pq_gradient:symbolic_gradient(C, Obs, [theta]).                      %% the expression, -sin(2 theta)
 ```
 
-Symbolic gradients are available for passive circuits with a Fock input: the gradient is computed from the
-symbolic unitary and the permanent. In every other case the call returns `differentiate_unsupported`; use
+Symbolic gradients are available in two cases:
+
+- **Passive circuits with a Fock input:** computed from the symbolic unitary and the permanent.
+- **Gaussian circuits with a vacuum or Gaussian input:** computed from the symbolic mean and covariance. Only
+  `mean_photon_number` (and weighted sums of it) is supported here. In every other case the call returns `differentiate_unsupported`; use
 numeric mode instead. A custom rule can be plugged in with `strategy => Module`, a module implementing the
 `pq_gradient` behaviour.
 
@@ -281,6 +284,24 @@ The engine also provides:
 - **Printing:** `to_latex`.
 - **Circuits:** `circuit_unitary/1` (the symbolic unitary of a passive circuit), `is_unitary`, `permanent`,
   `bs_probability`.
+
+Gaussian circuits evolve symbolically too: the mean and covariance become canonical matrices. This covers
+squeezing, displacement, phase shifts, beamsplitters, passive unitaries and loss, for up to
+`max_symbolic_modes` modes. Declare loss symbols `nonnegative`. To sample, lower the state first:
+
+```erlang
+{ok, R} = pq_symbolic:parse(<<"r">>),
+{ok, C0} = pq_api:circuit(1),
+C = pq_circuit:add(C0, {squeezing, 0, R, 0}),
+{ok, S} = pq_gaussian:symbolic_evolve(C, #{}),
+{matrix, [[Vx, _], [_, _]]} = S#gaussian_state.cov,
+<<"exp(-2*r)">> = pq_symbolic:pretty(Vx),
+{ok, L} = pq_gaussian:lower(S, #{r => 0.5}),                 %% a numeric state again
+{ok, #{r := G}} = pq_gradient:gradient(C, {mean_photon_number, [0]}, #{r => 0.5}, #{mode => symbolic}).
+%% G = sinh(1)
+```
+
+`pq_gaussian:to_symbolic/1` turns a numeric state into a symbolic one.
 
 `equiv/3` returns `true` or `false` only when the canonical form decides the question. Otherwise it returns
 `unknown`, or, with `numeric => N`, it may find a binding where the two expressions differ.

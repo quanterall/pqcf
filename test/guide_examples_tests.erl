@@ -8,7 +8,7 @@ close(A, B) -> abs(A - B) < 1.0e-9.
 guide_test_() ->
     {setup, fun() -> {ok, _} = application:ensure_all_started(pq) end, fun(_) -> ok end,
      [fun hom/0, fun determinism/0, fun squeezed/0, fun parameters/0, fun gradient/0, fun symbolic/0, fun json/0,
-      fun loss/0, fun postselection/0, fun jobs/0, fun errors/0]}.
+      fun loss/0, fun postselection/0, fun jobs/0, fun symbolic_gaussian/0, fun errors/0]}.
 
 %% 1. Hong-Ou-Mandel
 hom() ->
@@ -147,3 +147,17 @@ jobs() ->
     ?assert(Done < Total),
     ok = pq_parallel:cancel(Job),
     ?assertEqual({error, cancelled}, receive {done, R} -> R end).
+
+%% 11. Symbolic Gaussian states
+symbolic_gaussian() ->
+    {ok, R} = pq_symbolic:parse(<<"r">>),
+    {ok, C0} = pq_api:circuit(1),
+    C = pq_circuit:add(C0, {squeezing, 0, R, 0}),
+    {ok, S} = pq_gaussian:symbolic_evolve(C, #{}),
+    {matrix, [[Vx, _], [_, _]]} = S#gaussian_state.cov,
+    <<"exp(-2*r)">> = pq_symbolic:pretty(Vx),
+    {ok, L} = pq_gaussian:lower(S, #{r => 0.5}),
+    {_, [[X, _], _]} = pq_state:mean_cov(L),
+    ?assert(close(X, math:exp(-1.0))),
+    {ok, #{r := G}} = pq_gradient:gradient(C, {mean_photon_number, [0]}, #{r => 0.5}, #{mode => symbolic}),
+    ?assert(close(G, math:sinh(1.0))).

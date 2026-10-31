@@ -93,7 +93,8 @@ value(#circuit{instrs = Is} = C, {mean_photon_number, Modes}, Opts) ->
 
 measurement(I) -> lists:member(element(1, I), [measure_pnr, measure_threshold, measure_homodyne]).
 
-%% Decision 6: the derivative expressions, for passive circuits with a Fock input
+%% Decision 6: the derivative expressions, for passive circuits with a Fock input, or Gaussian circuits with a
+%% Gaussian input (FR-G04)
 -spec symbolic_gradient(#circuit{}, observable(), [atom()]) -> {ok, #{atom() => pq_symbolic:sym_expr()}} | {error, pq_core:reason()}.
 symbolic_gradient(#circuit{input = {fock, In}, instrs = Is} = C, Obs, Syms) ->
     Body = [I || I <- Is, not measurement(I)],
@@ -116,11 +117,53 @@ symbolic_gradient(#circuit{input = {fock, In}, instrs = Is} = C, Obs, Syms) ->
                 Err -> Err
             end
     end;
+symbolic_gradient(#circuit{input = In, instrs = Is} = C, Obs, Syms) when In =:= vacuum; element(1, In) =:= gaussian ->
+    %% FR-G04, SY 6.4: a Gaussian input, the observable from the symbolic mean and covariance
+    Body = [I || I <- Is, not measurement(I)],
+    Gaussian = [beamsplitter, phaseshift, unitary, displacement, squeezing, loss],
+    case lists:all(fun(I) -> lists:member(element(1, I), Gaussian) end, Body) of
+        false -> {error, {differentiate_unsupported, {instructions, [element(1, I) || I <- Body]}}};
+        true ->
+            Sub = maps:filter(fun(K, _) -> not lists:member(K, Syms) end, C#circuit.params),
+            case pq_gaussian:symbolic_evolve(C#circuit{instrs = [map_instr(I, Sub) || I <- Body]}, #{}) of
+                {ok, S} ->
+                    case gaussian_expr(S, Obs) of
+                        {ok, E} -> differentiate_all(E, Syms, C);
+                        Err -> Err
+                    end;
+                Err -> Err
+            end
+    end;
 symbolic_gradient(_C, Obs, _Syms) -> {error, {differentiate_unsupported, Obs}}.
+
+differentiate_all(E, Syms, C) ->
+    D = [{S, pq_symbolic:differentiate(E, S, #{domains => C#circuit.symbols})} || S <- Syms],
+    case [R || {_, {error, _} = R} <- D] of
+        [] -> {ok, maps:from_list([{S, X} || {S, {ok, X}} <- D])};
+        [R | _] -> R
+    end.
+
+%% FR-X01 on the symbolic state: per mode (mu_x^2 + mu_p^2 + Sigma_xx + Sigma_pp) / (2 hbar) - 1/2
+gaussian_expr(#gaussian_state{n_modes = N, hbar = H, mean = {matrix, M}, cov = {matrix, Cv}}, {mean_photon_number, Modes}) ->
+    Mu = fun(K) -> hd(lists:nth(K + 1, M)) end,
+    Sg = fun(K) -> lists:nth(K + 1, lists:nth(K + 1, Cv)) end,
+    pq_symbolic:canonicalise({add, [{add, [{mul, [{pow, {mul, [2, H]}, -1},
+                                                  {add, [{pow, Mu(J), 2}, {pow, Mu(N + J), 2}, Sg(J), Sg(N + J)]}]},
+                                           {rat, -1, 2}]} || J <- Modes]});
+gaussian_expr(S, {weighted_sum, Terms}) ->
+    Es = [{W, gaussian_expr(S, O)} || {W, O} <- Terms],
+    case [E || {_, {error, _} = E} <- Es] of
+        [] -> pq_symbolic:canonicalise({add, [{mul, [W, E]} || {W, {ok, E}} <- Es]});
+        [E | _] -> E
+    end;
+gaussian_expr(_S, Obs) -> {error, {differentiate_unsupported, Obs}}.
 
 map_instr(I, Sub) when map_size(Sub) =:= 0 -> I;
 map_instr({beamsplitter, A, B, T, P}, Sub) -> {beamsplitter, A, B, pq_symbolic:substitute(T, Sub), pq_symbolic:substitute(P, Sub)};
 map_instr({phaseshift, M, P}, Sub) -> {phaseshift, M, pq_symbolic:substitute(P, Sub)};
+map_instr({displacement, M, R, P}, Sub) -> {displacement, M, pq_symbolic:substitute(R, Sub), pq_symbolic:substitute(P, Sub)};
+map_instr({squeezing, M, R, P}, Sub) -> {squeezing, M, pq_symbolic:substitute(R, Sub), pq_symbolic:substitute(P, Sub)};
+map_instr({loss, M, Eta}, Sub) -> {loss, M, pq_symbolic:substitute(Eta, Sub)};
 map_instr(I, _Sub) -> I.
 
 observable_expr(U, In, {probability, Modes, Pattern}) ->
