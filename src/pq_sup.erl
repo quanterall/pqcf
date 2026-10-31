@@ -1,5 +1,4 @@
-%% The top supervisor (FS 2.2): pq_job_sup and pq_worker_sup; pq_config and pq_node_registry arrive with
-%% distribution (Phase 2).
+%% The top supervisor (FS 2.2): the pg scope pq, the node registry, the spec cache, pq_worker_sup and pq_job_sup.
 -module(pq_sup).
 -behaviour(supervisor).
 -export([start_link/0, init/1]).
@@ -9,4 +8,7 @@ start_link() ->
 
 init([]) ->
     Sup = fun(M) -> #{id => M, start => {M, start_link, []}, type => supervisor} end,
-    {ok, {#{strategy => one_for_one, intensity => 5, period => 10}, [Sup(pq_worker_sup), Sup(pq_job_sup)]}}.
+    Worker = fun(M) -> #{id => M, start => {M, start_link, []}, type => worker} end,
+    Pg = #{id => pg_pq, start => {pg, start_link, [pq]}, type => worker},
+    {ok, {#{strategy => one_for_one, intensity => 5, period => 10},
+          [Pg, Worker(pq_node_registry), Worker(pq_spec_cache), Sup(pq_worker_sup), Sup(pq_job_sup)]}}.

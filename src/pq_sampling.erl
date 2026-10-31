@@ -35,7 +35,7 @@ sample(boson, C, Opts) ->
         E -> E
     end.
 
-job_opts(Opts) -> maps:with([max_inflight, max_retries, max_chunk, chunk, timeout], Opts).
+job_opts(Opts) -> maps:with([max_inflight, max_retries, max_chunk, chunk, timeout, distributed, max_job_memory], Opts).
 
 %% the lowered circuit's single-photon unitary, its Fock input and the measured modes
 prepare(C, Opts) ->

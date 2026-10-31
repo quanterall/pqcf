@@ -7,7 +7,7 @@
 -export([init/1, callback_mode/0, running/3, terminate/3]).
 
 -record(d, {spec, from, queue = [], inflight = #{}, attempts = #{}, done = #{}, max_inflight, max_retries,
-            token, chunks}).
+            token, chunks, nodes = [node()]}).
 
 start_link(Spec, Opts, From) -> gen_statem:start_link(?MODULE, {Spec, Opts, From}, []).
 
@@ -20,7 +20,8 @@ init({Spec, Opts, From}) ->
     Token = pq_nif:cancel_token_new(),
     Chunks = maps:get(chunks, Opts),
     D = #d{spec = Spec#{cancel => Token}, from = From, queue = Chunks, chunks = length(Chunks),
-           max_inflight = maps:get(max_inflight, Opts), max_retries = maps:get(max_retries, Opts), token = Token},
+           max_inflight = maps:get(max_inflight, Opts), max_retries = maps:get(max_retries, Opts), token = Token,
+           nodes = maps:get(nodes, Opts, [node()])},
     Actions = case maps:get(timeout, Opts, infinity) of
                   infinity -> [];
                   T -> [{{timeout, run}, T, expired}]
@@ -57,7 +58,9 @@ running({timeout, run}, expired, D) ->
 
 dispatch(#d{queue = [{Id, First, N} | Rest], inflight = In, max_inflight = Max} = D) when map_size(In) < Max ->
     Attempt = maps:get(Id, D#d.attempts, 0),
-    {ok, Pid} = pq_worker_sup:start_worker(self(), {Id, First, N, D#d.spec}, Attempt),
+    %% a node per chunk, another one on each retry (FS 9.4)
+    Node = lists:nth((Id + Attempt) rem length(D#d.nodes) + 1, D#d.nodes),
+    {ok, Pid} = pq_worker_sup:start_worker(self(), {Id, First, N, (D#d.spec)#{target => Node}}, Attempt),
     dispatch(D#d{queue = Rest, inflight = In#{Pid => {Id, First, N}}});
 dispatch(D) -> D.
 
