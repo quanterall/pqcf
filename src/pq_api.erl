@@ -87,11 +87,16 @@ probs(gaussian, C, Modes, Kind, Opts) ->
             case length(Pats) =< Max of
                 false -> {error, {dimension_limit, length(Pats), Max}};
                 true ->
-                    Map = maps:from_list([{P, element(2, pq_nif:gaussian_probability(Red#gaussian_state.mean, Red#gaussian_state.cov,
-                                                                                    float(Red#gaussian_state.hbar), P, Kind))}
-                                          || P <- Pats]),
-                    Missing = 1 - lists:sum(maps:values(Map)),
-                    {ok, Map, #{backend => gaussian, truncated_mass => max(Missing, 0.0), warnings => W}}
+                    Rs = [{P, pq_nif:gaussian_probability(Red#gaussian_state.mean, Red#gaussian_state.cov,
+                                                          float(Red#gaussian_state.hbar), P, Kind)} || P <- Pats],
+                    %% a kernel error (a displaced state with threshold detectors) is the call's error, not a value
+                    case [E || {_, {error, _} = E} <- Rs] of
+                        [] ->
+                            Map = maps:from_list([{P, V} || {P, {ok, V}} <- Rs]),
+                            Missing = 1 - lists:sum(maps:values(Map)),
+                            {ok, Map, #{backend => gaussian, truncated_mass => max(Missing, 0.0), warnings => W}};
+                        [E | _] -> E
+                    end
             end;
         E -> E
     end;

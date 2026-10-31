@@ -36,3 +36,8 @@ run_and_batch_test() ->
     ?assertMatch({error, {unbound_symbols, [t]}}, pq_api:run_batch(C, [#{}], #{shots => 1})),
     {ok, S, []} = pq_api:evolve(c(1, vacuum, [{displacement, 0, 1, 0}]), #{}),
     ?assertEqual({ok, 1.0}, pq_stats:mean_photon_number(S, [0])).
+
+%% a kernel error is returned, not stored as a probability: threshold detection of a displaced state
+displaced_threshold_test() ->
+    C = c(1, vacuum, [{displacement, 0, 0.3, 0}, {measure_threshold, [0]}]),
+    ?assertEqual({error, {unsupported_input, nonzero_mean_threshold}}, pq_api:probabilities(C, #{})).
