@@ -38,8 +38,10 @@ run(Backend, C, Opts0) ->
     Opts = Opts0#{seed => Seed},
     try
         Low = ok(prepare(Backend, C, Opts)),
-        {Body, Rest} = lists:splitwith(fun(I) -> not measurement(I) end, Low#circuit.instrs),
-        Rest =/= [] orelse throw({error, {unsupported_input, no_measurement}}),
+        %% the first stochastic point: a measurement, or a loss in trajectory mode (FR-F05)
+        Stochastic = fun(I) -> measurement(I) orelse (element(1, I) =:= loss andalso maps:get(noise, Opts, none) =:= trajectory) end,
+        {Body, Rest} = lists:splitwith(fun(I) -> not Stochastic(I) end, Low#circuit.instrs),
+        lists:any(fun measurement/1, Rest) orelse throw({error, {unsupported_input, no_measurement}}),
         Mid = lists:any(fun(I) -> not measurement(I) end, Rest),
         Mid andalso (erlang:function_exported(Backend, measure, 3) orelse
                      throw({error, {unsupported_instruction, midcircuit_measurement, Backend:name()}})),
@@ -113,7 +115,8 @@ shot(Backend, S, [I | T] = Is, Opts, R, Acc) ->
                     end
             end;
         false ->
-            case Backend:apply(I, S, Opts) of
+            %% the shot's stream also reaches instructions that draw (trajectory loss, FR-F05)
+            case Backend:apply(I, S, Opts#{stream_ref => R}) of
                 {ok, S2, _} -> shot(Backend, S2, T, Opts, R, Acc);
                 {error, _} = E -> throw(E)
             end

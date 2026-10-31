@@ -10,7 +10,7 @@
          unitary_decompose/1, sample_categorical/3, gaussian_to_amat/3, gaussian_probability/5,
          fock_dm_apply_beamsplitter/7, fock_dm_apply_phaseshift/5, fock_dm_apply_kerr/5, fock_dm_apply_passive/5,
          fock_dm_apply_displacement/6, fock_dm_apply_squeezing/6, fock_dm_apply_loss/5,
-         gaussian_measure_homodyne/6, stream_new/2, fock_measure_pnr/5]).
+         gaussian_measure_homodyne/6, stream_new/2, fock_measure_pnr/5, fock_apply_loss_trajectory/6]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -236,3 +236,9 @@ stream_new(_Seed, _Stream) -> erlang:nif_error(nif_not_loaded).
 -spec fock_measure_pnr(pq_core:packed_cvector() | pq_core:packed_cmatrix(), [non_neg_integer()], [non_neg_integer()],
                        pos_integer(), non_neg_integer()) -> {ok, {float(), term()}} | kernel_error().
 fock_measure_pnr(_State, _Modes, _Outcome, _N, _C) -> erlang:nif_error(nif_not_loaded).
+
+%% FR-F05 trajectory mode: a lost-photon count drawn (one uniform of stream_ref, or of stream (seed, stream)), the
+%% pure state replaced by K_l psi renormalised; {Amps, Lost}
+-spec fock_apply_loss_trajectory(pq_core:packed_cvector(), float(), non_neg_integer(), pos_integer(), non_neg_integer(),
+                                 map()) -> {ok, {pq_core:packed_cvector(), non_neg_integer()}} | kernel_error().
+fock_apply_loss_trajectory(_A, _Eta, _Mode, _N, _C, _Opts) -> erlang:nif_error(nif_not_loaded).

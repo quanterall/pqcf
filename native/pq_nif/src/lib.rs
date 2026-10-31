@@ -966,4 +966,25 @@ fn fock_measure_pnr<'a>(env: Env<'a>, state: Term<'a>, modes: Vec<usize>, outcom
     Ok((atoms::ok(), (prob, put_cvec(env, &v))).encode(env))
 }
 
+/// fock_apply_loss_trajectory(Amps, Eta, Mode, NModes, Cutoff, Opts) -> {Amps, Lost} (FR-F05 trajectory mode):
+/// one uniform from Opts stream_ref (or stream (seed, stream)) draws the lost-photon count
+#[rustler::nif(schedule = "DirtyCpu")]
+fn fock_apply_loss_trajectory<'a>(env: Env<'a>, amps: Term<'a>, eta: f64, mode: usize, n: usize, c: usize, opts: Term<'a>) -> NifResult<Term<'a>> {
+    let (mut v, b) = fock_args!(env, amps, n, c, [mode]);
+    if !(0.0..=1.0).contains(&eta) {
+        return Ok(bad_shape(env, "eta outside [0, 1]"));
+    }
+    let seed: u64 = opt(opts, atoms::seed(), 0u64)?;
+    let stream: u64 = opt(opts, atoms::stream(), 0u64)?;
+    let sref = stream_ref(opts)?;
+    let mut guard = sref.as_ref().map(|r| r.0.lock().expect("stream"));
+    let mut src = match guard.as_deref_mut() {
+        Some(st) => rng::Source::Shared(st),
+        None => rng::Source::Seeded { seed, start: stream },
+    };
+    let u = src.with_shot(0, |st| st.uniform());
+    let lost = fockstate::loss_trajectory(&b, &mut v, eta, mode, u);
+    Ok((atoms::ok(), (put_cvec(env, &v), lost)).encode(env))
+}
+
 rustler::init!("pq_nif");

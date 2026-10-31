@@ -300,6 +300,32 @@ mod tests {
     }
 }
 
+/// FR-F05 trajectory mode: one Kraus operator K_l of the loss channel (A.11) drawn with probability |K_l psi|^2
+/// by the uniform u (categorical over l = 0, 1, ...), the state replaced by K_l psi / |K_l psi|. Returns l.
+pub fn loss_trajectory(b: &Basis, amps: &mut Vec<C64>, eta: f64, mode: usize, u: f64) -> usize {
+    let binom = |n: u32, k: u32| -> f64 { (0..k).fold(1.0, |acc, i| acc * (n - i) as f64 / (i + 1) as f64) };
+    let kraus = |l: u32| -> Vec<C64> {
+        let mut out = vec![C64::ZERO; amps.len()];
+        for (a, p) in amps.iter().zip(&b.patterns) {
+            let n = p[mode];
+            if n >= l {
+                let mut q = p.clone();
+                q[mode] = n - l;
+                let w = binom(n, l).sqrt() * eta.powf((n - l) as f64 / 2.0) * (1.0 - eta).powf(l as f64 / 2.0);
+                let i = b.index(&q);
+                out[i] = out[i].add(a.scale(w));
+            }
+        }
+        out
+    };
+    let states: Vec<Vec<C64>> = (0..=b.cutoff as u32).map(kraus).collect();
+    let probs: Vec<f64> = states.iter().map(|v| v.iter().map(|z| z.re * z.re + z.im * z.im).sum()).collect();
+    let l = crate::boson::categorical(&probs, u);
+    let norm = probs[l].sqrt();
+    *amps = states[l].iter().map(|z| if norm > 0.0 { z.scale(1.0 / norm) } else { *z }).collect();
+    l
+}
+
 /// Density matrices (FS 4.5, FR-F05, AN 7.5): rho is D x D, row-major, in the basis of FS 3.4.
 pub mod dm {
     use super::{Basis, Error};
@@ -402,6 +428,23 @@ mod dm_tests {
         let p = dm::pnr_probabilities(&b, &rho, &[0]);
         assert!((p[2].1 - 0.49).abs() < 1e-15 && (p[1].1 - 0.42).abs() < 1e-15 && (p[0].1 - 0.09).abs() < 1e-15);
         assert!((dm::trace(&rho, 3) - 1.0).abs() < 1e-15);
+    }
+
+    #[test]
+    fn trajectories_average_to_the_channel() {
+        // |2> through eta = 0.7: lost-photon counts 0, 1, 2 with 0.49, 0.42, 0.09
+        let b = Basis::new(1, 2);
+        let mut counts = [0usize; 3];
+        let mut s = crate::rng::Stream::new(4, 0);
+        for _ in 0..40000 {
+            let mut psi = vec![C64::ZERO, C64::ZERO, C64::ONE];
+            let l = loss_trajectory(&b, &mut psi, 0.7, 0, s.uniform());
+            counts[l] += 1;
+            assert!((psi.iter().map(|z| z.abs().powi(2)).sum::<f64>() - 1.0).abs() < 1e-14);
+        }
+        for (l, want) in [0.49, 0.42, 0.09].iter().enumerate() {
+            assert!((counts[l] as f64 / 40000.0 - want).abs() < 0.01, "l = {l}");
+        }
     }
 
     #[test]

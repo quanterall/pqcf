@@ -19,7 +19,7 @@ capabilities() ->
 
 %% FR-F05: with promote_dm, loss promotes the state to a density matrix
 capabilities(Opts) ->
-    case maps:get(promote_dm, Opts, false) of
+    case maps:get(promote_dm, Opts, false) orelse maps:get(noise, Opts, none) =:= trajectory of
         true -> (capabilities())#{loss => exact};
         false -> capabilities()
     end.
@@ -61,6 +61,12 @@ basis(N, Cut, D, Occ) ->
 final({S, _Deficit}) -> S.
 
 %% FR-F05: loss promotes the pure state to a density matrix when promote_dm is set; from then on pq_fock_dm acts
+%% FR-F05 trajectory mode (sampling only): a lost-photon count drawn from the shot's stream, the state kept pure
+apply({loss, M, Eta}, {#fock_state{n_modes = N, cutoff = C, amps = A} = S, Def}, #{noise := trajectory, stream_ref := _} = Opts) ->
+    case pq_nif:fock_apply_loss_trajectory(A, float(Eta), M, N, C, maps:with([stream_ref], Opts)) of
+        {ok, {Amps, _Lost}} -> {ok, {S#fock_state{amps = Amps}, Def}, []};
+        {error, _} = E -> E
+    end;
 apply({loss, _, _} = I, {#fock_state{amps = A} = S, Def}, Opts) ->
     case maps:get(promote_dm, Opts, false) of
         true -> pq_fock_dm:apply(I, {pq_fock_dm:from_pure(S#fock_state{amps = A}), Def}, Opts);
