@@ -65,3 +65,12 @@ measures both). On the provisional reference: one node 0.97 / 0.92 / 0.83 at p =
 across 4 nodes 0.88. At p = 10 -- all ten fast cores -- the result follows the shared machine's other load: 0.77 at
 a load average near 3, 0.65 near 14. That last step, "up to the dirty CPU scheduler count", needs a machine without
 other work to confirm.
+
+## NFR-09 (1 Nov 2026)
+
+`test/nfr_tests.erl` (every dirty CPU scheduler busy with long boson-sampling chunks, 1,000 pings from a process on
+the normal schedulers; requirement: p99 below 5 ms). On the provisional reference with 20 dirty schedulers busy:
+p99 0.1-0.3 ms. Pinned to 4 cores of the same machine (`--cpuset-cpus`, `+S 4:4`): p99 33 us with all 4 dirty
+schedulers busy, 26 us with 3. GitHub's 4-vCPU aarch64 runner took about 44 ms per 1 ms ping step: the shared
+virtual CPUs, not the VM's scheduling, so CI reports NFR-09 without enforcing it (`PQ_SHARED_RUNNER=1`) and no core
+is held back from the kernels.
