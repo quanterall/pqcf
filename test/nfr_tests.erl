@@ -88,6 +88,7 @@ responsiveness() ->
     {ok, #{state := running, inflight := Inflight}} = pq_parallel:status(Job),
     ?assertEqual(Dirty, Inflight),
     Echo = spawn(fun Loop() -> receive {ping, From, T} -> From ! {pong, T}, Loop(); stop -> ok end end),
+    Tp0 = erlang:monotonic_time(millisecond),
     Rtts = [begin
                 timer:sleep(1),
                 T0 = erlang:monotonic_time(microsecond),
@@ -95,8 +96,13 @@ responsiveness() ->
                 receive {pong, T0} -> erlang:monotonic_time(microsecond) - T0 end
             end || _ <- lists:seq(1, 1000)],
     Echo ! stop,
-    %% still saturated at the end, or the measurement proves nothing
-    {ok, #{state := running}} = pq_parallel:status(Job),
+    %% still saturated at the end, or the measurement proves nothing; if not, say how the job ended
+    T1 = erlang:monotonic_time(millisecond),
+    case pq_parallel:status(Job) of
+        {ok, #{state := running}} -> ok;
+        Other -> error({job_ended_before_the_pings, Other, receive {done, R} -> R after 1000 -> no_reply end,
+                        #{pings_ms => T1 - Tp0}})
+    end,
     ok = pq_parallel:cancel(Job),
     receive {done, _} -> ok after 10000 -> ok end,
     Sorted = lists:sort(Rtts),
