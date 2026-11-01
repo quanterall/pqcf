@@ -27,8 +27,11 @@ jobs:
         run: |
           set -o pipefail
           docker run --rm pqcf-dev 2>&1 | tee suite.log || {
-            sed 's/\x1b\[[0-9;]*m//g' suite.log | grep -E '^ +[0-9]+\) |Failure/Error|got:|expected:|%% /src/test|Line [0-9]+|test result: FAILED|^error' \
-              | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+            # one annotation with the failures and their context (a step shows at most 10 annotations)
+            msg=$(sed 's/\x1b\[[0-9;]*m//g' suite.log \
+                  | grep -E -A12 '^ +[0-9]+\) |Line [0-9]+|test result: FAILED|^error' | head -80 \
+                  | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
+            echo "::error title=Failing tests::$msg"
             exit 1; }
 
   sanitize:
