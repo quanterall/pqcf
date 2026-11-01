@@ -84,8 +84,8 @@ running(cast, cancel, D) ->
 running({timeout, run}, expired, #d{partial = true, done = Done} = D) ->
     pq_nif:cancel_token_set(D#d.token),
     Sorted = lists:sort(maps:to_list(Done)),
-    Partial = #{samples => lists:append([S || {_, S} <- Sorted]),
-                shot_indices => lists:append([lists:seq(F, F + length(S) - 1) || {F, S} <- Sorted])},
+    Partial = #{samples => merge([S || {_, S} <- Sorted]),
+                shot_indices => lists:append([lists:seq(F, F + count(S) - 1) || {F, S} <- Sorted])},
     stop_with({error, {timeout, #{partial => Partial}}}, D, timeout);
 running({timeout, run}, expired, D) ->
     pq_nif:cancel_token_set(D#d.token),
@@ -104,7 +104,7 @@ dispatch(D) -> D.
 
 finish_or_continue(#d{queue = [], inflight = In, done = Done, from = From} = D, _Id) when map_size(In) =:= 0 ->
     %% merged in shot order (FS 9.3, FR-P03)
-    Samples = lists:append([S || {_, S} <- lists:sort(maps:to_list(Done))]),
+    Samples = merge([S || {_, S} <- lists:sort(maps:to_list(Done))]),
     Reply = case map_size(D#d.extras) of
                 0 -> {ok, Samples};
                 _ -> {ok, Samples, [E || {_, E} <- lists:sort(maps:to_list(D#d.extras))]}
@@ -122,6 +122,14 @@ stop_with(Reply, D, _Id) ->
     {error, R} = Reply,
     job_stop(D, element(1, if is_tuple(R) -> R; true -> {R} end)),
     {stop, normal}.
+
+%% chunk results in shot order: lists appended, packed matrices kept as binaries for the caller (pq_parallel)
+merge([{imat, _, C, _} | _] = Ps) -> {imat_chunks, C, [B || {imat, _, _, B} <- Ps]};
+merge([]) -> [];
+merge(Ls) -> lists:append(Ls).
+
+count({imat, R, _, _}) -> R;
+count(L) -> length(L).
 
 job_stop(D, Result) ->
     pq_telemetry:execute([pq, job, stop], #{duration => erlang:monotonic_time() - D#d.started},

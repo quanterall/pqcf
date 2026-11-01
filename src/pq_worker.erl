@@ -48,7 +48,7 @@ await(Node, Key, Req) ->
 
 %% on the worker node: the cached spec's chunk under a cancel token of this node, or spec_missing
 -spec run_cached(binary(), non_neg_integer(), non_neg_integer(), reference()) ->
-          {ok, [list()]} | {ok, [list()], map()} | {error, term()} | spec_missing.
+          {ok, [list()] | pq_core:packed_imatrix()} | {ok, [list()], map()} | {error, term()} | spec_missing.
 run_cached(Hash, First, N, Key) ->
     case pq_spec_cache:get(Hash) of
         {ok, #{halt_node := Node}} when Node =:= node() -> erlang:halt(1);       % the FR-P07 test hook
@@ -69,7 +69,7 @@ cancel_remote(Key) ->
     end.
 
 %% {Spec, FirstShot, NShots} -> {ok, Samples} | {error, Reason}; shot k uses stream (Seed, k)
--spec run_chunk({map(), non_neg_integer(), non_neg_integer()}) -> {ok, [list()]} | {ok, [list()], map()} | {error, term()}.
+-spec run_chunk({map(), non_neg_integer(), non_neg_integer()}) -> {ok, [list()] | pq_core:packed_imatrix()} | {ok, [list()], map()} | {error, term()}.
 run_chunk({#{kind := circuit, terminal := true} = Spec, First, N}) ->
     pq_simulator:terminal(Spec, First, N);
 run_chunk({#{kind := circuit} = Spec, First, N}) ->
@@ -77,9 +77,8 @@ run_chunk({#{kind := circuit} = Spec, First, N}) ->
 run_chunk({#{kind := boson, unitary := U, input := In, seed := Seed} = Spec, First, N}) ->
     Opts = maps:merge(maps:with([algorithm, max_enumeration, cancel, loss, burn_in, thin, chains], Spec),
                       #{seed => Seed, stream_start => First}),
+    %% packed: the rows travel to the caller as a reference-counted binary, made lists there (pq_parallel:to_rows/1)
     case pq_nif:sample_boson(U, In, N, Opts) of
-        {ok, {Packed, _}} ->
-            {ok, {imat, Rows}} = pq_core:unpack(Packed),
-            {ok, Rows};
+        {ok, {{imat, _, _, _} = Packed, _}} -> {ok, Packed};
         {error, _} = E -> E
     end.

@@ -2,7 +2,7 @@
 %% that passes the handshake (pq_node_registry), chunks spread over them and retried elsewhere when a node fails.
 %% Before dispatch the job's memory is estimated against max_job_memory (FR-P08).
 -module(pq_parallel).
--export([run_job/2, chunks/3, job_opts/1, cancel/1, status/1, register_node/0]).
+-export([run_job/2, chunks/3, job_opts/1, cancel/1, status/1, register_node/0, to_rows/1]).
 
 %% the run options that reach the job server, for every caller (the simulator passed only five, so distributed and
 %% isolate_kernels were dropped for circuits other than boson sampling)
@@ -101,15 +101,26 @@ run_job(Spec, Opts, Mode) ->
 inline(Spec, First, N) ->
     case pq_worker:run_chunk({Spec, First, N}) of
         {ok, Rows, Extra} -> {ok, Rows, [{N, Extra}]};
-        R -> R
+        R -> to_rows(R)
     end.
 
 start(Spec, JobOpts) ->
     Ref = make_ref(),
     {ok, _Job} = pq_job_sup:start_job(Spec, JobOpts, {self(), Ref}),
     receive
-        {Ref, Reply} -> Reply
+        {Ref, Reply} -> to_rows(Reply)
     end.
+
+%% packed chunk results (boson sampling) become row lists here, in the caller, once: the chunks cross processes
+%% as reference-counted binaries and no list is copied between processes (NFR-02)
+-spec to_rows(term()) -> term().
+to_rows({ok, {imat, _, C, B}}) -> {ok, rows(C, [B])};
+to_rows({ok, {imat_chunks, C, Bs}}) -> {ok, rows(C, Bs)};
+to_rows({error, {timeout, #{partial := #{samples := {imat_chunks, C, Bs}} = P}}}) ->
+    {error, {timeout, #{partial => P#{samples => rows(C, Bs)}}}};
+to_rows(R) -> R.
+
+rows(C, Bs) -> W = 2 * C, [[N || <<N:16/little>> <= Row] || B <- Bs, <<Row:W/binary>> <= B].
 
 %% [{ChunkId, FirstShot, NShots}] covering 0..Shots-1
 -spec chunks(non_neg_integer(), pos_integer(), non_neg_integer()) -> [{non_neg_integer(), non_neg_integer(), pos_integer()}].

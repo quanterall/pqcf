@@ -32,7 +32,12 @@ sample(boson, C, Opts) ->
             Spec = maps:merge(maps:with([loss, burn_in, thin, chains], Opts),
                               #{kind => boson, unitary => U, input => In, seed => Seed, algorithm => Alg,
                                 max_enumeration => pq_core:get(max_enumeration, Opts), crash => maps:get(crash, Opts, [])}),
-            Rows = fun(Start, N) -> {[[lists:nth(M + 1, Row) || M <- Measured] || Row <- rows(Spec, Alg, Start, N, Opts)], #{}} end,
+            %% every mode measured in mode order (the usual case): the rows are the samples, no projection
+            Project = case Measured =:= lists:seq(0, length(In) - 1) of
+                          true -> fun(Rs) -> Rs end;
+                          false -> fun(Rs) -> [[lists:nth(M + 1, Row) || M <- Measured] || Row <- Rs] end
+                      end,
+            Rows = fun(Start, N) -> {Project(rows(Spec, Alg, Start, N, Opts)), #{}} end,
             %% FR-B06: collision-free sampling is post-selection on at most one photon per measured mode, with the
             %% acceptance statistics, not another distribution; it combines with any postselect predicate
             CF = maps:get(collision_free, Opts, false),
@@ -66,7 +71,7 @@ rows(Spec, Alg, Start, N, Opts) ->
             %% brute_force builds the whole distribution per call: one chunk (A-5)
             true when Alg =:= brute_force -> pq_parallel:run_job(Spec, (job_opts(Opts))#{shots => N, chunk => N, offset => Start});
             true -> pq_parallel:run_job(Spec, (job_opts(Opts))#{shots => N, offset => Start});
-            false -> pq_worker:run_chunk({Spec, Start, N})
+            false -> pq_parallel:to_rows(pq_worker:run_chunk({Spec, Start, N}))
         end,
     case R of
         {ok, Rs} -> Rs;

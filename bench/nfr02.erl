@@ -11,11 +11,15 @@ main() ->
     Layer = fun(Off) -> [{beamsplitter, J, J + 1, 0.3 + 0.1 * J, 0.2 * J} || J <- lists:seq(Off, 10, 2)] end,
     C = C0#circuit{instrs = lists:append([Layer(L rem 2) || L <- lists:seq(0, 11)]) ++ [{measure_pnr, lists:seq(0, 11)}]},
     Max = erlang:system_info(dirty_cpu_schedulers_online),
-    Ps = [P || P <- [1, 2, 4, 8, 16], P =< Max],
+    Ps = lists:usort([P || P <- [1, 2, 4, 8, 16], P =< Max] ++ [Max]),
+    %% the best of 5 runs per p: the minimum is the least disturbed by other load on a shared machine
     Run = fun(P) ->
-                  {T, {ok, #result{samples = S}}} =
-                      timer:tc(pq_sampling, sample, [boson, C, #{shots => 100000, seed => 1, max_inflight => P}]),
-                  {T / 1.0e6, erlang:phash2(S)}
+                  Ts = [begin
+                            {T, {ok, #result{samples = S}}} =
+                                timer:tc(pq_sampling, sample, [boson, C, #{shots => 100000, seed => 1, max_inflight => P}]),
+                            {T / 1.0e6, erlang:phash2(S)}
+                        end || _ <- lists:seq(1, 5)],
+                  {lists:min([T || {T, _} <- Ts]), element(2, hd(Ts))}
           end,
     _ = Run(Max),                                        % warm-up
     Results = [{P, Run(P)} || P <- Ps],

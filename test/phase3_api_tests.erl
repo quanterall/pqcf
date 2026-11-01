@@ -72,11 +72,12 @@ cancel() ->
     ?assertEqual({ok, #{state => done}}, pq_parallel:status(Job)).
 
 partial() ->
-    %% a third of a full run's time, so the job is cut off with part of its chunks done on any machine
+    %% a timeout that cuts the job off with part of its chunks done: a fixed fraction of one measured run was
+    %% flaky (a slow first run let the cut-off one finish), so the timeout grows from 2 ms until a run is cut off
+    %% with some chunks done
     Opts = #{shots => 200000, seed => 5, chunk => 200},
-    {Tl, {ok, Full}} = timer:tc(fun() -> pq_api:run(boson, big(), Opts) end, millisecond),
-    {error, {timeout, #{partial := #{samples := S, shot_indices := I}}}} =
-        pq_api:run(boson, big(), Opts#{timeout => max(2, Tl div 3), partial_results => true}),
+    {ok, Full} = pq_api:run(boson, big(), Opts),
+    {S, I} = cut_off(Opts, 2),
     %% the partial samples are the full run's rows at those shot indices (D1)
     Rows = list_to_tuple(Full#result.samples),
     ?assertEqual([element(K + 1, Rows) || K <- I], S),
@@ -85,6 +86,13 @@ partial() ->
     ?assertEqual(lists:usort(I), I),
     ?assert(lists:all(fun(Row) -> lists:sum(Row) =:= 8 end, S)),
     ?assertEqual({error, timeout}, pq_api:run(boson, big(), Opts#{timeout => 1})).
+
+cut_off(_Opts, T) when T > 60000 -> error(never_cut_off_with_chunks_done);
+cut_off(Opts, T) ->
+    case pq_api:run(boson, big(), Opts#{timeout => T, partial_results => true}) of
+        {error, {timeout, #{partial := #{samples := [_ | _] = S, shot_indices := I}}}} -> {S, I};
+        _ -> cut_off(Opts, 2 * T)
+    end.
 
 throttle() ->
     Limit = pq_core:get(spec_cache_bytes) + 10 * 1024 * 1024,
