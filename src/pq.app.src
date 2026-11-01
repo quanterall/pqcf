@@ -1,6 +1,6 @@
 {application, pq, [
     {description, "Photonic Quantum Computing Framework"},
-    {vsn, "0.1.0"},
+    {vsn, "1.0.0-rc.1"},
     {registered, [pq_sup]},
     {mod, {pq_app, []}},
     {applications, [kernel, stdlib, crypto]},

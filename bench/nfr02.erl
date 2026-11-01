@@ -1,15 +1,16 @@
 %% NFR-02 benchmark (FS 11): parallel efficiency T1 / (p * Tp) of 100,000 boson-sampling shots on one node.
-%% Configuration (fixed in Phase 1): 6 photons in 12 modes, a fixed interferometer of nearest-neighbour
-%% beamsplitters, clifford_clifford, seed 1. Run: erl -pa _build/default/lib/*/ebin -noshell -s nfr02 main
+%% Configuration: 10 photons in 20 modes (the project owner's choice, 1 Nov 2026; Phase 1 had 6 in 12, which the
+%% 4x faster kernel turned into a measurement of the serial list results), a fixed interferometer of
+%% nearest-neighbour beamsplitters, clifford_clifford, seed 1. Run: erl -pa _build/default/lib/*/ebin -noshell -s nfr02 main
 -module(nfr02).
 -include("../include/pq.hrl").
 -export([main/0]).
 
 main() ->
     {ok, _} = application:ensure_all_started(pq),
-    {ok, C0} = pq_circuit:new(12, {fock, lists:duplicate(6, 1) ++ lists:duplicate(6, 0)}),
-    Layer = fun(Off) -> [{beamsplitter, J, J + 1, 0.3 + 0.1 * J, 0.2 * J} || J <- lists:seq(Off, 10, 2)] end,
-    C = C0#circuit{instrs = lists:append([Layer(L rem 2) || L <- lists:seq(0, 11)]) ++ [{measure_pnr, lists:seq(0, 11)}]},
+    {ok, C0} = pq_circuit:new(20, {fock, lists:duplicate(10, 1) ++ lists:duplicate(10, 0)}),
+    Layer = fun(Off) -> [{beamsplitter, J, J + 1, 0.3 + 0.1 * J, 0.2 * J} || J <- lists:seq(Off, 18, 2)] end,
+    C = C0#circuit{instrs = lists:append([Layer(L rem 2) || L <- lists:seq(0, 19)]) ++ [{measure_pnr, lists:seq(0, 19)}]},
     Max = erlang:system_info(dirty_cpu_schedulers_online),
     Ps = lists:usort([P || P <- [1, 2, 4, 8, 16], P =< Max] ++ [Max]),
     %% the best of 5 runs per p: the minimum is the least disturbed by other load on a shared machine

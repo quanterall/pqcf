@@ -57,3 +57,11 @@ network.
 
 The same picture as on one node: the heavier instance meets the requirement, the Phase 1 one stops at the serial
 cost of the list results in the caller.
+
+## NFR-02: the benchmark instance (1 Nov 2026)
+
+The project owner fixed **10 photons in 20 modes** as the NFR-02 benchmark (`bench/nfr02.erl`, `bench/nfr02_nodes.erl`
+measures both). On the provisional reference: one node 0.97 / 0.92 / 0.83 at p = 2 / 4 / 8 (stable across runs);
+across 4 nodes 0.88. At p = 10 -- all ten fast cores -- the result follows the shared machine's other load: 0.77 at
+a load average near 3, 0.65 near 14. That last step, "up to the dirty CPU scheduler count", needs a machine without
+other work to confirm.
