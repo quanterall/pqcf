@@ -46,6 +46,13 @@ evolve(C, Opts) ->
 %% FS 7.1: exact probabilities of the PNR (or threshold) outcomes of the measured modes, within max_enumeration
 -spec probabilities(#circuit{}, map()) -> {ok, #{[non_neg_integer()] => float()}, map()} | {error, pq_core:reason()}.
 probabilities(#circuit{instrs = Is} = C, Opts) ->
+    case pq_circuit:has_feed_forward(C) of
+        %% the measured modes' joint distribution branches on the outcomes: sample it
+        true -> {error, {unsupported_input, #{feed_forward => true, reason => <<"exact probabilities are not enumerated for feed-forward: sample it">>}}};
+        false -> probabilities1(Is, C, Opts)
+    end.
+
+probabilities1(Is, C, Opts) ->
     Ms = [I || I <- Is, lists:member(element(1, I), [measure_pnr, measure_threshold])],
     Modes = lists:append([Mo || {_, Mo} <- Ms]),
     Kind = case lists:usort([element(1, I) || I <- Ms]) of
@@ -141,7 +148,7 @@ backend_for(#circuit{input = In, instrs = Is}, Opts) ->
     case maps:find(backend, Opts) of
         {ok, B} -> B;
         error ->
-            Kinds = [element(1, I) || I <- Is],
+            Kinds = [K || K <- pq_circuit:instruction_kinds(Is), K =/= feed_forward, K =/= conditional],
             Gaussian = (In =:= vacuum orelse element(1, In) =:= gaussian) andalso
                 lists:all(fun(K) -> maps:get(K, pq_gaussian:capabilities(), unsupported) =/= unsupported end, Kinds),
             if

@@ -61,8 +61,34 @@ instr_out({unitary, Ms, {matrix, Rows}}) ->
 instr_out({measure_pnr, Ms}) -> #{<<"op">> => <<"measure_pnr">>, <<"modes">> => Ms};
 instr_out({measure_threshold, Ms}) -> #{<<"op">> => <<"measure_threshold">>, <<"modes">> => Ms};
 instr_out({measure_homodyne, M, P}) -> #{<<"op">> => <<"measure_homodyne">>, <<"mode">> => M, <<"phi">> => param_out(P)};
+%% feed-forward (Phase 4): the gate, and each outcome symbol with the mode it is read from
+instr_out({feed_forward, I, Map}) ->
+    #{<<"op">> => <<"feed_forward">>, <<"gate">> => instr_out(I),
+      <<"outcomes">> => maps:from_list([{atom_to_binary(K), M} || K := M <- Map])};
+instr_out({conditional, Pred, Is}) ->
+    #{<<"op">> => <<"conditional">>, <<"predicate">> => pred_out(Pred), <<"gates">> => [instr_out(I) || I <- Is]};
 instr_out({custom, _, _}) -> fail({json_instruction, custom});
 instr_out(I) -> fail({json_instruction, element(1, I)}).
+
+%% a predicate (FS 4.7) as data: {"op": "eq" | "ge" | "le", "mode", "value"}, {"op": "in", "mode", "values"},
+%% {"op": "total_eq" | "total_ge" | "total_le", "modes", "value"}, {"op": "and" | "or", "args"}, {"op": "not", "arg"}
+pred_out({Op, Ps}) when Op =:= 'and'; Op =:= 'or' -> #{<<"op">> => atom_to_binary(Op), <<"args">> => [pred_out(P) || P <- Ps]};
+pred_out({'not', P}) -> #{<<"op">> => <<"not">>, <<"arg">> => pred_out(P)};
+pred_out({in, M, Vs}) -> #{<<"op">> => <<"in">>, <<"mode">> => M, <<"values">> => Vs};
+pred_out({Op, Ms, V}) when is_list(Ms) -> #{<<"op">> => atom_to_binary(Op), <<"modes">> => Ms, <<"value">> => V};
+pred_out({Op, M, V}) when Op =:= eq; Op =:= ge; Op =:= le -> #{<<"op">> => atom_to_binary(Op), <<"mode">> => M, <<"value">> => V};
+pred_out(P) -> fail({json_instruction, {predicate, P}}).
+
+pred_in(#{<<"op">> := Op} = P) when Op =:= <<"and">>; Op =:= <<"or">> ->
+    {binary_to_existing_atom(Op), [pred_in(X) || X <- list(maps:get(<<"args">>, P, undefined))]};
+pred_in(#{<<"op">> := <<"not">>, <<"arg">> := A}) -> {'not', pred_in(A)};
+pred_in(#{<<"op">> := <<"in">>, <<"mode">> := M, <<"values">> := Vs}) -> {in, int(M), [num(V) || V <- list(Vs)]};
+pred_in(#{<<"op">> := Op, <<"modes">> := Ms, <<"value">> := V})
+  when Op =:= <<"total_eq">>; Op =:= <<"total_ge">>; Op =:= <<"total_le">> ->
+    {binary_to_existing_atom(Op), [int(M) || M <- list(Ms)], num(V)};
+pred_in(#{<<"op">> := Op, <<"mode">> := M, <<"value">> := V}) when Op =:= <<"eq">>; Op =:= <<"ge">>; Op =:= <<"le">> ->
+    {binary_to_existing_atom(Op), int(M), num(V)};
+pred_in(P) -> fail({json_instruction, {predicate, P}}).
 
 meta_out(M) ->
     maps:from_list([begin
@@ -96,7 +122,7 @@ from_json(Bin, Opts) when is_binary(Bin) ->
                      input = input_in(maps:get(<<"input">>, Doc, #{<<"kind">> => <<"vacuum">>}), N, Hbar),
                      symbols = Syms,
                      params = maps:from_list([{A(K), P(V)} || K := V <- maps:get(<<"params">>, Doc, #{})]),
-                     instrs = [instr_in(I, P) || I <- list(maps:get(<<"instructions">>, Doc, []))],
+                     instrs = [instr_in(I, P, A) || I <- list(maps:get(<<"instructions">>, Doc, []))],
                      meta = maps:from_list([{A(K), meta_value(V)} || K := V <- maps:get(<<"meta">>, Doc, #{})])},
         case pq_circuit:validate(C) of
             ok -> {ok, C};
@@ -135,7 +161,8 @@ atoms(Doc, Opts) ->
                                     {ok, Ns} -> Ns;
                                     {error, {sym_parse, Pos}} -> fail({json_parse, Pos})
                                 end || S <- Strings]),
-    Keys = lists:append([maps:keys(maps:get(K, Doc, #{})) || K <- [<<"symbols">>, <<"params">>, <<"meta">>]]),
+    Keys = lists:append([maps:keys(maps:get(K, Doc, #{})) || K <- [<<"symbols">>, <<"params">>, <<"meta">>]]) ++
+           lists:append([outcome_names(I) || I <- list(maps:get(<<"instructions">>, Doc, []))]),
     Names = lists:usort(FromStrings ++ Keys),
     [valid_name(Nm) orelse fail({json_symbol, Nm}) || Nm <- Names],
     Max = maps:get(max_json_symbols, Opts, pq_core:get(max_json_symbols)),
@@ -160,7 +187,16 @@ valid_name(<<C, Rest/binary>>) when (C >= $a andalso C =< $z) orelse (C >= $A an
         not lists:member(<<C, Rest/binary>>, [<<"pi">>, <<"e">>, <<"i">>, <<"sin">>, <<"cos">>, <<"exp">>, <<"conj">>, <<"sqrt">>]);
 valid_name(_) -> false.
 
+%% a feed-forward gate's outcome symbols (in a conditional's gates too)
+outcome_names(#{<<"op">> := <<"feed_forward">>, <<"outcomes">> := O}) when is_map(O) -> maps:keys(O);
+outcome_names(#{<<"op">> := <<"conditional">>, <<"gates">> := Gs}) when is_list(Gs) -> lists:append([outcome_names(G) || G <- Gs]);
+outcome_names(_) -> [].
+
 %% the parameter strings of one instruction: its parameter fields and string matrix entries (not "op")
+param_strings(#{<<"op">> := <<"feed_forward">>} = I) ->
+    param_strings(maps:get(<<"gate">>, I, #{}));
+param_strings(#{<<"op">> := <<"conditional">>} = I) ->
+    lists:append([param_strings(G) || G <- case maps:get(<<"gates">>, I, []) of L when is_list(L) -> L; _ -> [] end]);
 param_strings(I) when is_map(I) ->
     [V || K <- [<<"theta">>, <<"phi">>, <<"r">>, <<"kappa">>, <<"eta">>], {ok, V} <- [maps:find(K, I)], is_binary(V)] ++
         [E || E <- case maps:get(<<"matrix">>, I, []) of L when is_list(L) -> L; _ -> [] end, is_binary(E)];
@@ -198,6 +234,12 @@ num(X) -> fail({json_number, X}).
 
 chunk([], _) -> [];
 chunk(L, K) -> {A, B} = lists:split(K, L), [A | chunk(B, K)].
+
+instr_in(#{<<"op">> := <<"feed_forward">>, <<"gate">> := G, <<"outcomes">> := O}, P, A) when is_map(O) ->
+    {feed_forward, instr_in(G, P, A), maps:from_list([{A(K), int(M)} || K := M <- O])};
+instr_in(#{<<"op">> := <<"conditional">>, <<"predicate">> := Pr, <<"gates">> := Gs}, P, A) ->
+    {conditional, pred_in(Pr), [instr_in(G, P, A) || G <- list(Gs)]};
+instr_in(I, P, _A) -> instr_in(I, P).
 
 instr_in(#{<<"op">> := Op} = I, P) ->
     G = fun(K) -> case maps:find(K, I) of {ok, V} -> V; error -> fail({json_instruction, {Op, missing, K}}) end end,

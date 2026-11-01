@@ -8,7 +8,7 @@ close(A, B) -> abs(A - B) < 1.0e-9.
 guide_test_() ->
     {setup, fun() -> {ok, _} = application:ensure_all_started(pq) end, fun(_) -> ok end,
      [fun hom/0, fun determinism/0, fun squeezed/0, fun parameters/0, fun gradient/0, fun symbolic/0, fun json/0,
-      fun loss/0, fun postselection/0, fun jobs/0, fun symbolic_gaussian/0, fun errors/0]}.
+      fun loss/0, fun postselection/0, fun jobs/0, fun symbolic_gaussian/0, fun feed_forward/0, fun errors/0]}.
 
 %% 1. Hong-Ou-Mandel
 hom() ->
@@ -161,3 +161,16 @@ symbolic_gaussian() ->
     ?assert(close(X, math:exp(-1.0))),
     {ok, #{r := G}} = pq_gradient:gradient(C, {mean_photon_number, [0]}, #{r => 0.5}, #{mode => symbolic}),
     ?assert(close(G, math:sinh(1.0))).
+
+%% 10. Feed-forward
+feed_forward() ->
+    {ok, C0} = pq_api:circuit(3, {fock, [1, 0, 0]}),
+    C = lists:foldl(fun(I, Acc) -> pq_circuit:add(Acc, I) end, C0,
+                    [{beamsplitter, 0, 1, 0.6, 0}, {measure_pnr, [0]},
+                     {conditional, {eq, 0, 0}, [{beamsplitter, 1, 2, 1.1, 0}]},
+                     {feed_forward, {phaseshift, 2, {mul, [{const, pi}, {sym, k}]}}, #{k => 0}},
+                     {measure_pnr, [1, 2]}]),
+    {ok, #result{measured = [0, 1, 2], samples = S}} = pq_api:sample(C, #{shots => 1000, seed => 1}),
+    ?assertEqual(1000, length(S)),
+    ?assert(lists:member([0, 0, 1], S)).
+

@@ -268,6 +268,34 @@ The predicates are:
 If nothing is accepted within `max_attempts`, the run fails with `postselection_exhausted`.
 `pq_sampling:postselect(Result, Predicate)` applies a predicate after the run.
 
+### Feed-forward
+
+From 1.1 on, gates can depend on earlier measurements in the same shot. There are two instructions for this:
+
+- **`{feed_forward, Gate, #{Symbol => Mode}}`:** each symbol is bound, per shot, to the outcome measured earlier
+  on its mode. Outcomes are photon counts, clicks (0 or 1) or homodyne values.
+- **`{conditional, Predicate, [Gate]}`:** the gates are applied only when the predicate holds. It uses the
+  post-selection predicates (data only, no `local_fun`).
+
+```erlang
+{ok, C0} = pq_api:circuit(3, {fock, [1, 0, 0]}),
+C = lists:foldl(fun(I, Acc) -> pq_circuit:add(Acc, I) end, C0,
+                [{beamsplitter, 0, 1, 0.6, 0}, {measure_pnr, [0]},
+                 %% only when mode 0 was found empty: send the photon on from mode 1
+                 {conditional, {eq, 0, 0}, [{beamsplitter, 1, 2, 1.1, 0}]},
+                 %% a parameter from an outcome: the phase is pi times the count on mode 0
+                 {feed_forward, {phaseshift, 2, {mul, [{const, pi}, {sym, k}]}}, #{k => 0}},
+                 {measure_pnr, [1, 2]}]),
+{ok, #result{measured = [0, 1, 2]}} = pq_api:sample(C, #{shots => 1000, seed => 1}).
+```
+
+The outcome must come from a measurement earlier in the circuit. Only gates go inside, so every shot has the same
+measured columns. The outcome symbols are not the caller's to bind. A shot draws from its stream in instruction
+order as before, so the samples don't depend on chunking. Exact probabilities and `evolve` return
+`unsupported_input` for such circuits, because the state depends on the outcomes: sample it instead. JSON carries
+both instructions (`"op": "feed_forward"` with `"gate"` and `"outcomes"`, and `"op": "conditional"` with
+`"predicate"` and `"gates"`).
+
 ## 11. The symbolic engine
 
 `pq_symbolic` keeps expressions in an exact canonical form: Gaussian rationals, radicals, π, e, and

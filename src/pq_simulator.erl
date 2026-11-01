@@ -15,6 +15,12 @@
 
 -spec evolve(module(), #circuit{}, map()) -> {ok, term(), [{atom(), term()}]} | {error, pq_core:reason()}.
 evolve(Backend, C, Opts) ->
+    case pq_circuit:has_feed_forward(C) of
+        true -> {error, {unsupported_input, #{feed_forward => true, reason => <<"the state depends on the outcomes: sample it">>}}};
+        false -> evolve1(Backend, C, Opts)
+    end.
+
+evolve1(Backend, C, Opts) ->
     case prepare(Backend, C, Opts) of
         {ok, Low} ->
             Unitary = [I || I <- Low#circuit.instrs, not measurement(I)],
@@ -104,7 +110,7 @@ rows(Spec, true, Start, N, Opts) ->
 -spec shots(map(), non_neg_integer(), non_neg_integer()) -> {ok, [list()]} | {error, term()}.
 shots(#{backend := Backend, state := S0, rest := Rest, opts := Opts, seed := Seed}, First, N) ->
     try
-        {ok, [shot(Backend, S0, Rest, Opts, pq_nif:stream_new(Seed, K), []) || K <- lists:seq(First, First + N - 1)]}
+        {ok, [shot(Backend, S0, Rest, Opts, pq_nif:stream_new(Seed, K), {[], #{}}) || K <- lists:seq(First, First + N - 1)]}
     catch
         throw:{error, _} = E -> E
     end.
@@ -138,8 +144,15 @@ merge_extra([{_, E0} | _] = Extras, Opts) ->
             end
     end.
 
-shot(_Backend, _S, [], _Opts, _R, Acc) -> Acc;
-shot(Backend, S, [I | T] = Is, Opts, R, Acc) ->
+%% Acc: the shot's outcomes in measurement order, and by mode (for feed-forward, FS 15 item 1)
+shot(_Backend, _S, [], _Opts, _R, {Acc, _}) -> Acc;
+shot(Backend, S, [{Tag, _, _} = I | T], Opts, R, {_, Outs} = Acc) when Tag =:= feed_forward; Tag =:= conditional ->
+    %% the gates this shot's outcomes select, with their parameters now numbers
+    case pq_circuit:resolve_feed_forward(I, Outs) of
+        {ok, Gates} -> shot(Backend, S, Gates ++ T, Opts, R, Acc);
+        {error, _} = E -> throw(E)
+    end;
+shot(Backend, S, [I | T] = Is, Opts, R, {Acc, Outs}) ->
     case measurement(I) of
         true ->
             case lists:all(fun measurement/1, T) of
@@ -151,14 +164,16 @@ shot(Backend, S, [I | T] = Is, Opts, R, Acc) ->
                     end;
                 false ->
                     case Backend:measure(I, S, Opts#{stream_ref => R}) of
-                        {ok, Out, S2} -> shot(Backend, S2, T, Opts, R, Acc ++ Out);
+                        {ok, Out, S2} ->
+                            Outs2 = maps:merge(Outs, maps:from_list(lists:zip(modes(I), Out))),
+                            shot(Backend, S2, T, Opts, R, {Acc ++ Out, Outs2});
                         {error, _} = E -> throw(E)
                     end
             end;
         false ->
             %% the shot's stream also reaches instructions that draw (trajectory loss, FR-F05)
             case Backend:apply(I, S, Opts#{stream_ref => R}) of
-                {ok, S2, _} -> shot(Backend, S2, T, Opts, R, Acc);
+                {ok, S2, _} -> shot(Backend, S2, T, Opts, R, {Acc, Outs});
                 {error, _} = E -> throw(E)
             end
     end.

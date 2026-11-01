@@ -7,7 +7,8 @@
 -export([new/1, new/2, add/2, insert/3, replace/3, delete/2,
          validate/1, effective_binding/2, compose/2, compose/3,
          free_symbols/1, all_symbols/1, to_binary/1, from_binary/1, lower/2, check_capabilities/2, check_capabilities/3, mesh/1, to_json/1, from_json/1, from_json/2,
-         two_mode_squeezing/3, two_mode_squeezing/4, mzi/4]).
+         two_mode_squeezing/3, two_mode_squeezing/4, mzi/4,
+         resolve_feed_forward/2, instruction_kinds/1, has_feed_forward/1]).
 
 -export_type([circuit/0, instruction/0, input_spec/0]).
 
@@ -25,7 +26,12 @@
       | {measure_pnr, [mode()]}
       | {measure_threshold, [mode()]}
       | {measure_homodyne, mode(), param()}
-      | {custom, atom(), map()}.
+      | {custom, atom(), map()}
+      %% feed-forward (FS 15 item 1, Phase 4): the wrapped gate's parameters may use the symbols of the map, each
+      %% bound in every shot to the outcome of the earlier measurement on its mode
+      | {feed_forward, instruction(), #{atom() => mode()}}
+      %% applied when the predicate (FS 4.7, over earlier measurements' outcomes) holds
+      | {conditional, term(), [instruction()]}.
 -type input_spec() :: vacuum | {fock, [non_neg_integer()]} | {gaussian, #gaussian_state{}}
                     | {fock_state, #fock_state{}}.
 -type result(T) :: {ok, T} | {error, pq_core:reason()}.
@@ -139,6 +145,26 @@ binomial(_N, 0, Num, Den) -> Num div Den;
 binomial(N, K, Num, Den) -> binomial(N - 1, K - 1, Num * N, Den * K).
 
 %% one instruction at position K; Measured maps each measured mode to the index of its measurement
+check_instr({feed_forward, I, Map}, K, C, Measured) ->
+    is_map(Map) andalso map_size(Map) > 0 orelse fail({bad_term, #{feed_forward => Map, instr_index => K}}),
+    maps:foreach(fun(Sym, M) ->
+                         is_atom(Sym) orelse fail({bad_term, #{feed_forward_symbol => Sym, instr_index => K}}),
+                         maps:is_key(M, Measured) orelse
+                             fail({unsupported_input, #{feed_forward => M, instr_index => K,
+                                                        reason => not_measured_before}})
+                 end, Map),
+    plain_gate(I, K),
+    _ = check_instr(I, K, C, Measured),
+    Measured;
+check_instr({conditional, Pred, Is}, K, C, Measured) ->
+    is_list(Is) orelse fail({bad_term, #{conditional => Is, instr_index => K}}),
+    [maps:is_key(M, Measured) orelse
+         fail({unsupported_input, #{conditional => M, instr_index => K, reason => not_measured_before}})
+     || M <- predicate_modes(Pred, K)],
+    lists:foreach(fun({feed_forward, _, _} = I) -> check_instr(I, K, C, Measured);
+                     (I) -> plain_gate(I, K), check_instr(I, K, C, Measured)
+                  end, Is),
+    Measured;
 check_instr(I, K, C, Measured) ->
     Modes = modes(I, K, C),
     lists:foreach(fun(M) -> (is_integer(M) andalso M >= 0 andalso M < C#circuit.n_modes)
@@ -171,6 +197,65 @@ modes({custom, Name, Args}, K, C) when is_atom(Name), is_map(Args) ->
 modes(I, K, _) -> fail({unsupported_instruction, I, #{instr_index => K}}).
 
 is_measurement(I) -> lists:member(element(1, I), [measure_pnr, measure_threshold, measure_homodyne]).
+
+%% inside feed_forward and conditional: a gate (no measurement, no custom instruction, no nesting), so the
+%% measured columns are the same in every shot
+plain_gate(I, K) when is_tuple(I), tuple_size(I) >= 2 ->
+    lists:member(element(1, I), [beamsplitter, phaseshift, displacement, squeezing, kerr, loss, unitary])
+        orelse fail({unsupported_instruction, element(1, I), #{instr_index => K, inside => feed_forward}});
+plain_gate(I, K) -> fail({bad_term, #{instruction => I, instr_index => K}}).
+
+%% the modes a predicate reads (FS 4.7); a local fun is not data (not serialisable, not distributable)
+predicate_modes({'and', Ps}, K) when is_list(Ps) -> lists:append([predicate_modes(P, K) || P <- Ps]);
+predicate_modes({'or', Ps}, K) when is_list(Ps) -> lists:append([predicate_modes(P, K) || P <- Ps]);
+predicate_modes({'not', P}, K) -> predicate_modes(P, K);
+predicate_modes({Op, M, _}, _K) when (Op =:= eq orelse Op =:= ge orelse Op =:= le orelse Op =:= in), is_integer(M) -> [M];
+predicate_modes({Op, Ms, _}, _K) when (Op =:= total_eq orelse Op =:= total_ge orelse Op =:= total_le), is_list(Ms) -> Ms;
+predicate_modes(P, K) -> fail({bad_term, #{predicate => P, instr_index => K}}).
+
+%%% Feed-forward at run time
+
+%% The gates to apply in one shot for a feed_forward or conditional instruction, given Outcomes (mode => outcome
+%% of this shot's earlier measurements): the outcome symbols substituted and every parameter a float. Any other
+%% instruction is returned as it is.
+-spec resolve_feed_forward(instruction(), #{mode() => number()}) -> result([instruction()]).
+resolve_feed_forward(I, Outcomes) ->
+    try {ok, resolve(I, Outcomes)}
+    catch throw:{error, _} = E -> E
+    end.
+
+resolve({feed_forward, I, Map}, Outcomes) ->
+    Sub = maps:map(fun(_, M) -> float(maps:get(M, Outcomes)) end, Map),
+    [map_params(I, fun(E) -> outcome_value(E, Sub) end)];
+resolve({conditional, Pred, Is}, Outcomes) ->
+    Modes = lists:usort(maps:keys(Outcomes)),
+    case pq_simulator:eval(Pred, [maps:get(M, Outcomes) || M <- Modes], #{measured_columns => Modes}) of
+        true -> lists:append([resolve(I, Outcomes) || I <- Is]);
+        false -> []
+    end;
+resolve(I, _Outcomes) -> [I].
+
+outcome_value(E, _Sub) when is_float(E) -> E;
+outcome_value(E, Sub) ->
+    case pq_symbolic:evaluate(pq_symbolic:substitute(E, Sub), #{}) of
+        {ok, X} when is_float(X) -> X;
+        {ok, {complex, Re, Im}} when abs(Im) =< 1.0e-12 * (1 + abs(Re)) -> Re;
+        {ok, V} -> fail({unsupported_input, #{complex_parameter => V, feed_forward => true}});
+        {error, R} -> fail(R)
+    end.
+
+%% every instruction kind, those inside feed_forward and conditional included
+-spec instruction_kinds([instruction()]) -> [atom()].
+instruction_kinds(Is) ->
+    lists:append([case I of
+                      {feed_forward, J, _} -> [feed_forward | instruction_kinds([J])];
+                      {conditional, _, Js} -> [conditional | instruction_kinds(Js)];
+                      _ -> [element(1, I)]
+                  end || I <- Is]).
+
+-spec has_feed_forward(circuit() | [instruction()]) -> boolean().
+has_feed_forward(#circuit{instrs = Is}) -> has_feed_forward(Is);
+has_feed_forward(Is) -> lists:any(fun(K) -> K =:= feed_forward orelse K =:= conditional end, instruction_kinds(Is)).
 
 check_params({beamsplitter, _, _, T, P}, K, _) -> scalar(T, K), scalar(P, K);
 check_params({phaseshift, _, P}, K, _) -> scalar(P, K);
@@ -304,6 +389,12 @@ lower_instr({custom, Name, Args}, K, _Sub, Env, C) ->
             lists:append([lower_instr(I, K, maps:map(fun(_, V) -> number_ast(V) end, Env), Env, C) || I <- Instrs]);
         {error, R} -> fail({unsupported_instruction, Name, #{instr_index => K, reason => R}})
     end;
+%% feed-forward: everything but the outcome symbols bound now; those stay symbolic until the shot
+lower_instr({feed_forward, I, Map}, K, Sub, _Env, C) ->
+    Own = maps:without(maps:keys(Map), Sub),
+    [{feed_forward, map_params(I, fun(E) -> partial_value(E, K, Own, maps:keys(Map), C) end), Map}];
+lower_instr({conditional, Pred, Is}, K, Sub, Env, C) ->
+    [{conditional, Pred, lists:append([lower_instr(I, K, Sub, Env, C) || I <- Is])}];
 lower_instr({unitary, Ms, {cmat, _, _, _} = U}, _K, _Sub, _Env, _C) -> [{unitary, Ms, U}];
 lower_instr({unitary, Ms, U}, K, Sub, _Env, C) ->
     case pq_symbolic:evaluate(pq_symbolic:substitute(U, Sub), #{}, #{domains => C#circuit.symbols}) of
@@ -313,6 +404,16 @@ lower_instr({unitary, Ms, U}, K, Sub, _Env, C) ->
     end;
 lower_instr(I, K, Sub, _Env, C) ->
     [map_params(I, fun(E) -> real_value(E, K, Sub, C) end)].
+
+partial_value(E, K, Sub, Outcome, C) ->
+    E2 = pq_symbolic:substitute(E, Sub),
+    case [X || X <- pq_symbolic:free_symbols(E2), not lists:member(X, Outcome)] of
+        [] -> case pq_symbolic:free_symbols(E2) of
+                  [] -> real_value(E2, K, #{}, C);
+                  _ -> E2
+              end;
+        Unbound -> fail({unbound_symbols, Unbound})
+    end.
 
 real_value(E, K, Sub, C) ->
     case pq_symbolic:evaluate(pq_symbolic:substitute(E, Sub), #{}, #{domains => C#circuit.symbols}) of
@@ -337,8 +438,14 @@ check_capabilities(#circuit{instrs = Is}, Backend, Opts) ->
            end,
     Name = Backend:name(),
     try
+        %% inside feed_forward and conditional: their gates must be supported
+        [case maps:get(Kind, Caps, unsupported) of
+             unsupported -> fail({unsupported_instruction, Kind, Name});
+             _ -> ok
+         end || Kind <- instruction_kinds(Is), Kind =/= feed_forward, Kind =/= conditional, Kind =/= custom],
         lists:foreach(
-          fun({K, I}) ->
+          fun({_K, I}) when element(1, I) =:= feed_forward; element(1, I) =:= conditional -> ok;
+             ({K, I}) ->
                   Kind = element(1, I),
                   case maps:get(Kind, Caps, unsupported) of
                       unsupported when Kind =/= custom -> fail({unsupported_instruction, Kind, Name});
@@ -399,7 +506,15 @@ rename(C, R) when map_size(R) =:= 0 -> C;
 rename(#circuit{instrs = Is, params = P, symbols = S, input = In} = C, R) ->
     Sub = maps:map(fun(_, New) -> {sym, New} end, R),
     Key = fun(K) -> maps:get(K, R, K) end,
-    C#circuit{instrs = [map_params(I, fun(E) -> pq_symbolic:substitute(E, Sub) end) || I <- Is],
+    Ren = fun({feed_forward, I, Map}) ->
+                  S2 = maps:without(maps:keys(Map), Sub),
+                  {feed_forward, map_params(I, fun(E) -> pq_symbolic:substitute(E, S2) end), Map};
+             (I) -> map_params(I, fun(E) -> pq_symbolic:substitute(E, Sub) end)
+          end,
+    C#circuit{instrs = [case I of
+                            {conditional, P, Js} -> {conditional, P, [Ren(J) || J <- Js]};
+                            _ -> Ren(I)
+                        end || I <- Is],
               params = maps:from_list([{Key(K), pq_symbolic:substitute(V, Sub)} || K := V <- P]),
               symbols = maps:from_list([{Key(K), D} || K := D <- S]),
               input = In}.
@@ -418,8 +533,17 @@ map_modes({unitary, Ms, U}, M) -> {unitary, [M(X) || X <- Ms], U};
 map_modes({measure_pnr, Ms}, M) -> {measure_pnr, [M(X) || X <- Ms]};
 map_modes({measure_threshold, Ms}, M) -> {measure_threshold, [M(X) || X <- Ms]};
 map_modes({custom, Name, Args}, M) -> {custom, Name, Args#{modes => [M(X) || X <- maps:get(modes, Args, [])]}};
+map_modes({feed_forward, I, Map}, M) -> {feed_forward, map_modes(I, M), maps:map(fun(_, X) -> M(X) end, Map)};
+map_modes({conditional, P, Is}, M) -> {conditional, map_pred_modes(P, M), [map_modes(I, M) || I <- Is]};
 map_modes(I, M) when is_integer(element(2, I)) -> setelement(2, I, M(element(2, I))).
 
+map_pred_modes({Op, Ps}, M) when Op =:= 'and'; Op =:= 'or' -> {Op, [map_pred_modes(P, M) || P <- Ps]};
+map_pred_modes({'not', P}, M) -> {'not', map_pred_modes(P, M)};
+map_pred_modes({Op, Ms, V}, M) when is_list(Ms) -> {Op, [M(X) || X <- Ms], V};
+map_pred_modes({Op, X, V}, M) -> {Op, M(X), V}.
+
+map_params({feed_forward, I, Map}, F) -> {feed_forward, map_params(I, F), Map};
+map_params({conditional, P, Is}, F) -> {conditional, P, [map_params(I, F) || I <- Is]};
 map_params({beamsplitter, A, B, T, P}, F) -> {beamsplitter, A, B, F(T), F(P)};
 map_params({unitary, Ms, U}, F) -> {unitary, Ms, case element(1, U) of cmat -> U; _ -> F(U) end};
 map_params({Tag, _} = I, _F) when Tag =:= measure_pnr; Tag =:= measure_threshold -> I;
@@ -438,8 +562,13 @@ all_symbols(#circuit{params = P} = C) ->
     lists:usort(instr_symbols(C) ++ maps:keys(P) ++ lists:append([pq_symbolic:free_symbols(V) || V <- maps:values(P)])).
 
 instr_symbols(#circuit{instrs = Is, input = In}) ->
-    Exprs = lists:append([params_of(I) || I <- Is]) ++ input_exprs(In),
-    lists:usort(lists:append([pq_symbolic:free_symbols(E) || E <- Exprs])).
+    lists:usort(lists:append([symbols_of(I) || I <- Is]) ++
+                lists:append([pq_symbolic:free_symbols(E) || E <- input_exprs(In)])).
+
+%% a feed-forward gate's outcome symbols are bound by the shot, not by the caller
+symbols_of({feed_forward, I, Map}) -> symbols_of(I) -- maps:keys(Map);
+symbols_of({conditional, _, Is}) -> lists:append([symbols_of(I) || I <- Is]);
+symbols_of(I) -> lists:append([pq_symbolic:free_symbols(E) || E <- params_of(I)]).
 
 params_of({beamsplitter, _, _, T, P}) -> [T, P];
 params_of({unitary, _, {cmat, _, _, _}}) -> [];
