@@ -1,8 +1,9 @@
 # S7: stream order and fixtures
 
 **Decision: the draws and stream orders of FS 8.5 as implemented in `native/pq_nif/src/rng.rs` and
-`boson.rs`, fixed by `test/fixtures/gt_s7.json`.** Closed on aarch64, 30 October 2026; the x86_64 half of the
-exit test is open until the second target runs the tests (CI or the reference machines).
+`boson.rs`, fixed by `test/fixtures/gt_s7.json`.** Closed on aarch64, 30 October 2026, and on x86_64, 31 October
+2026: the first GitHub Actions run (commit 390a50a, runners ubuntu-24.04 and ubuntu-24.04-arm) passed the whole
+suite, `gt_s7` included, on both targets.
 
 ## What is fixed
 
@@ -24,4 +25,4 @@ uniforms, bounded integers (bounds 1 to 2^64 - 1), shuffles and 40 samples per s
 (collision-free and bunched) bit for bit; normals within 1e-15 (they go through the math library: D2). The
 NIF-level test `test/sample_boson_tests.erl` checks that splitting shots between calls changes no sample.
 
-Open: running the same fixtures on x86_64.
+Both targets reproduce the fixtures bit for bit (CI, every push).
