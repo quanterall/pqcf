@@ -42,3 +42,18 @@ per shot grows faster than the output: 3.43 s at p = 1, efficiency 0.97 (p = 2),
 cores another workload keeps 20-60 % busy. Open for the project owner: keep the Phase 1 configuration (and accept
 the serial floor of list results) or fix the heavier one as the NFR-02 benchmark.
 
+
+## NFR-02 across nodes (provisional)
+
+`bench/nfr02_nodes.erl`: the same 100,000 shots on 1 and on 4 peer nodes on the provisional reference (one host,
+the 10 X925 cores; 2 dirty schedulers per node; the calling node only dispatches), best of 5; NFR-02 requires at
+least 0.7 across 4 nodes. On one host it measures the distribution layer (erpc, the spec cache, merging), not a
+network.
+
+| Date | Instance | 1 node | 4 nodes | efficiency | samples identical |
+| --- | --- | --- | --- | --- | --- |
+| 2026-11-01 | 6 photons in 12 modes (Phase 1) | 0.11 s | 0.06 s | 0.45 | yes |
+| 2026-11-01 | 10 photons in 20 modes | 1.76 s | 0.50 s | 0.88 | yes |
+
+The same picture as on one node: the heavier instance meets the requirement, the Phase 1 one stops at the serial
+cost of the list results in the caller.
