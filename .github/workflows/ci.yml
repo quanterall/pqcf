@@ -23,7 +23,13 @@ jobs:
       - name: Build the dev image
         run: docker build -t pqcf-dev .
       - name: Run the suite
-        run: docker run --rm pqcf-dev
+        # failures also become annotations, which anyone can read (the job log needs a GitHub login)
+        run: |
+          set -o pipefail
+          docker run --rm pqcf-dev 2>&1 | tee suite.log || {
+            sed 's/\x1b\[[0-9;]*m//g' suite.log | grep -E '^ +[0-9]+\) |Failure/Error|got:|expected:|%% /src/test|Line [0-9]+|test result: FAILED|^error' \
+              | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+            exit 1; }
 
   sanitize:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
