@@ -29,9 +29,13 @@ threshold_and_caps_test() ->
     ?assert(T > 0.05),
     ?assertMatch({error, {gbs_truncation, _}},
                  pq_simulator:run(pq_gaussian, Cp, #{shots => 200, seed => 2, max_photons => 2, strict => true})),
-    %% displaced threshold detection needs the loop torontonian (Phase 3)
-    ?assertEqual({error, {unsupported_input, nonzero_mean_threshold}},
-                 pq_simulator:run(pq_gaussian, c(1, [{displacement, 0, 0.5, 0}, {measure_threshold, [0]}]), #{shots => 1})).
+    %% displaced threshold detection (the loop torontonian, FS 15 item 2): a coherent state clicks with
+    %% probability 1 - exp(-|alpha|^2), |alpha| = 0.5 here
+    {ok, #result{kind = threshold, samples = Clicks}} =
+        pq_simulator:run(pq_gaussian, c(1, [{displacement, 0, 0.5, 0}, {measure_threshold, [0]}]), #{shots => 20000, seed => 3}),
+    Pc = 1 - math:exp(-0.25),
+    F = length([x || [1] <- Clicks]) / 20000,
+    ?assert(abs(F - Pc) < 5 * math:sqrt(Pc * (1 - Pc) / 20000)).
 
 amat_test() ->
     %% coherent state: A = 0, gamma = conj(beta), Norm = exp(|alpha|^2 / ... ) such that P(0) = exp(-|alpha|^2)

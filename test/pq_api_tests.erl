@@ -37,7 +37,10 @@ run_and_batch_test() ->
     {ok, S, []} = pq_api:evolve(c(1, vacuum, [{displacement, 0, 1, 0}]), #{}),
     ?assertEqual({ok, 1.0}, pq_stats:mean_photon_number(S, [0])).
 
-%% a kernel error is returned, not stored as a probability: threshold detection of a displaced state
+%% threshold detection of a displaced state (the loop torontonian): a coherent state, |alpha| = 0.3, stays dark
+%% with probability exp(-0.09)
 displaced_threshold_test() ->
     C = c(1, vacuum, [{displacement, 0, 0.3, 0}, {measure_threshold, [0]}]),
-    ?assertEqual({error, {unsupported_input, nonzero_mean_threshold}}, pq_api:probabilities(C, #{})).
+    {ok, P, _} = pq_api:probabilities(C, #{}),
+    ?assert(abs(maps:get([0], P) - math:exp(-0.09)) < 1.0e-14),
+    ?assert(abs(maps:get([1], P) - (1 - math:exp(-0.09))) < 1.0e-14).

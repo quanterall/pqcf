@@ -786,7 +786,6 @@ fn gbs_error<'a>(env: Env<'a>, e: gbs::Error) -> Term<'a> {
         gbs::Error::BadShape(m) => bad_shape(env, m),
         gbs::Error::NegativeProbability(p) => error(env, (atoms::negative_probability(), p)),
         gbs::Error::NonPhysical(w) => error(env, (atoms::non_physical_state(), w.to_string())),
-        gbs::Error::DisplacedThreshold => error(env, (atoms::unsupported_input(), atoms::nonzero_mean_threshold())),
         gbs::Error::Cancelled => error(env, atoms::cancelled()),
     }
 }

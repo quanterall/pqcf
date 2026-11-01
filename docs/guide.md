@@ -105,7 +105,7 @@ squeezing creates photons; a vacuum input without a cutoff is `{unsupported_inpu
 `strict => true`.
 
 Gaussian circuits with photon-counting measurements are Gaussian boson sampling. The samplers use the hafnian
-(PNR) or the torontonian (threshold). Probabilities lost to the `max_photons` bound are reported as
+(PNR) or the torontonian (threshold; for a displaced state, the loop torontonian). Probabilities lost to the `max_photons` bound are reported as
 `truncated_mass`:
 
 ```erlang

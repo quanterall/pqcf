@@ -424,19 +424,33 @@ prop_diff_numeric() ->
                     H = 1.0e-6,
                     X0 = maps:get(x, B),
                     F = fun(X) -> ?S:evaluate(E, B#{x => X}, ?DOM) end,
-                    case {?S:evaluate(D, B, ?DOM), F(X0 + H), F(X0 - H)} of
-                        {{ok, DV}, {ok, Fp}, {ok, Fm}} ->
+                    H2 = H / 10,
+                    case {?S:evaluate(D, B, ?DOM), F(X0 + H), F(X0 - H), F(X0 + H2), F(X0 - H2)} of
+                        {{ok, DV}, {ok, Fp}, {ok, Fm}, {ok, Fp2}, {ok, Fm2}} ->
                             {R1, I1} = as_pair(Fp), {R2, I2} = as_pair(Fm),
+                            {R3, I3} = as_pair(Fp2), {R4, I4} = as_pair(Fm2),
                             Num = {(R1 - R2) / (2 * H), (I1 - I2) / (2 * H)},
+                            Num2 = {(R3 - R4) / (2 * H2), (I3 - I4) / (2 * H2)},
+                            %% the difference quotient's own error, estimated from two steps: where the function
+                            %% oscillates fast (sin(1/sin(x)^2) near 0: f' ~ 5.5e3, the quotient at h = 1e-6 off by
+                            %% 0.09 while the symbolic derivative was exact to 1e-14) the quotient is the one wrong
+                            FdErr = abs(element(1, Num) - element(1, Num2)) + abs(element(2, Num) - element(2, Num2)),
                             {A, Bi} = as_pair(DV),
                             Big = abs(R1) + abs(I1) + abs(A) + abs(Bi) > 1.0e4,
                             %% near a branch cut or a pole a difference quotient means nothing
-                            Big orelse abs(A - element(1, Num)) + abs(Bi - element(2, Num))
-                                       =< 1.0e-6 * max(1.0, abs(A) + abs(Bi)) orelse near_cut(E, B);
+                            Big orelse abs(A - element(1, Num2)) + abs(Bi - element(2, Num2))
+                                       =< 1.0e-6 * max(1.0, abs(A) + abs(Bi)) + 10 * FdErr orelse near_cut(E, B);
                         _ -> true
                     end;
                 {error, _} -> true
             end).
+
+%% the counterexample PropEr found on 2 Nov 2026: the symbolic derivative against the exact value (mpmath, 50 digits)
+diff_fast_oscillation_test() ->
+    {ok, D} = ?S:differentiate({sin, {pow, {sin, {sym, x}}, -2}}, x),
+    {ok, V} = ?S:evaluate(D, #{x => -0.058322966418821176}),
+    {Re, _} = as_pair(V),
+    ?assert(abs(Re - 5496.703073715348488) < 1.0e-9).
 
 %% the expression has a fractional power whose argument is within 1e-3 of the negative real axis or of 0
 near_cut(E, B) ->

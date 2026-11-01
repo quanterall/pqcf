@@ -22,8 +22,6 @@ pub enum Error {
     NegativeProbability(f64),
     /// Q not invertible or det Q not positive: not a physical state
     NonPhysical(&'static str),
-    /// threshold detection of a displaced state needs the loop torontonian (Phase 3)
-    DisplacedThreshold,
     Cancelled,
 }
 
@@ -39,6 +37,8 @@ pub struct Amat {
     pub qinv: Cm,
     pub sqrt_det_q: f64,
     pub displaced: bool,
+    /// beta = (alpha, conj(alpha)), for the loop torontonian's gamma = Q^-1 conj(beta)
+    pub beta: DVector<Complex<f64>>,
 }
 
 pub fn amat(mu: &[f64], sigma: &[f64], m: usize, hbar: f64) -> Result<Amat, Error> {
@@ -81,7 +81,7 @@ pub fn amat(mu: &[f64], sigma: &[f64], m: usize, hbar: f64) -> Result<Amat, Erro
     let expo = (beta.transpose() * &qinv * beta.map(|z| z.conj()))[(0, 0)].re;
     let sqrt_det_q = det.re.sqrt();
     let displaced = mu.iter().any(|&x| x != 0.0);
-    Ok(Amat { m, a, gamma, norm: sqrt_det_q * (0.5 * expo).exp(), qinv, sqrt_det_q, displaced })
+    Ok(Amat { m, a, gamma, norm: sqrt_det_q * (0.5 * expo).exp(), qinv, sqrt_det_q, displaced, beta })
 }
 
 fn c64(z: Complex<f64>) -> C64 {
@@ -114,9 +114,6 @@ fn check_sign(p: f64, scale: f64) -> Result<f64, Error> {
 
 /// P(B) for a click pattern B, zero-mean states (A.10)
 pub fn threshold_probability(am: &Amat, b: &[u32], cancel: &(dyn Fn() -> bool + Sync)) -> Result<f64, Error> {
-    if am.displaced {
-        return Err(Error::DisplacedThreshold);
-    }
     let m = am.m;
     let n = 2 * m;
     let clicked: Vec<usize> = (0..m).filter(|&j| b[j] > 0).collect();
@@ -131,11 +128,20 @@ pub fn threshold_probability(am: &Amat, b: &[u32], cancel: &(dyn Fn() -> bool + 
         })
         .collect();
     let _ = n;
-    let t = torontonian(&o, d, 1, cancel).map_err(|e| match e {
+    let map = |e| match e {
         crate::toronto::Error::Cancelled => Error::Cancelled,
         crate::toronto::Error::NotPositiveDefinite => Error::NonPhysical("I - O"),
         _ => Error::BadShape("torontonian"),
-    })?;
+    };
+    if am.displaced {
+        // FS 15 item 2: P(B) = P(vacuum) Re ltor(O_B, gamma_B), gamma = Q^-1 conj(beta) (thewalrus's
+        // threshold_detection_prob with Sigma = conj(Q)); P(vacuum) = 1 / norm
+        let g = &am.qinv * am.beta.map(|z| z.conj());
+        let gb: Vec<C64> = idx.iter().map(|&i| c64(g[i])).collect();
+        let t = crate::toronto::loop_torontonian(&o, &gb, d, 1, cancel).map_err(map)?;
+        return check_sign(t.value / am.norm, t.scale / am.norm);
+    }
+    let t = torontonian(&o, d, 1, cancel).map_err(map)?;
     check_sign(t.value / am.sqrt_det_q, t.scale / am.sqrt_det_q)
 }
 
@@ -176,9 +182,6 @@ pub fn sample_chain_rule(
             amat(&mk, &sk, k, hbar)
         })
         .collect::<Result<_, _>>()?;
-    if threshold && states[m - 1].displaced {
-        return Err(Error::DisplacedThreshold);
-    }
     let mut out = Vec::with_capacity(shots * m);
     let mut beyond_total = 0u64;
     // prefix probabilities memoised across the call's shots (AN 6.3's prefix caching); a cached value is the value
@@ -279,7 +282,9 @@ mod tests {
         assert!((pnr_probability(&am, &[0], &never).unwrap() - (-x).exp()).abs() < 1e-15);
         assert!((pnr_probability(&am, &[1], &never).unwrap() - x * (-x).exp()).abs() < 1e-15);
         assert!((pnr_probability(&am, &[3], &never).unwrap() - x.powi(3) / 6.0 * (-x).exp()).abs() < 1e-15);
-        assert_eq!(threshold_probability(&am, &[1], &never), Err(Error::DisplacedThreshold));
+        // displaced threshold detection (the loop torontonian): no click exp(-|alpha|^2), a click the rest
+        assert!((threshold_probability(&am, &[0], &never).unwrap() - (-x).exp()).abs() < 1e-15);
+        assert!((threshold_probability(&am, &[1], &never).unwrap() - (1.0 - (-x).exp())).abs() < 1e-15);
     }
 
     #[test]
