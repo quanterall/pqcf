@@ -1,0 +1,79 @@
+# pq_symbolic and FORM 5: a comparison (2 November 2026)
+
+## What `pq_symbolic` is for
+
+The symbolic specification (SY 1.1) gives the engine six callers:
+
+- circuit parameters: default expressions and lowering;
+- the transfer matrix of a passive circuit, with a decisive unitarity check;
+- symbolic Gaussian means and covariances (FR-G04);
+- exact gradients of probabilities and mean photon numbers;
+- the JSON parser;
+- one expression evaluated under many bindings, through straight-line programs.
+
+Its scope fence (SY 1.2) excludes:
+
+- factorisation and gcd;
+- solving, integration and series;
+- symbolic determinants and inverses;
+- symbolic Fock evolution.
+
+Its expressions are those of a photonic circuit: thousands to a few hundred thousand terms, built inside the
+Erlang VM, bounded (term counts, a timeout, a heap limit) because they may come from untrusted input. It has exact
+radicals and π-exponentials, symbol domains and branch cuts, and compiles to fast numeric programs.
+
+FORM (Vermaseren et al.; version 5, arXiv:2601.19982, January 2026) is a different kind of tool. It is a
+stand-alone system for very large expressions in high-energy physics: terms streamed through sorts that spill to
+disk, a parallel version (TFORM), and in version 5 a Feynman-diagram generator, arbitrary-precision floats and
+FLINT for polynomial gcd and factorisation.
+
+## The benchmark
+
+`bench/form/` contains:
+
+- `Dockerfile`: FORM from its repository (git fb12f2e, 13 Oct 2026) with FLINT 3.2.2;
+- `gen_form.py`: the FORM scripts;
+- `symbench.erl`: the same expressions through `pq_symbolic`, with its limits raised.
+
+Both run single-threaded on the provisional reference (Cortex-X925).
+
+| Task | Terms (both) | FORM 5 | pq_symbolic | ratio |
+| --- | --- | --- | --- | --- |
+| T1 (1 + x1 + … + x6)^8 | 3,003 | < 0.01 s | 0.09 s | |
+| T1 the same to the power 12 | 18,564 | 0.01 s | 3.4 s | ~300× |
+| T1 the same to the power 16 | 74,613 | 0.03 s | 61 s | ~2,000× |
+| T1 the same to the power 20 | 230,230 | 0.12 s | refused (an intermediate of 64 M terms) | |
+| T2 ((1 + x + y + z + w)^10)² | 10,626 | 0.14 s | 3.4 s | ~24× |
+| T3 permanent of a 6 × 6 matrix of symbols | 720 | < 0.01 s | 12.6 s | |
+| T3 the same, 7 × 7 | 5,040 | 0.03 s | 429 s | ~14,000× |
+| T3 the same, 8 × 8 | 40,320 | 0.16 s | refused (heap limit) | |
+| T4 Clements mesh unitary, 4 modes, all angles symbolic | 400 | < 0.01 s | 0.05 s | ~1× |
+| T4 the same, 6 modes (30 symbols) | 11,616 | 0.03 s | 0.05 s | ~2× |
+| T4 the same, 8 modes (56 symbols) | 276,800 | 0.40 s | 2.2 s | ~5× |
+
+## What it shows
+
+- **The answers agree:** the term counts are identical wherever both finish.
+- **On the engine's own workload, the symbolic transfer matrix (T4), it is within 1–5× of FORM.** That covers 276,800
+  terms for 8 modes, the `max_symbolic_modes` default.
+- **On bulk polynomial algebra FORM is 25 to 2,000 times faster.** Part of that is FORM's C engine and its sorting.
+  Part is our algorithms:
+  - powers are built by repeated multiplication rather than the multinomial expansion;
+  - the symbolic permanent uses Glynn's formula, which expands 2^(n−1) products of n linear forms and relies on
+    massive cancellation. FORM, as written here, multiplies the rows one by one and drops every term that uses a
+    column twice, so its intermediates stay small.
+
+  Both are fixable inside the scope fence.
+- **FORM 5's FLINT interface did not matter here:** FLINT speeds up gcd and factorisation (rational functions),
+  which `pq_symbolic` does not do.
+- **Beyond about 10⁶ terms, or for gcds and rational functions, FORM is the tool.** `pq_symbolic` refuses such
+  sizes by design.
+
+## Options (not decided)
+
+1. Keep `pq_symbolic` for its role and fix the two algorithms: the multinomial power, and the pruned
+   row-by-row permanent. Both are internal changes with no change to the API.
+2. For large-scale work (symbolic permanents of large n, symbolic Fock evolution, rational functions), add an
+   optional FORM backend. It would export the expression as a FORM script, run FORM as a separate process, and
+   read the result back. FORM is GPL-3 and PQCF Apache-2.0, so FORM would be called as an external program, never
+   linked or bundled.
