@@ -48,6 +48,7 @@ main(OutDir) ->
     Env = env(Version),
     write_results(OutDir, Env, Rows),
     append_history(OutDir, Env, Rows),
+    write_charts(OutDir, Env, Rows),
     [io:format("~-20s ~10s ~10s ~10s ~10s ~s~n", [N, fmt(Tn), fmt(Tb), fmt(Tf), integer_to_list(Terms), Ok])
      || #{name := N, native := Tn, bridge := Tb, form := Tf, terms := Terms, check := Ok} <- Rows],
     case [R || #{check := C} = R <- Rows, C =/= "ok"] of
@@ -187,6 +188,9 @@ write_results(Dir, Env, Rows) ->
            "- **bridge:** `pq_form`, FORM run as an external process with the result read back into PQCF's\n",
            "  canonical form. A dash means the task is outside the bridge's polynomial fragment.\n",
            "- **check:** `ok` means native and bridge are exactly equal and all term counts agree.\n\n",
+           "![The latest run](charts/comparison.svg)\n\n",
+           "![Before and after the algorithm change of 2 Nov 2026](charts/improvement.svg)\n\n",
+           "![The ratio over the weekly runs](charts/history.svg)\n\n",
            "| Task | What | Terms | FORM | native | ratio | bridge | check |\n",
            "| --- | --- | --- | --- | --- | --- | --- | --- |\n", Table],
     ok = file:write_file(filename:join(Dir, "RESULTS.md"), Doc).
@@ -202,3 +206,176 @@ append_history(Dir, Env, Rows) ->
               fmt(Tb), ",", case C of "ok" -> "ok"; _ -> "FAILED" end, "\n"]
              || #{name := N, terms := T, form := Tf, native := Tn, bridge := Tb, check := C} <- Rows],
     ok = file:write_file(F, [Header, Lines], [append]).
+
+%%% Charts (SVG, no dependencies: the weekly run redraws them). A dot plot on a log time axis; the palette's
+%%% first three categorical slots (validated all-pairs, light and dark), each series its own marker shape;
+%%% text in the ink tokens, never the series colour; a tooltip (<title>) on every marker; light and dark.
+
+-define(W, 760).
+-define(LEFT, 200).
+-define(RIGHT, 70).
+-define(ROW, 30).
+-define(TOP, 96).
+
+style() ->
+    "<style>"
+    ".bg{fill:#fcfcfb}.t1{fill:#0b0b0b}.t2{fill:#52514e}.mu{fill:#898781}.grid{stroke:#e1e0d9}.axis{stroke:#c3c2b7}"
+    ".link{stroke:#c3c2b7}.s1{fill:#2a78d6}.s2{fill:#eb6834}.s3{fill:#1baf7a}.ring{stroke:#fcfcfb}"
+    ".l1{stroke:#2a78d6}.l2{stroke:#eb6834}.l3{stroke:#1baf7a}"
+    "@media (prefers-color-scheme: dark){.bg{fill:#1a1a19}.t1{fill:#ffffff}.t2{fill:#c3c2b7}.grid{stroke:#2c2c2a}"
+    ".axis{stroke:#383835}.link{stroke:#383835}.s1{fill:#3987e5}.s2{fill:#d95926}.s3{fill:#199e70}.ring{stroke:#1a1a19}"
+    ".l1{stroke:#3987e5}.l2{stroke:#d95926}.l3{stroke:#199e70}}"
+    "text{font-family:system-ui,-apple-system,'Segoe UI',sans-serif}"
+    "</style>".
+
+%% a marker of series K (1 circle, 2 square, 3 diamond) at (X, Y) with a tooltip
+marker(K, X0, Y0, Tip) ->
+    {X, Y} = {float(X0), float(Y0)},
+    Shape = case K of
+                1 -> io_lib:format("<circle cx='~.1f' cy='~.1f' r='5'", [X, Y]);
+                2 -> io_lib:format("<rect x='~.1f' y='~.1f' width='9' height='9' rx='1.5'", [X - 4.5, Y - 4.5]);
+                3 -> io_lib:format("<path d='M~.1f ~.1f l6 6 l-6 6 l-6 -6 z'", [X, Y - 6])
+            end,
+    [Shape, io_lib:format(" class='s~b ring' stroke-width='2'><title>~s</title></", [K, esc(Tip)]),
+     case K of 1 -> "circle"; 2 -> "rect"; 3 -> "path" end, ">"].
+
+esc(S) -> lists:flatten(string:replace(string:replace(lists:flatten(S), "&", "&amp;", all), "<", "&lt;", all)).
+
+%% x of a time on the log axis from 10^Lo to 10^Hi seconds
+xpos(T, Lo, Hi) -> xpos(T, Lo, Hi, ?RIGHT).
+xpos(T, Lo, Hi, Right) -> ?LEFT + (math:log10(max(T, math:pow(10, Lo))) - Lo) / (Hi - Lo) * (?W - ?LEFT - Right).
+
+%% Rows: [{Label, [{SeriesK, SeriesName, Seconds | none}], RightNote}]
+dot_plot(Title, Sub, Legend, Rows, Lo, Hi) -> dot_plot(Title, Sub, Legend, Rows, Lo, Hi, ?RIGHT).
+
+%% Right: the margin kept for the notes, so no marker runs under them
+dot_plot(Title, Sub, Legend, Rows, Lo, Hi, Right) ->
+    H = ?TOP + length(Rows) * ?ROW + 44,
+    Ticks = lists:seq(Lo, Hi),
+    TickLabel = fun(E) when E < 0 -> io_lib:format("~s s", [float_to_list(math:pow(10, E), [{decimals, -E}, compact])]);
+                   (E) -> io_lib:format("~b s", [round(math:pow(10, E))])
+                end,
+    Grid = [[io_lib:format("<line class='grid' x1='~.1f' x2='~.1f' y1='~b' y2='~b' stroke-width='1'/>",
+                           [xpos(math:pow(10, E), Lo, Hi, Right), xpos(math:pow(10, E), Lo, Hi, Right), ?TOP - 10, H - 38]),
+             io_lib:format("<text class='mu' x='~.1f' y='~b' font-size='11' text-anchor='middle'>~s</text>",
+                           [xpos(math:pow(10, E), Lo, Hi, Right), H - 22, TickLabel(E)])] || E <- Ticks],
+    Leg = lists:append([[marker(K, ?LEFT + 4 + (I - 1) * 180, 66, Name),
+                         io_lib:format("<text class='t2' x='~b' y='70' font-size='12'>~s</text>",
+                                       [?LEFT + 16 + (I - 1) * 180, esc(Name)])]
+                        || {I, {K, Name}} <- lists:enumerate(Legend)]),
+    Body = [begin
+                Y = ?TOP + (I - 1) * ?ROW + ?ROW div 2,
+                Vals = [V || {_, _, V} <- Ms, V =/= none],
+                Link = case Vals of
+                           [_, _ | _] -> io_lib:format("<line class='link' x1='~.1f' x2='~.1f' y1='~b' y2='~b' stroke-width='2'/>",
+                                                       [xpos(lists:min(Vals), Lo, Hi, Right), xpos(lists:max(Vals), Lo, Hi, Right), Y, Y]);
+                           _ -> ""
+                       end,
+                [io_lib:format("<text class='t1' x='~b' y='~b' font-size='12' text-anchor='end'>~s</text>",
+                               [?LEFT - 12, Y + 4, esc(Label)]),
+                 Link,
+                 [marker(K, xpos(V, Lo, Hi, Right), Y, io_lib:format("~s, ~s: ~s s", [Label, Name, fmt(V)])) || {K, Name, V} <- Ms, V =/= none],
+                 io_lib:format("<text class='t2' x='~b' y='~b' font-size='12' text-anchor='end'>~s</text>",
+                               [?W - 8, Y + 4, esc(Note)])]
+            end || {I, {Label, Ms, Note}} <- lists:enumerate(Rows)],
+    ["<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ", integer_to_list(?W), " ", integer_to_list(H),
+     "' width='", integer_to_list(?W), "' role='img' aria-label='", esc(Title), "'>", style(),
+     io_lib:format("<rect class='bg' width='~b' height='~b' rx='8'/>", [?W, H]),
+     io_lib:format("<text class='t1' x='20' y='30' font-size='16' font-weight='600'>~s</text>", [esc(Title)]),
+     io_lib:format("<text class='t2' x='20' y='48' font-size='12'>~s</text>", [esc(Sub)]),
+     Grid, Leg, Body,
+     io_lib:format("<text class='mu' x='~b' y='~b' font-size='11' text-anchor='end'>seconds, single-threaded, log scale</text>",
+                   [?W - Right, H - 6]),
+     "</svg>\n"].
+
+write_charts(Dir, Env, Rows) ->
+    ok = filelib:ensure_dir(filename:join([Dir, "charts", "x"])),
+    #{date := D, machine := M, form := F} = Env,
+    Latest = [{N, [{1, "FORM 5", Tf}, {2, "PQCF native", Tn}, {3, "PQCF bridge to FORM", Tb}],
+               case ratio(Tn, Tf) of "-" -> ""; R -> [R, "x"] end}
+              || #{name := N, form := Tf, native := Tn, bridge := Tb} <- Rows],
+    ok = file:write_file(filename:join([Dir, "charts", "comparison.svg"]),
+                         dot_plot("pq_symbolic and FORM 5 on the reference tasks",
+                                  io_lib:format("~s, ~s, ~s. Right: PQCF native time over FORM's.",
+                                                [lists:sublist(D, 10), M, hd(string:split(F, " ("))]),
+                                  [{1, "FORM 5"}, {2, "PQCF native"}, {3, "PQCF bridge to FORM"}], Latest, -3, 1)),
+    ok = file:write_file(filename:join([Dir, "charts", "improvement.svg"]), improvement()),
+    ok = file:write_file(filename:join([Dir, "charts", "history.svg"]), history(Dir)).
+
+%% the algorithm change of 2 Nov 2026, measured on dev-aarch64-shared (docs/decisions/SY-FORM-comparison.md);
+%% "refused" (a safety limit) is drawn at the axis' end with its tooltip saying so
+improvement() ->
+    Rows = [{"(1 + x1..x6)^16", 0.03, 61.0, 0.64}, {"(1 + x1..x6)^20", 0.12, refused, 2.4},
+            {"dense product", 0.14, 3.4, 1.3}, {"permanent 7 x 7", 0.02, 429.0, 0.02},
+            {"permanent 8 x 8", 0.16, refused, 0.26}],
+    Plot = [{L, [{1, "FORM 5", Tf}, {3, "PQCF before", case B of refused -> none; _ -> B end}, {2, "PQCF now", A}],
+             case B of refused -> "before: refused"; _ -> [times(B / A), " faster"] end}
+            || {L, Tf, B, A} <- Rows],
+    dot_plot("pq_symbolic before and after the algorithm change",
+             "2 Nov 2026: multinomial powers, plain products, the pruned permanent. Same answers, exactly.",
+             [{1, "FORM 5"}, {3, "PQCF before"}, {2, "PQCF now"}], Plot, -2, 3, 130).
+
+%% a speed-up for reading: 2.6x, 95x, 21,450x
+times(X) when X < 10 -> io_lib:format("~.1fx", [X]);
+times(X) -> [thousands(integer_to_list(round(X))), "x"].
+
+thousands(S) when length(S) =< 3 -> S;
+thousands(S) -> thousands(lists:sublist(S, length(S) - 3)) ++ "," ++ lists:nthtail(length(S) - 3, S).
+
+%% the geometric mean over the tasks of native time over FORM's, per run, one line per machine
+history(Dir) ->
+    {ok, Bin} = file:read_file(filename:join(Dir, "history.csv")),
+    [_ | Lines] = [L || L <- string:split(binary_to_list(Bin), "\n", all), L =/= ""],
+    Recs = [begin
+                [Date, Mach | _] = string:split(L, ",", all),
+                Fields = string:split(L, ",", all),
+                Tf = lists:nth(length(Fields) - 3, Fields), Tn = lists:nth(length(Fields) - 2, Fields),
+                {lists:sublist(Date, 16), Mach, num(Tf), num(Tn)}
+            end || L <- Lines],
+    Runs = lists:usort([{D, M} || {D, M, _, _} <- Recs]),
+    Points = [{D, M, math:pow(10, lists:sum(Ls) / length(Ls))}
+              || {D, M} <- Runs, Ls <- [[math:log10(Tn / Tf) || {D2, M2, Tf, Tn} <- Recs, D2 =:= D, M2 =:= M,
+                                                               is_float(Tf), is_float(Tn), Tf > 0.002]], Ls =/= []],
+    Machines = lists:sublist(lists:usort([M || {_, M, _} <- Points]), 3),
+    Dates = lists:usort([D || {D, _, _} <- Points]),
+    {W, H, L, R, T, B} = {?W, 300, 70, 30, 80, 46},
+    Xof = fun(D) -> case length(Dates) of
+                        1 -> L + (W - L - R) / 2;
+                        N -> L + (index(D, Dates) - 1) / (N - 1) * (W - L - R)
+                    end end,
+    Ys = [Y || {_, _, Y} <- Points],
+    Lo = math:floor(math:log10(lists:min([1.0 | Ys]))), Hi = math:ceil(math:log10(lists:max([10.0 | Ys]))),
+    Yof = fun(V) -> T + (Hi - math:log10(V)) / (Hi - Lo) * (H - T - B) end,
+    Grid = [[io_lib:format("<line class='grid' x1='~b' x2='~b' y1='~.1f' y2='~.1f' stroke-width='1'/>",
+                           [L, W - R, Yof(math:pow(10, E)), Yof(math:pow(10, E))]),
+             io_lib:format("<text class='mu' x='~b' y='~.1f' font-size='11' text-anchor='end'>~sx</text>",
+                           [L - 8, Yof(math:pow(10, E)) + 4, integer_to_list(round(math:pow(10, E)))])]
+            || E <- lists:seq(round(Lo), round(Hi))],
+    Series = [begin
+                  Ps = [{Xof(D), Yof(V), D, V} || {D, M2, V} <- Points, M2 =:= M],
+                  [case Ps of
+                       [_, _ | _] -> io_lib:format("<polyline class='l~b' fill='none' stroke-width='2' stroke-linejoin='round' points='~s'/>",
+                                                   [K, lists:join(" ", [io_lib:format("~.1f,~.1f", [X, Y]) || {X, Y, _, _} <- Ps])]);
+                       _ -> ""
+                   end,
+                   [marker(K, X, Y, io_lib:format("~s, ~s: native ~sx FORM's time", [M, D, io_lib:format("~.1f", [V])])) || {X, Y, D, V} <- Ps],
+                   marker(K, L + 4 + (K - 1) * 230, 58, M),
+                   io_lib:format("<text class='t2' x='~b' y='62' font-size='12'>~s</text>", [L + 16 + (K - 1) * 230, esc(M)])]
+              end || {K, M} <- lists:enumerate(Machines)],
+    XL = case Dates of
+             [] -> [];
+             _ -> [io_lib:format("<text class='mu' x='~.1f' y='~b' font-size='11' text-anchor='~s'>~s</text>",
+                                 [Xof(D), H - 24, A, lists:sublist(D, 10)])
+                   || {D, A} <- lists:usort([{hd(Dates), "start"}, {lists:last(Dates), "end"}])]
+         end,
+    ["<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ", integer_to_list(W), " ", integer_to_list(H),
+     "' width='", integer_to_list(W), "' role='img' aria-label='The ratio over the weekly runs'>", style(),
+     io_lib:format("<rect class='bg' width='~b' height='~b' rx='8'/>", [W, H]),
+     "<text class='t1' x='20' y='30' font-size='16' font-weight='600'>PQCF native time over FORM's, run by run</text>",
+     "<text class='t2' x='20' y='46' font-size='12'>The geometric mean over the reference tasks (lower is closer to FORM); one line per machine.</text>",
+     Grid, Series, XL, "</svg>\n"].
+
+index(X, L) -> length(lists:takewhile(fun(Y) -> Y =/= X end, L)) + 1.
+
+num(S) -> try list_to_float(S) catch error:badarg -> none end.
+

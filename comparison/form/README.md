@@ -6,6 +6,12 @@ results stay in the repository:
 
 - [`RESULTS.md`](RESULTS.md) holds the latest run.
 - [`history.csv`](history.csv) holds every run, one row per task, so trends and regressions show.
+- [`charts/`](charts) holds three SVG charts, redrawn by every run:
+  - the latest run;
+  - the algorithm change of 2 November 2026;
+  - the native-to-FORM ratio run by run.
+
+![The latest run](charts/comparison.svg)
 
 The decision record behind it is [`docs/decisions/SY-FORM-comparison.md`](../../docs/decisions/SY-FORM-comparison.md).
 
