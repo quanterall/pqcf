@@ -12,7 +12,7 @@
          matmul/2, kron/2, smul/2, madd/1, dagger/1, transpose/1,
          shape/1, free_symbols/1, size/1, hash/1, domain_of/2,
          pretty/1, pretty/2, to_latex/1, parse/1, parse/2,
-         resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, gaussian_evolve/2, is_unitary/1, is_unitary/2, permanent/1, bs_probability/3, compile/2, compile/3, eval_slp/2, eval_batch/2, equiv/3,
+         resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, gaussian_evolve/2, is_unitary/1, is_unitary/2, permanent/1, bs_probability/3, compile/2, compile/3, glynn_reference/2, eval_slp/2, eval_batch/2, equiv/3,
          substitute/2]).
 
 -export_type([sym_expr/0, binding/0, opts/0]).
@@ -304,9 +304,46 @@ permanent(M) ->
                         output({scalar, glynn(Rows, K, Ctx)}, Ctx)
                 end).
 
+%% The permanent row by row over the subsets of columns already used (the expansion FORM does with its pruning,
+%% comparison of 2 Nov 2026): for each set S of i columns, the sum over every assignment of rows 1..i to S; a term
+%% that would use a column twice is never made, so the intermediates stay the size of partial results -- where
+%% Glynn's formula expanded 2^(k-1) products of k linear forms and relied on their cancelling (7 x 7 symbolic:
+%% 429 s with Glynn). Each entry is used as it is, repeated rows or columns included (bs_probability).
 glynn(Rows, K, Ctx) ->
     Max = pq_core:get(max_symbolic_photons),
     K =< Max orelse throw({symbolic_limit, #{photons => K, max_symbolic_photons => Max}}),
+    case K of
+        0 -> pq_sym_poly:one();
+        _ ->
+            Entries = list_to_tuple([list_to_tuple(R) || R <- Rows]),
+            Final = lists:foldl(
+                      fun(I, Layer) ->
+                              Row = element(I, Entries),
+                              maps:fold(
+                                fun(Used, P, Acc) ->
+                                        lists:foldl(
+                                          fun(J, A2) ->
+                                                  Bit = 1 bsl (J - 1),
+                                                  E = element(J, Row),
+                                                  case Used band Bit =:= 0 andalso map_size(E) > 0 of
+                                                      true ->
+                                                          T = pq_sym_poly:mul(P, E, Ctx),
+                                                          maps:update_with(Used bor Bit, fun(Q) -> pq_sym_poly:add(Q, T) end, T, A2);
+                                                      false -> A2
+                                                  end
+                                          end, Acc, lists:seq(1, K))
+                                end, #{}, Layer)
+                      end, #{0 => pq_sym_poly:one()}, lists:seq(1, K)),
+            maps:get((1 bsl K) - 1, Final, #{})
+    end.
+
+%% Glynn's formula, kept as the test oracle of the subset expansion (pq_symbolic_tests)
+glynn_reference(Rows, K) ->
+    run({add, [0]}, #{}, fun(Ctx) -> output({scalar, glynn_formula([[pq_sym_norm_entry(E, Ctx) || E <- R] || R <- Rows], K, Ctx)}, Ctx) end).
+
+pq_sym_norm_entry(E, Ctx) -> scalar_poly(E, Ctx).
+
+glynn_formula(Rows, K, Ctx) ->
     case K of
         0 -> pq_sym_poly:one();
         _ ->

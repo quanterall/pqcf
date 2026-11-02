@@ -13,6 +13,9 @@ top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust 
 
 ## Documentation
 
+The symbolic engine is compared with FORM every week: [`comparison/form`](comparison/form) (latest results in
+`comparison/form/RESULTS.md`).
+
 The user guide is [`docs/guide.md`](docs/guide.md); every example in it is a test (`test/guide_examples_tests.erl`).
 Design decisions and spike results are in `docs/decisions/`.
 

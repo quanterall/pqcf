@@ -1,0 +1,50 @@
+# The standing comparison of pq_symbolic with FORM (comparison/form, docs/decisions/SY-FORM-comparison.md), until
+# the end of the project: weekly and on demand it runs the reference tasks and commits the results
+# (comparison/form/RESULTS.md, history.csv); on a push that touches the symbolic engine, the FORM bridge or the
+# comparison it runs as a check only. FORM (GPL-3) is built here from its sources and called as a separate program.
+name: FORM comparison
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/pq_symbolic.erl"
+      - "src/pq_sym_*.erl"
+      - "src/pq_form.erl"
+      - "comparison/form/*.erl"
+      - "comparison/form/Dockerfile"
+      - "test/pq_form_tests.erl"
+
+permissions:
+  contents: write
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the dev image and the FORM image
+        run: |
+          docker build -q -t pqcf-dev .
+          docker build -q -t pqcf-form -f comparison/form/Dockerfile .
+      - name: pq_form against FORM
+        run: docker run --rm pqcf-form rebar3 eunit --module=pq_form_tests
+      - name: The reference tasks
+        run: |
+          docker run --rm -e COMPARISON_MACHINE=github-ubuntu-24.04 -e PQCF_COMMIT="$(git rev-parse --short HEAD)" \
+            -e COMPARISON_CPU="$(lscpu | sed -n 's/^Model name: *//p' | sort -u | paste -sd+)" \
+            -e HOME=/tmp --user "$(id -u):$(id -g)" -v "$PWD/comparison/form":/out pqcf-form \
+            sh -c 'erlc -o /tmp /out/compare.erl && erl +S 1 -pa _build/default/lib/*/ebin -pa /tmp -noshell -eval "compare:main(\"/out\")"'
+          cat comparison/form/RESULTS.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Commit the results (weekly and on demand)
+        if: github.event_name != 'push'
+        run: |
+          git config user.name "PQCF comparison"
+          git config user.email "eagent@quanterall.com"
+          git add comparison/form/RESULTS.md comparison/form/history.csv
+          git commit -m "comparison: FORM, weekly run $(date -u +%Y-%m-%d)" || exit 0
+          git pull --rebase -q origin "${GITHUB_REF_NAME}"
+          git push -q origin "HEAD:${GITHUB_REF_NAME}"

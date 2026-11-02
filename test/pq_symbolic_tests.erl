@@ -161,7 +161,7 @@ subs_test() ->
 
 errors_test() ->
     ?assertEqual({error, {bad_expr, {foo}}}, ?S:canonicalise({add, [{foo}]})),
-    ?assertEqual({error, {symbolic_limit, #{reason => poly_terms, terms => 400, max => 100}}},
+    ?assertEqual({error, {symbolic_limit, #{reason => poly_terms, terms => 210, max => 100}}},
                  ?S:canonicalise({pow, {add, [{sym, a}, {sym, b}, {sym, c}, {sym, d}, {sym, e}, {sym, f}, {sym, g},
                                                {sym, h}, {sym, k}, {sym, l}, {sym, m}, {sym, n}, {sym, o}, {sym, p},
                                                {sym, q}, {sym, r}, {sym, s}, {sym, u}, {sym, v}, {sym, w}]}, 2},
@@ -577,3 +577,24 @@ ss3_test_() ->
                                 [K, Tu / 1.0e6, Tc / 1.0e6, length(Ops), Ts / Reps / 1000, Tt / Reps / 1000, Tt / Ts])
                   end || K <- [4, 6]]
              end)]}.
+
+%%% The comparison with FORM (2 Nov 2026): the subset permanent and the multinomial power against the methods
+%%% they replaced, exactly (canonical forms equal)
+
+permanent_against_glynn_test_() ->
+    X = fun(I, J) -> {sym, list_to_atom(lists:flatten(io_lib:format("a~b~b", [I, J])))} end,
+    Mixed = [[{add, [X(1, 1), 2]}, {exp, {mul, [{complex, 0, 1}, {sym, t}]}}, {pow, 3, {rat, 1, 2}}],
+             [{mul, [-1, X(2, 1)]}, X(2, 2), {cos, {sym, t}}],
+             [1, {pow, X(3, 1), 2}, {add, [X(3, 3), {mul, [{rat, 1, 3}, X(1, 1)]}]}]],
+    [?_assertEqual(?S:glynn_reference(M, length(M)), ?S:permanent({matrix, M}))
+     || M <- [[[X(I, J) || J <- lists:seq(1, N)] || I <- lists:seq(1, N)] || N <- [1, 2, 3, 4, 5]] ++ [Mixed]].
+
+multinomial_power_test_() ->
+    S = fun(N) -> {sym, N} end,
+    Polys = [{add, [1, S(x), S(y)]}, {add, [{mul, [2, S(x), S(y)]}, {mul, [{rat, -1, 3}, S(x)]}, {complex, 0, 1}]},
+             {add, [S(x), {conj, S(z)}, {const, pi}]}, {add, [S(x), {pow, S(y), -1}, {mul, [S(x), S(y)]}]}],
+    [?_assertEqual(?S:canonicalise({mul, lists:duplicate(N, P)}), ?S:canonicalise({pow, P, N}))
+     || P <- Polys, N <- [2, 3, 5, 8]] ++
+    %% not plain (a radical, an exponential): the old path, still the same answer
+    [?_assertEqual(?S:canonicalise({mul, lists:duplicate(4, P)}), ?S:canonicalise({pow, P, 4}))
+     || P <- [{add, [S(x), {pow, 2, {rat, 1, 2}}]}, {add, [1, {exp, S(x)}]}]].

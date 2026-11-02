@@ -105,8 +105,17 @@ check_terms(N, Ctx) ->
     N > Max andalso throw({symbolic_limit, #{reason => poly_terms, terms => N, max => Max}}),
     ok.
 
+%% plain monomials (symbols, conj, pi; no radical, opaque base or exponential: 31x of the work of a product of
+%% such polynomials went into normalize, comparison with FORM, 2 Nov 2026) only merge their exponents
+mono_mul({A1, []}, {A2, []}, Ctx) ->
+    case plain(A1) andalso plain(A2) of
+        true -> {c(1), {[{K, E} || {K, E} <- merge(A1, A2, fun pq_sym_exact:radd/2), E =/= {0, 1}], []}, []};
+        false -> normalize(merge(A1, A2, fun pq_sym_exact:radd/2), [], Ctx)
+    end;
 mono_mul({A1, E1}, {A2, E2}, Ctx) ->
     normalize(merge(A1, A2, fun pq_sym_exact:radd/2), merge(E1, E2, fun pq_sym_exact:cadd/2), Ctx).
+
+plain(Alg) -> lists:all(fun({{K, _}, _}) -> K =:= sym orelse K =:= conj; ({pi, _}) -> true; (_) -> false end, Alg).
 
 %% merge two key-sorted lists, combining equal keys
 merge([], L, _) -> L;
@@ -207,8 +216,43 @@ pow_int(P, N, Ctx) ->
     Max = maps:get(max_expand_power, Ctx, 8),
     case maps:size(P) > 1 andalso N > Max of
         true -> base_power(P, {N, 1}, Ctx);
-        false -> square_and_multiply(P, N, Ctx)
+        false ->
+            case maps:size(P) > 1 andalso lists:all(fun({A, E}) -> E =:= [] andalso plain(A) end, maps:keys(P)) of
+                true -> multinomial(P, N, Ctx);
+                false -> square_and_multiply(P, N, Ctx)
+            end
     end.
+
+%% (sum c_i M_i)^N = sum over k_1 + ... + k_m = N of N! / prod k_i! prod (c_i M_i)^k_i, for plain monomials: one
+%% step per term of the result instead of squaring the half power (the size check is the result's bound,
+%% C(N + m - 1, m - 1), not the square of the half power's terms)
+multinomial(P, N, Ctx) ->
+    Terms = maps:to_list(P),
+    check_terms(binom(N + length(Terms) - 1, length(Terms) - 1), Ctx),
+    Fact = fun F(0) -> 1; F(K) -> K * F(K - 1) end,
+    FN = Fact(N),
+    Pow = [fun(K) -> {cpow(C, K), [{X, rmul(E, {K, 1})} || {X, E} <- A]} end || {{A, []}, C} <- Terms],
+    distribute(Pow, N, {FN, c(1), []}, Fact, #{}).
+
+%% every split of the remaining exponent over the remaining terms; Acc = {multinomial numerator over the chosen
+%% factorials so far, coefficient, exponents}
+distribute([Last], K, {Num, C, A}, Fact, Map) ->
+    {Ck, Ak} = Last(K),
+    Coef = cmul(cmul(C, Ck), c(Num div Fact(K))),
+    add_term(Map, {[{X, E} || {X, E} <- merge(A, Ak, fun pq_sym_exact:radd/2), E =/= {0, 1}], []}, Coef);
+distribute([F | Rest], K, {Num, C, A}, Fact, Map) ->
+    lists:foldl(fun(J, M) ->
+                        {Cj, Aj} = F(J),
+                        distribute(Rest, K - J, {Num div Fact(J), cmul(C, Cj), merge(A, Aj, fun pq_sym_exact:radd/2)},
+                                   Fact, M)
+                end, Map, lists:seq(0, K)).
+
+cpow(_C, 0) -> c(1);
+cpow(C, K) -> pq_sym_exact:cpow_int(C, K).
+
+binom(N, K) -> binom(N, K, 1, 1).
+binom(_N, 0, A, B) -> A div B;
+binom(N, K, A, B) -> binom(N - 1, K - 1, A * N, B * K).
 
 square_and_multiply(P, 1, _Ctx) -> P;
 square_and_multiply(P, N, Ctx) ->

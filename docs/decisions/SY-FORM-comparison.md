@@ -69,7 +69,7 @@ Both run single-threaded on the provisional reference (Cortex-X925).
 - **Beyond about 10⁶ terms, or for gcds and rational functions, FORM is the tool.** `pq_symbolic` refuses such
   sizes by design.
 
-## Options (not decided)
+## Options (both taken, 2 November 2026)
 
 1. Keep `pq_symbolic` for its role and fix the two algorithms: the multinomial power, and the pruned
    row-by-row permanent. Both are internal changes with no change to the API.
@@ -77,3 +77,34 @@ Both run single-threaded on the provisional reference (Cortex-X925).
    optional FORM backend. It would export the expression as a FORM script, run FORM as a separate process, and
    read the result back. FORM is GPL-3 and PQCF Apache-2.0, so FORM would be called as an external program, never
    linked or bundled.
+
+## Taken
+
+The project owner chose both options, and a permanent comparison:
+
+**1. The two algorithms.**
+
+- **Products of plain monomials** (symbols, `conj` and π, without radicals, opaque bases or exponentials) only
+  merge their exponents. Before, about 31 times as much work went into the general normaliser.
+- **Powers of sums of plain monomials** are enumerated multinomially, about one step per result term.
+- **The permanent** is built row by row over the subsets of columns already used. Terms that would use a column
+  twice are never made, which is the same pruning as the FORM script.
+- **Tests:** each new method is exactly equal to the old one, in canonical form, on random and mixed inputs. Glynn's
+  formula is kept as the test oracle.
+
+Before and after, single-threaded, against FORM 5:
+
+| Task | FORM 5 | before | after |
+| --- | --- | --- | --- |
+| (1 + x1 + … + x6)^16 | 0.03 s | 61 s | 0.64 s |
+| (1 + x1 + … + x6)^20 | 0.12 s | refused | 2.4 s |
+| dense product | 0.14 s | 3.4 s | 1.3 s |
+| permanent 7 × 7 | 0.02–0.03 s | 429 s | 0.02 s |
+| permanent 8 × 8 | 0.16 s | refused | 0.26 s |
+
+**2. The bridge.** `pq_form` covers expansion and the symbolic permanent through FORM as an external process, on
+the polynomial fragment. Its results equal `pq_symbolic`'s exactly. It is an addition under the freeze.
+
+**The standing comparison.** `comparison/form/` holds the reference tasks, the latest results and their history.
+It runs weekly on GitHub Actions until the end of the project.
+
