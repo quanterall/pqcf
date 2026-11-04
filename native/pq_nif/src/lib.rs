@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub mod boson;
 pub mod fock;
+pub mod fockdmb;
 pub mod fockgrad;
 pub mod fockstate;
 pub mod gaussian;
@@ -1123,6 +1124,142 @@ fn boson_partial_probability<'a>(env: Env<'a>, u: Term<'a>, input: Vec<u32>, out
         Ok(p) => (atoms::ok(), p).encode(env),
         Err(_) => bad_shape(env, "input, output and Gram matrix"),
     })
+}
+
+/// Photon-number blocks (Phase 4, FS 15 item 6; internal, fockdmb.rs): a density matrix as [{N1, N2, Binary}], each
+/// block d_N1 x d_N2 complex row-major little-endian; zero blocks absent
+fn get_blocks(term: Term, b: &fockstate::Basis) -> Result<fockdmb::Blocks, String> {
+    let list: Vec<(usize, usize, Binary)> = term.decode().map_err(|_| "not a block list".to_string())?;
+    let mut out = fockdmb::Blocks::empty(b);
+    let k = b.cutoff + 1;
+    for (a, c, bin) in list {
+        if a >= k || c >= k || bin.len() != 16 * out.sizes[a] * out.sizes[c] {
+            return Err(format!("block ({a}, {c}) of {} bytes", bin.len()));
+        }
+        let f = |x: usize| f64::from_le_bytes(bin[8 * x..8 * x + 8].try_into().unwrap());
+        out.blocks[a * k + c] = Some((0..out.sizes[a] * out.sizes[c]).map(|e| C64::new(f(2 * e), f(2 * e + 1))).collect());
+    }
+    Ok(out)
+}
+
+fn put_blocks<'a>(env: Env<'a>, blk: &fockdmb::Blocks) -> Term<'a> {
+    let k = blk.sizes.len();
+    let mut items: Vec<Term<'a>> = Vec::new();
+    for a in 0..k {
+        for c in 0..k {
+            if let Some(v) = &blk.blocks[a * k + c] {
+                let mut bin = rustler::OwnedBinary::new(v.len() * 16).expect("binary");
+                for (x, z) in v.iter().enumerate() {
+                    bin.as_mut_slice()[16 * x..16 * x + 8].copy_from_slice(&z.re.to_le_bytes());
+                    bin.as_mut_slice()[16 * x + 8..16 * x + 16].copy_from_slice(&z.im.to_le_bytes());
+                }
+                items.push((a, c, bin.release(env)).encode(env));
+            }
+        }
+    }
+    items.encode(env)
+}
+
+fn dmb_basis(n: usize, c: usize) -> Option<fockstate::Basis> {
+    if n == 0 || fockstate::Basis::dim(n, c) > 50_000_000 { None } else { Some(fockstate::Basis::new(n, c)) }
+}
+
+/// fock_dmb_from(State, N, C): blocks from amplitudes (cvec) or a full matrix (cmat)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn fock_dmb_from<'a>(env: Env<'a>, state: Term<'a>, n: usize, c: usize) -> NifResult<Term<'a>> {
+    let Some(b) = dmb_basis(n, c) else { return Ok(bad_shape(env, "modes and cutoff")) };
+    let d = b.patterns.len();
+    if let Ok(v) = cvec(state) {
+        if v.len() != d { return Ok(bad_shape(env, "amplitudes for NModes and Cutoff")); }
+        return Ok((atoms::ok(), put_blocks(env, &fockdmb::Blocks::from_pure(&b, &v))).encode(env));
+    }
+    match cmat(state) {
+        Ok((r, rr, cc)) if rr == d && cc == d => Ok((atoms::ok(), put_blocks(env, &fockdmb::Blocks::from_dense(&b, &r))).encode(env)),
+        _ => Ok(bad_shape(env, "a cvec or a D x D cmat")),
+    }
+}
+
+/// fock_dmb_to_dense(Blocks, N, C) -> cmat (D x D)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn fock_dmb_to_dense<'a>(env: Env<'a>, blocks: Term<'a>, n: usize, c: usize) -> NifResult<Term<'a>> {
+    let Some(b) = dmb_basis(n, c) else { return Ok(bad_shape(env, "modes and cutoff")) };
+    let blk = match get_blocks(blocks, &b) { Ok(x) => x, Err(e) => return Ok(bad_shape(env, &e)) };
+    let d = b.patterns.len();
+    Ok((atoms::ok(), put_cmat(env, &blk.to_dense(d), d, d)).encode(env))
+}
+
+/// fock_dmb_apply(Blocks, Op, N, C) -> {Blocks, Deficit}: the operations of fock_dm_apply_raw on blocks
+#[rustler::nif(schedule = "DirtyCpu")]
+fn fock_dmb_apply<'a>(env: Env<'a>, blocks: Term<'a>, op: Term<'a>, n: usize, c: usize) -> NifResult<Term<'a>> {
+    let Some(b) = dmb_basis(n, c) else { return Ok(bad_shape(env, "modes and cutoff")) };
+    let mut r = match get_blocks(blocks, &b) { Ok(x) => x, Err(e) => return Ok(bad_shape(env, &e)) };
+    let tag: Atom = rustler::types::tuple::get_tuple(op)?.first().ok_or(rustler::Error::BadArg)?.decode()?;
+    let in_range = |ms: &[usize]| ms.iter().all(|&m| m < n);
+    let res: Result<f64, fockstate::Error> = if tag == atoms::beamsplitter() {
+        let (_, t, p, m1, m2): (Atom, f64, f64, usize, usize) = op.decode()?;
+        if !in_range(&[m1, m2]) || m1 == m2 { return Ok(bad_shape(env, "modes")); }
+        r.unitary_like(&b, |v| fockstate::beamsplitter(&b, v, t, p, m1, m2))
+    } else if tag == atoms::phaseshift() {
+        let (_, p, m): (Atom, f64, usize) = op.decode()?;
+        if !in_range(&[m]) { return Ok(bad_shape(env, "mode")); }
+        r.unitary_like(&b, |v| { fockstate::phaseshift(&b, v, p, m); Ok(()) })
+    } else if tag == atoms::kerr() {
+        let (_, k, m): (Atom, f64, usize) = op.decode()?;
+        if !in_range(&[m]) { return Ok(bad_shape(env, "mode")); }
+        r.unitary_like(&b, |v| { fockstate::kerr(&b, v, k, m); Ok(()) })
+    } else if tag == atoms::passive() {
+        let (_, u, ms): (Atom, Term, Vec<usize>) = op.decode()?;
+        let (uv, ur, uc) = match cmat(u) { Ok(x) => x, Err(e) => return Ok(bad_shape(env, &e)) };
+        if ur != uc || ur != ms.len() || !modes_ok(&ms, n) { return Ok(bad_shape(env, "U is k x k for k distinct modes")); }
+        r.unitary_like(&b, |v| fockstate::passive(&b, v, &uv, &ms))
+    } else if tag == atoms::displacement() {
+        let (_, rr, p, m): (Atom, f64, f64, usize) = op.decode()?;
+        if !in_range(&[m]) { return Ok(bad_shape(env, "mode")); }
+        r.unitary_like(&b, |v| { fockstate::displacement(&b, v, rr, p, m); Ok(()) })
+    } else if tag == atoms::squeezing() {
+        let (_, rr, p, m): (Atom, f64, f64, usize) = op.decode()?;
+        if !in_range(&[m]) { return Ok(bad_shape(env, "mode")); }
+        r.unitary_like(&b, |v| fockstate::squeezing(&b, v, rr, p, m).map(|_| ()))
+    } else if tag == atoms::loss() {
+        let (_, eta, m): (Atom, f64, usize) = op.decode()?;
+        if !in_range(&[m]) || !(0.0..=1.0).contains(&eta) { return Ok(bad_shape(env, "mode or eta")); }
+        r = r.loss(&b, eta, m);
+        Ok(0.0)
+    } else if tag == atoms::thermal_loss() {
+        let (_, eta, nth, m): (Atom, f64, f64, usize) = op.decode()?;
+        if !in_range(&[m]) || !(0.0..=1.0).contains(&eta) || nth.is_nan() || nth < 0.0 { return Ok(bad_shape(env, "mode, eta or nth")); }
+        let (out, def) = r.thermal_loss(&b, eta, nth, m);
+        r = out;
+        Ok(def)
+    } else {
+        return Err(rustler::Error::BadArg);
+    };
+    Ok(match res {
+        Ok(def) => (atoms::ok(), (put_blocks(env, &r), def, r.entries())).encode(env),
+        Err(e) => fock_error(env, e),
+    })
+}
+
+/// fock_dmb_pnr_probabilities(Blocks, Modes, N, C) -> [{Pattern, Prob}] (FR-F03 on blocks)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn fock_dmb_pnr_probabilities<'a>(env: Env<'a>, blocks: Term<'a>, modes: Vec<usize>, n: usize, c: usize) -> NifResult<Term<'a>> {
+    let Some(b) = dmb_basis(n, c) else { return Ok(bad_shape(env, "modes and cutoff")) };
+    if modes.is_empty() || !modes_ok(&modes, n) { return Ok(bad_shape(env, "distinct modes in range")); }
+    let blk = match get_blocks(blocks, &b) { Ok(x) => x, Err(e) => return Ok(bad_shape(env, &e)) };
+    let diag: Vec<C64> = blk.diagonal().into_iter().map(|x| C64::new(x.max(0.0).sqrt(), 0.0)).collect();
+    Ok((atoms::ok(), fockstate::pnr_probabilities(&b, &diag, &modes)).encode(env))
+}
+
+/// fock_dmb_measure_pnr(Blocks, Modes, Outcome, N, C) -> {Prob, Blocks} (FR-M07 on blocks)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn fock_dmb_measure_pnr<'a>(env: Env<'a>, blocks: Term<'a>, modes: Vec<usize>, outcome: Vec<u32>, n: usize, c: usize) -> NifResult<Term<'a>> {
+    let Some(b) = dmb_basis(n, c) else { return Ok(bad_shape(env, "modes and cutoff")) };
+    if modes.is_empty() || modes.len() != outcome.len() || !modes_ok(&modes, n) {
+        return Ok(bad_shape(env, "distinct modes in range, one outcome each"));
+    }
+    let mut blk = match get_blocks(blocks, &b) { Ok(x) => x, Err(e) => return Ok(bad_shape(env, &e)) };
+    let prob = blk.measure(&b, &modes, &outcome);
+    Ok((atoms::ok(), (prob, put_blocks(env, &blk))).encode(env))
 }
 
 /// fock_adjoint_gradient(Amps, Gates, Terms, NModes, Cutoff) -> {TermValues, GateGradients} (Phase 4, FS 15 item 3):

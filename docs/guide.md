@@ -157,6 +157,7 @@ Common options:
 | `collision_free` | false | boson sampling: keep only outcomes with at most one photon per mode. This is post-selection, so `attempts` and `acceptance_rate` are reported |
 | `check_physical` | false | Gaussian backend: validate the state after every instruction, not only the input |
 | `visibility`, `gram`, `multi_photon`, `dark_counts` | none | noise models (1.1), see Loss and noise |
+| `dm_storage` | `dense` | `blocks`: the density-matrix backend stores ρ by photon-number blocks inside, skipping zero blocks (number-conserving circuits keep only the diagonal ones), within `max_dm_entries` instead of `max_dm_dim`; results are the same, and `evolve` still returns the full matrix (1.1) |
 | `device` | `cpu` | permanents (boson probabilities, `pq_nif:permanent/2`): `gpu` runs them on an NVIDIA GPU, `auto` from n = 24 when one is present (1.1) |
 
 `pq_core:defaults/0` lists every option. Application environment values override the defaults, and call options

@@ -89,13 +89,14 @@ dark(R, _Modes, _Kind, _Opts) -> R.
 probs(B, _C, _Modes, _Kind, Opts) when B =/= boson, (is_map_key(visibility, Opts) orelse is_map_key(gram, Opts) orelse is_map_key(multi_photon, Opts)) ->
     {error, {unsupported_input, #{backend => B, distinguishability => <<"boson sampling only">>}}};
 probs(B, C, Modes, Kind, Opts) when B =:= fock; B =:= fock_dm ->
-    case pq_simulator:evolve(backend_module(B), C, Opts) of
-        {ok, S, W} ->
-            {State, N, Cut} = case S of
-                                  #fock_state{amps = A, n_modes = N0, cutoff = C0} -> {A, N0, C0};
-                                  #fock_dm{rho = R, n_modes = N0, cutoff = C0} -> {R, N0, C0}
-                              end,
-            {ok, PP} = pq_nif:fock_pnr_probabilities(State, Modes, N, Cut),
+    %% the backend's own state: photon-number blocks are read directly (FS 15 item 6)
+    case pq_simulator:evolve_state(backend_module(B), C, Opts) of
+        {ok, {S, _Def}, W} ->
+            {ok, PP} = case S of
+                           #fock_state{amps = A, n_modes = N0, cutoff = C0} -> pq_nif:fock_pnr_probabilities(A, Modes, N0, C0);
+                           #fock_dm{} -> pq_fock_dm:pnr_probabilities(S, Modes)
+                       end,
+            Cut = case S of #fock_state{cutoff = C1} -> C1; #fock_dm{cutoff = C1} -> C1 end,
             Map = lists:foldl(fun({P, Pr}, Acc) ->
                                       K = case Kind of threshold -> [min(X, 1) || X <- P]; pnr -> P end,
                                       maps:update_with(K, fun(V) -> V + Pr end, Pr, Acc)

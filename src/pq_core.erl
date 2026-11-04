@@ -45,6 +45,8 @@ defaults() ->
       max_poly_terms => 100000, max_expand_power => 8, max_symbolic_photons => 6,
       sym_timeout_ms => 10000, sym_max_heap_words => 20000000,
       max_fock_dim => 5000000, max_dm_dim => 4096, max_enumeration => 1000000,
+      %% Phase 4 (FS 15 item 6): density matrices stored by photon-number blocks inside the backend, and their limit
+      dm_storage => dense, max_dm_entries => 4096 * 4096,
       max_photons => 16, max_per_mode => derived, max_clicks => 20,
       shots_mode => attempts, max_attempts => derived, parallel_threshold => 64, max_chunk => 10000,
       max_inflight => derived, max_retries => 2, kernel_hard_timeout => 30000,

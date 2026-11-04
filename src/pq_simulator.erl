@@ -11,7 +11,7 @@
 %% attempt index is the stream index, so results do not depend on chunking.
 -module(pq_simulator).
 -include("pq.hrl").
--export([evolve/3, run/3, shots/3, terminal/3, eval/3, postselected/3]).
+-export([evolve/3, run/3, shots/3, terminal/3, eval/3, postselected/3, evolve_state/3]).
 
 -spec evolve(module(), #circuit{}, map()) -> {ok, term(), [{atom(), term()}]} | {error, pq_core:reason()}.
 evolve(Backend, C, Opts) ->
@@ -21,14 +21,28 @@ evolve(Backend, C, Opts) ->
     end.
 
 evolve1(Backend, C, Opts) ->
-    case prepare(Backend, C, Opts) of
-        {ok, Low} ->
-            Unitary = [I || I <- Low#circuit.instrs, not measurement(I)],
-            case evolve_instrs(Backend, Low, Unitary, Opts) of
-                {ok, S, W} -> {ok, public(Backend, S), W};
-                E -> E
+    case evolve_state(Backend, C, Opts) of
+        {ok, S, W} ->
+            case public(Backend, S) of
+                {error, _} = E -> E;
+                P -> {ok, P, W}
             end;
         E -> E
+    end.
+
+%% the backend's own state after the gates (internal: for pq_api:probabilities, which reads photon-number blocks
+%% without presenting the full matrix)
+-spec evolve_state(module(), #circuit{}, map()) -> {ok, term(), [{atom(), term()}]} | {error, pq_core:reason()}.
+evolve_state(Backend, C, Opts) ->
+    case pq_circuit:has_feed_forward(C) of
+        true -> {error, {unsupported_input, #{feed_forward => true, reason => <<"the state depends on the outcomes: sample it">>}}};
+        false ->
+            case prepare(Backend, C, Opts) of
+                {ok, Low} ->
+                    Unitary = [I || I <- Low#circuit.instrs, not measurement(I)],
+                    evolve_instrs(Backend, Low, Unitary, Opts);
+                E -> E
+            end
     end.
 
 public(Backend, S) ->

@@ -12,7 +12,8 @@
          fock_dm_apply_displacement/6, fock_dm_apply_squeezing/6, fock_dm_apply_loss/5,
          fock_dm_apply_thermal_loss/6, gaussian_apply_thermal_loss/6,
          gaussian_measure_homodyne/6, stream_new/2, fock_measure_pnr/5, fock_apply_loss_trajectory/6,
-         fock_adjoint_gradient/5, boson_partial_probability/4]).
+         fock_adjoint_gradient/5, boson_partial_probability/4,
+         fock_dmb_from/3, fock_dmb_to_dense/3, fock_dmb_apply/4, fock_dmb_pnr_probabilities/4, fock_dmb_measure_pnr/5]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -278,3 +279,28 @@ fock_adjoint_gradient(_A, _Gates, _Terms, _N, _C) -> erlang:nif_error(nif_not_lo
 -spec boson_partial_probability(pq_core:packed_cmatrix(), [non_neg_integer()], [non_neg_integer()], pq_core:packed_cmatrix()) ->
           {ok, float()} | kernel_error().
 boson_partial_probability(_U, _In, _Out, _Gram) -> erlang:nif_error(nif_not_loaded).
+
+%%% Photon-number blocks (Phase 4, FS 15 item 6; internal to pq_fock_dm, Decision 3: the NIFs of FS 8.4 and every
+%%% public function present the full matrix). Blocks: [{N1, N2, Binary}], block (N1, N2) d_N1 x d_N2 complex
+%%% row-major little-endian, zero blocks absent; every operation equals the dense kernel's entry for entry.
+-type dm_blocks() :: [{non_neg_integer(), non_neg_integer(), binary()}].
+
+%% blocks from amplitudes (cvec) or a full matrix (cmat)
+-spec fock_dmb_from(pq_core:packed_cvector() | pq_core:packed_cmatrix(), pos_integer(), non_neg_integer()) -> {ok, dm_blocks()} | kernel_error().
+fock_dmb_from(_State, _N, _C) -> erlang:nif_error(nif_not_loaded).
+
+-spec fock_dmb_to_dense(dm_blocks(), pos_integer(), non_neg_integer()) -> {ok, pq_core:packed_cmatrix()} | kernel_error().
+fock_dmb_to_dense(_Blocks, _N, _C) -> erlang:nif_error(nif_not_loaded).
+
+%% the operations of fock_dm_apply_*, as their tuples; {Blocks, TraceDeficit, StoredEntries}
+-spec fock_dmb_apply(dm_blocks(), tuple(), pos_integer(), non_neg_integer()) ->
+          {ok, {dm_blocks(), float(), non_neg_integer()}} | kernel_error().
+fock_dmb_apply(_Blocks, _Op, _N, _C) -> erlang:nif_error(nif_not_loaded).
+
+-spec fock_dmb_pnr_probabilities(dm_blocks(), [non_neg_integer()], pos_integer(), non_neg_integer()) ->
+          {ok, [{[non_neg_integer()], float()}]} | kernel_error().
+fock_dmb_pnr_probabilities(_Blocks, _Modes, _N, _C) -> erlang:nif_error(nif_not_loaded).
+
+-spec fock_dmb_measure_pnr(dm_blocks(), [non_neg_integer()], [non_neg_integer()], pos_integer(), non_neg_integer()) ->
+          {ok, {float(), dm_blocks()}} | kernel_error().
+fock_dmb_measure_pnr(_Blocks, _Modes, _Outcome, _N, _C) -> erlang:nif_error(nif_not_loaded).
