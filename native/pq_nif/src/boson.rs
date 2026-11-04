@@ -71,28 +71,47 @@ pub fn lossy_shot(u: &[C64], m: usize, input: &[u32], loss: &Loss, s: &mut Strea
     out
 }
 
-/// One shot with partial distinguishability (Phase 4, FS 15 item 4; docs/decisions/N1-noise-models.md): photon a
-/// of input mode i has the internal state sqrt(p_i)|0> + sqrt(1 - p_i)|a>, so <phi_a|phi_b> = sqrt(p_a p_b) and two
-/// photons with the same p show the Hong-Ou-Mandel visibility p^2. The internal states |a> are orthogonal and the
-/// unitary does not touch them, so the output distribution is exactly the mixture over which photons are in |0>:
-/// those are sampled together by Clifford-Clifford, each other one alone from |U[j][i]|^2.
-/// Stream order: input loss as in `lossy_shot`; one uniform per surviving photon in mode order (u < p_i: shared);
-/// the Clifford-Clifford shot of the shared photons; one uniform per private photon in mode order; output loss.
-pub fn noisy_shot(u: &[C64], m: usize, input: &[u32], loss: &Loss, shared: &[f64], s: &mut Stream) -> Vec<u32> {
-    let kept: Vec<u32> = match loss {
-        Loss::Input(eta) => (0..m).map(|i| (0..input[i]).filter(|_| s.uniform() < eta[i]).count() as u32).collect(),
-        _ => input.to_vec(),
+/// One shot with partial distinguishability and multi-photon source terms (Phase 4, FS 15 item 4;
+/// docs/decisions/N1-noise-models.md).
+///
+/// Partial distinguishability (`shared`): photon a of input mode i has the internal state sqrt(p_i)|0> +
+/// sqrt(1 - p_i)|a>, so <phi_a|phi_b> = sqrt(p_a p_b) and two photons with the same p show the Hong-Ou-Mandel
+/// visibility p^2. The internal states |a> are orthogonal and the unitary does not touch them, so the output
+/// distribution is exactly the mixture over which photons are in |0>: those are sampled together by
+/// Clifford-Clifford, each other one alone from |U[j][i]|^2. Without `shared` every photon is in |0>.
+///
+/// Multi-photon terms (`extra`): an occupied input mode i emits one more photon with probability q_i, in a private
+/// internal state (distinguishable from every other photon, the noise photon of a quantum-dot source).
+///
+/// Stream order: with `extra`, one uniform per occupied input mode in mode order; input loss, one uniform per
+/// photon (the nominal ones of every mode, then the extra ones); with `shared`, one uniform per surviving nominal
+/// photon in mode order (u < p_i: shared); the Clifford-Clifford shot of the shared photons; one uniform per private
+/// photon (nominal in mode order, then extra in mode order); output loss.
+pub fn noisy_shot(u: &[C64], m: usize, input: &[u32], loss: &Loss, shared: Option<&[f64]>, extra: Option<&[f64]>, s: &mut Stream) -> Vec<u32> {
+    let added: Vec<u32> = match extra {
+        Some(q) => (0..m).map(|i| if input[i] > 0 && s.uniform() < q[i] { 1 } else { 0 }).collect(),
+        None => vec![0; m],
     };
+    let survive = |n: u32, i: usize, s: &mut Stream| -> u32 {
+        match loss {
+            Loss::Input(eta) => (0..n).filter(|_| s.uniform() < eta[i]).count() as u32,
+            _ => n,
+        }
+    };
+    let kept: Vec<u32> = (0..m).map(|i| survive(input[i], i, s)).collect();
+    let kept_extra: Vec<u32> = (0..m).map(|i| survive(added[i], i, s)).collect();
     let mut together = vec![0u32; m];
     let mut alone: Vec<usize> = Vec::new();
     for i in 0..m {
         for _ in 0..kept[i] {
-            if s.uniform() < shared[i] {
-                together[i] += 1;
-            } else {
-                alone.push(i);
+            match shared {
+                Some(p) if s.uniform() >= p[i] => alone.push(i),
+                _ => together[i] += 1,
             }
         }
+    }
+    for (i, &k) in kept_extra.iter().enumerate() {
+        alone.extend(std::iter::repeat_n(i, k as usize));
     }
     let mut out = clifford_clifford_shot(u, m, &together, s);
     for i in alone {
@@ -372,11 +391,12 @@ pub fn sample_boson_lossy(
     loss: &Loss,
     cancel: &dyn Fn() -> bool,
 ) -> Result<Vec<u32>, Error> {
-    sample_boson_noisy(u, m, input, shots, seed, stream_start, algorithm, loss, None, cancel)
+    sample_boson_noisy(u, m, input, shots, seed, stream_start, algorithm, loss, None, None, cancel)
 }
 
 /// sample_boson_lossy with partial distinguishability (`shared`: per input mode the probability p_i of the shared
-/// internal state, see `noisy_shot`); clifford_clifford only.
+/// internal state) and multi-photon terms (`extra`: per input mode the probability of one more, distinguishable
+/// photon), see `noisy_shot`; clifford_clifford only.
 #[allow(clippy::too_many_arguments)]
 pub fn sample_boson_noisy(
     u: &[C64],
@@ -388,14 +408,15 @@ pub fn sample_boson_noisy(
     algorithm: Algorithm,
     loss: &Loss,
     shared: Option<&[f64]>,
+    extra: Option<&[f64]>,
     cancel: &dyn Fn() -> bool,
 ) -> Result<Vec<u32>, Error> {
-    if let Some(p) = shared {
+    for p in [shared, extra].into_iter().flatten() {
         if p.len() != m || p.iter().any(|x| !(0.0..=1.0).contains(x)) {
-            return Err(Error::BadShape("one shared-state probability in [0, 1] per mode"));
+            return Err(Error::BadShape("one probability in [0, 1] per mode"));
         }
         if !matches!(algorithm, Algorithm::CliffordClifford) {
-            return Err(Error::BadShape("partial distinguishability with this algorithm"));
+            return Err(Error::BadShape("partial distinguishability or multi-photon terms with this algorithm"));
         }
     }
     if u.len() != m * m || input.len() != m {
@@ -418,9 +439,10 @@ pub fn sample_boson_noisy(
                     return Err(Error::Cancelled);
                 }
                 let mut s = Stream::new(seed, stream_start + i as u64);
-                match shared {
-                    Some(p) => out.extend(noisy_shot(u, m, input, loss, p, &mut s)),
-                    None => out.extend(lossy_shot(u, m, input, loss, &mut s)),
+                if shared.is_none() && extra.is_none() {
+                    out.extend(lossy_shot(u, m, input, loss, &mut s));
+                } else {
+                    out.extend(noisy_shot(u, m, input, loss, shared, extra, &mut s));
                 }
             }
         }

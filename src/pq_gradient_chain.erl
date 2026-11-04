@@ -53,6 +53,7 @@ param_exprs({kerr, _, K}) -> [K];
 param_exprs({displacement, _, R, P}) -> [R, P];
 param_exprs({squeezing, _, R, P}) -> [R, P];
 param_exprs({loss, _, Eta}) -> [Eta];
+param_exprs({thermal_loss, _, Eta, Nth}) -> [Eta, Nth];
 param_exprs(_) -> [].
 
 %% the numeric parameters of a lowered instruction, in the same order
@@ -63,6 +64,7 @@ gate_params({kerr, _, K}) -> [K];
 gate_params({displacement, _, R, P}) -> [R, P];
 gate_params({squeezing, _, R, P}) -> [R, P];
 gate_params({loss, _, Eta}) -> [Eta];
+gate_params({thermal_loss, _, Eta, Nth}) -> [Eta, Nth];
 gate_params(_) -> [].
 
 %% the gradient: sum over gates and parameters of dF/dp * dp/ds, plus sum over terms of dW/ds * value

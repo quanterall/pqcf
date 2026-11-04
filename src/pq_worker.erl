@@ -75,7 +75,7 @@ run_chunk({#{kind := circuit, terminal := true} = Spec, First, N}) ->
 run_chunk({#{kind := circuit} = Spec, First, N}) ->
     pq_simulator:shots(Spec, First, N);
 run_chunk({#{kind := boson, unitary := U, input := In, seed := Seed} = Spec, First, N}) ->
-    Opts = maps:merge(maps:with([algorithm, max_enumeration, cancel, loss, shared, burn_in, thin, chains], Spec),
+    Opts = maps:merge(maps:with([algorithm, max_enumeration, cancel, loss, shared, extra, burn_in, thin, chains], Spec),
                       #{seed => Seed, stream_start => First}),
     %% packed: the rows travel to the caller as a reference-counted binary, made lists there (pq_parallel:to_rows/1)
     case pq_nif:sample_boson(U, In, N, Opts) of

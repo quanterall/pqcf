@@ -39,13 +39,24 @@ sample1(C, Opts) ->
                                #{kind => boson, unitary => U, input => In, seed => Seed, algorithm => Alg,
                                  max_enumeration => pq_core:get(max_enumeration, Opts), crash => maps:get(crash, Opts, [])}),
             %% Phase 4: partial distinguishability, as the probability of the shared internal state per input mode
-            Spec = case maps:find(visibility, Opts) of
-                       {ok, Vis} ->
-                           case pq_noise:shared_probabilities(length(In), Vis) of
-                               {ok, Ps} -> Spec0#{shared => Ps};
-                               {error, _} = VE -> throw(VE)
+            Spec1 = case maps:find(visibility, Opts) of
+                        {ok, Vis} ->
+                            case pq_noise:shared_probabilities(length(In), Vis) of
+                                {ok, Ps} -> Spec0#{shared => Ps};
+                                {error, _} = VE -> throw(VE)
+                            end;
+                        error -> Spec0
+                    end,
+            %% multi-photon source terms: per input mode the probability of one more, distinguishable photon
+            Spec = case maps:find(multi_photon, Opts) of
+                       {ok, Q} ->
+                           is_map_key(gram, Opts) andalso
+                               throw({error, {unsupported_input, #{multi_photon => Q, gram => <<"not together">>}}}),
+                           case pq_noise:probabilities(length(In), Q, multi_photon) of
+                               {ok, Qs} -> Spec1#{extra => Qs};
+                               {error, _} = QE -> throw(QE)
                            end;
-                       error -> Spec0
+                       error -> Spec1
                    end,
             %% every mode measured in mode order (the usual case): the rows are the samples, no projection
             Project = case Measured =:= lists:seq(0, length(In) - 1) of

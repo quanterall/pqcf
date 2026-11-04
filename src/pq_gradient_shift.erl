@@ -22,7 +22,7 @@
 -export([supports/1, gradient/4, rule/2]).
 
 %% the kinds that may appear in the circuit; which of their parameters may be shifted is checked per parameter
-supports(K) -> lists:member(K, [beamsplitter, phaseshift, kerr, unitary, displacement, squeezing, loss,
+supports(K) -> lists:member(K, [beamsplitter, phaseshift, kerr, unitary, displacement, squeezing, loss, thermal_loss,
                                 measure_pnr, measure_threshold, measure_homodyne]).
 
 -spec gradient(#circuit{}, pq_gradient:observable(), map(), map()) -> {ok, #{atom() => float()}} | {error, pq_core:reason()}.

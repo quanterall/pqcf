@@ -13,7 +13,7 @@ name() -> gaussian.
 
 capabilities() ->
     #{beamsplitter => exact, phaseshift => exact, unitary => exact, displacement => exact, squeezing => exact,
-      kerr => unsupported, loss => exact, measure_pnr => terminal, measure_threshold => terminal,
+      kerr => unsupported, loss => exact, thermal_loss => exact, measure_pnr => terminal, measure_threshold => terminal,
       measure_homodyne => midcircuit}.
 
 hbar(#circuit{hbar = undefined}) -> pq_core:get(hbar);
@@ -59,6 +59,8 @@ gate({squeezing, M, R, P}, S, _Opts) ->
     symplectic(S, [[C - math:cos(P) * Sh, -math:sin(P) * Sh], [-math:sin(P) * Sh, C + math:cos(P) * Sh]], [0, 0], [M]);
 gate({loss, M, Eta}, #gaussian_state{hbar = H, mean = Mu, cov = C} = S, _Opts) ->
     result(S, pq_nif:gaussian_apply_loss(Mu, C, M, float(Eta), float(H)));
+gate({thermal_loss, M, Eta, Nth}, #gaussian_state{hbar = H, mean = Mu, cov = C} = S, _Opts) ->
+    result(S, pq_nif:gaussian_apply_thermal_loss(Mu, C, M, float(Eta), float(Nth), float(H)));
 gate(I, _S, _Opts) -> {error, {unsupported_instruction, element(1, I), gaussian}}.
 
 passive(#gaussian_state{mean = Mu, cov = C} = S, Rows, Modes) ->

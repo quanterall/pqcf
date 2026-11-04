@@ -135,6 +135,18 @@ pub fn apply_loss(mu: &mut [f64], sigma: &mut [f64], m: usize, mode: usize, eta:
     Ok(())
 }
 
+/// A thermal loss channel on one mode (Phase 4, FS 15 item 4): the mode mixed at a beamsplitter of transmissivity
+/// eta with a thermal state of mean occupation nth; mu -> sqrt(eta) mu, sigma -> eta sigma + (1 - eta)(2 nth + 1)
+/// (hbar/2) I on the mode, cross blocks scaled by sqrt(eta). nth = 0 is apply_loss.
+pub fn apply_thermal_loss(mu: &mut [f64], sigma: &mut [f64], m: usize, mode: usize, eta: f64, nth: f64, hbar: f64) -> Result<(), Error> {
+    apply_loss(mu, sigma, m, mode, eta, hbar)?;
+    let n = 2 * m;
+    for g in [mode, mode + m] {
+        sigma[g * n + g] += (1.0 - eta) * nth * hbar;
+    }
+    Ok(())
+}
+
 /// The reduced state on `modes` (partial trace), xxpp in the order of `modes`
 pub fn marginal(mu: &[f64], sigma: &[f64], m: usize, modes: &[usize]) -> (Vec<f64>, Vec<f64>) {
     let c = coords(modes, m);

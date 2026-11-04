@@ -22,6 +22,8 @@
       | {squeezing, mode(), param(), param()}
       | {kerr, mode(), param()}
       | {loss, mode(), param()}
+      %% Phase 4 (FS 15 item 4): loss to a thermal environment of mean occupation Nth
+      | {thermal_loss, mode(), param(), param()}
       | {unitary, [mode()], pq_symbolic:sym_expr() | pq_core:numeric_matrix()}
       | {measure_pnr, [mode()]}
       | {measure_threshold, [mode()]}
@@ -184,6 +186,7 @@ modes({displacement, M, _, _}, _, _) -> [M];
 modes({squeezing, M, _, _}, _, _) -> [M];
 modes({kerr, M, _}, _, _) -> [M];
 modes({loss, M, _}, _, _) -> [M];
+modes({thermal_loss, M, _, _}, _, _) -> [M];
 modes({unitary, Ms, _}, _K, _) when is_list(Ms), Ms =/= [] -> Ms;
 modes({measure_pnr, Ms}, _, _) when is_list(Ms), Ms =/= [] -> Ms;
 modes({measure_threshold, Ms}, _, _) when is_list(Ms), Ms =/= [] -> Ms;
@@ -269,6 +272,14 @@ check_params({loss, _, Eta}, K, C) ->
         {ok, V} when is_float(V), V >= 0.0, V =< 1.0 -> ok;
         {ok, V} -> fail({domain_violation, #{param => eta, value => V, instr_index => K}});
         symbolic -> ok                                   % checked after lowering
+    end;
+check_params({thermal_loss, M, Eta, Nth}, K, C) ->
+    check_params({loss, M, Eta}, K, C),
+    scalar(Nth, K),
+    case numeric_value(Nth, C) of
+        {ok, V} when is_float(V), V >= 0.0 -> ok;
+        {ok, V} -> fail({domain_violation, #{param => nth, value => V, instr_index => K}});
+        symbolic -> ok
     end;
 check_params({unitary, Ms, U}, K, C) -> check_unitary(U, length(Ms), K, C);
 check_params(_, _, _) -> ok.

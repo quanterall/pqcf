@@ -11,7 +11,8 @@ setup_test_() ->
     {setup, fun() -> {ok, _} = application:ensure_all_started(pq) end, fun(_) -> ok end,
      [{timeout, 300, fun hom_dip/0}, {timeout, 300, fun mixture_against_gram/0}, {timeout, 300, fun general_gram/0},
       {timeout, 120, fun chunking/0}, {timeout, 300, fun dark_threshold/0}, {timeout, 300, fun dark_pnr/0},
-      {timeout, 120, fun dark_postselect/0}, fun refusals/0]}.
+      {timeout, 120, fun dark_postselect/0}, fun refusals/0, fun thermal_gaussian/0, {timeout, 120, fun thermal_dm/0},
+      fun thermal_refusals/0, {timeout, 300, fun multi_photon/0}]}.
 
 hom() -> c(2, {fock, [1, 1]}, [{beamsplitter, 0, 1, math:pi() / 4, 0}, {measure_pnr, [0, 1]}]).
 
@@ -138,3 +139,83 @@ refusals() ->
     ?assertMatch({error, {bad_shape, #{dark_counts := _}}}, pq_api:sample(hom(), #{shots => 10, dark_counts => -1})),
     Mid = c(2, {fock, [1, 0]}, [{beamsplitter, 0, 1, 0.3, 0}, {measure_pnr, [0]}, {phaseshift, 1, 0.1}, {measure_pnr, [1]}]),
     ?assertMatch({error, {unsupported_input, #{dark_counts := midcircuit}}}, pq_api:sample(Mid, #{shots => 10, dark_counts => 0.1})).
+
+%%% 4b: thermal loss and multi-photon source terms
+
+%% Gaussian: <n> -> eta <n> + (1 - eta) Nth, the covariance eta Sigma + (1 - eta)(2 Nth + 1) hbar/2 on the mode
+thermal_gaussian() ->
+    {Eta, Nth} = {0.7, 0.5},
+    C = c(1, vacuum, [{squeezing, 0, 0.4, 0}, {displacement, 0, 0.6, 0.3}, {thermal_loss, 0, Eta, Nth}]),
+    C0 = C#circuit{instrs = lists:droplast(C#circuit.instrs)},
+    {ok, S0, _} = pq_api:evolve(C0, #{}),
+    {ok, S, _} = pq_api:evolve(C, #{}),
+    {ok, N0} = pq_stats:mean_photon_number(S0, [0]),
+    {ok, N1} = pq_stats:mean_photon_number(S, [0]),
+    ?assert(abs(N1 - (Eta * N0 + (1 - Eta) * Nth)) < 1.0e-13),
+    {ok, {rmat, [[Sxx0, _], _]}} = pq_core:unpack(S0#gaussian_state.cov),
+    {ok, {rmat, [[Sxx, _], _]}} = pq_core:unpack(S#gaussian_state.cov),
+    H = S#gaussian_state.hbar,
+    ?assert(abs(Sxx - (Eta * Sxx0 + (1 - Eta) * (2 * Nth + 1) * H / 2)) < 1.0e-13),
+    %% Nth = 0 is pure loss
+    {ok, Sl, _} = pq_api:evolve(C0#circuit{instrs = C0#circuit.instrs ++ [{loss, 0, Eta}]}, #{}),
+    {ok, St, _} = pq_api:evolve(C0#circuit{instrs = C0#circuit.instrs ++ [{thermal_loss, 0, Eta, 0.0}]}, #{}),
+    ?assertEqual(Sl, St).
+
+%% the density-matrix backend (amplifier after loss) against the Gaussian backend's photon statistics
+thermal_dm() ->
+    Is = [{squeezing, 0, 0.3, 0}, {displacement, 0, 0.5, 0.2}, {beamsplitter, 0, 1, 0.6, 0.1},
+          {thermal_loss, 0, 0.8, 0.3}, {thermal_loss, 1, 0.6, 0.2}, {measure_pnr, [0, 1]}],
+    C = c(2, vacuum, Is),
+    gaussian = pq_api:backend_for(C, #{}),
+    {ok, Pg, _} = pq_api:probabilities(C, #{max_photons => 6}),
+    {ok, Pd, Meta} = pq_api:probabilities(C, #{backend => fock_dm, cutoff => 18}),
+    Worst = lists:max([abs(V - maps:get(K, Pd, 0.0)) || K := V <- Pg]),
+    ?debugFmt("thermal loss, density matrix (cutoff 18) against Gaussian: max difference ~.2e, warnings ~p", [Worst, maps:get(warnings, Meta)]),
+    ?assert(Worst < 1.0e-9),
+    %% a Fock input goes to the density-matrix backend by default
+    F = c(1, {fock, [1]}, [{thermal_loss, 0, 0.6, 0.8}, {measure_pnr, [0]}]),
+    fock_dm = pq_api:backend_for(F, #{}),
+    {ok, Pf, _} = pq_api:probabilities(F, #{cutoff => 40}),
+    Mean = lists:sum([V * N || [N] := V <- Pf]),
+    ?assert(abs(Mean - (0.6 + 0.4 * 0.8)) < 1.0e-10),
+    %% JSON round trip
+    {ok, J} = pq_circuit:to_json(F),
+    ?assertEqual({ok, F}, pq_circuit:from_json(J)).
+
+thermal_refusals() ->
+    ?assertMatch({error, {domain_violation, #{param := nth}}}, pq_circuit:validate(c(1, vacuum, [{thermal_loss, 0, 0.5, -1.0}]))),
+    ?assertMatch({error, {domain_violation, #{param := eta}}}, pq_circuit:validate(c(1, vacuum, [{thermal_loss, 0, 1.5, 0.1}]))),
+    F = c(1, {fock, [1]}, [{thermal_loss, 0, 0.6, 0.8}, {measure_pnr, [0]}]),
+    ?assertMatch({error, _}, pq_api:probabilities(F, #{backend => fock})),
+    {ok, _, _} = pq_api:probabilities(F, #{backend => fock, promote_dm => true, cutoff => 10}),
+    %% not periodic: no shift rule; the adjoint is for pure states
+    G = c(1, {fock, [1]}, [{thermal_loss, 0, {sym, e}, 0.1}]),
+    ?assertMatch({error, {differentiate_unsupported, _}}, pq_gradient:gradient(G, {mean_photon_number, [0]}, #{e => 0.5}, #{mode => parameter_shift})),
+    ?assertMatch({error, {differentiate_unsupported, _}}, pq_gradient:gradient(G, {mean_photon_number, [0]}, #{e => 0.5}, #{mode => adjoint})).
+
+%% multi-photon terms: g2 = 2q/(1+q)^2 from a Hanbury Brown-Twiss split, and the sampler against the mixture
+multi_photon() ->
+    Q = 0.08,
+    Hbt = c(2, {fock, [1, 0]}, [{beamsplitter, 0, 1, math:pi() / 4, 0}, {measure_pnr, [0, 1]}]),
+    {ok, P, _} = pq_api:probabilities(Hbt, #{multi_photon => Q}),
+    ?assert(abs(maps:get([1, 1], P) - Q / 2) < 1.0e-14),
+    Mean = lists:sum([V * (A + B) || [A, B] := V <- P]),
+    G2 = 4 * lists:sum([V * A * B || [A, B] := V <- P]) / (Mean * Mean),
+    ?assert(abs(G2 - 2 * Q / math:pow(1 + Q, 2)) < 1.0e-13),
+    {ok, #result{samples = S}} = pq_api:sample(Hbt, #{shots => 300000, seed => 2, multi_photon => Q}),
+    {Pv, _} = pq_chi2:p_value(P, pq_chi2:counts(S)),
+    ?assert(Pv > 1.0e-4),
+    %% with partial distinguishability on a three-photon mesh
+    C = c(4, {fock, [1, 1, 1, 0]}, mesh() ++ [{measure_pnr, [0, 1, 2, 3]}]),
+    O = #{multi_photon => [0.05, 0.1, 0.0, 0.0], visibility => 0.85},
+    {ok, Pm, _} = pq_api:probabilities(C, O),
+    ?assert(abs(lists:sum(maps:values(Pm)) - 1) < 1.0e-12),
+    {ok, #result{samples = Sm}} = pq_api:sample(C, O#{shots => 500000, seed => 21}),
+    {Pvm, _} = pq_chi2:p_value(Pm, pq_chi2:counts(Sm)),
+    ?debugFmt("multi-photon terms: HBT g2 ~.5f (closed form ~.5f), mesh chi-square p = ~.3f", [G2, 2 * Q / math:pow(1 + Q, 2), Pvm]),
+    ?assert(Pvm > 1.0e-4),
+    %% D1
+    {ok, #result{samples = A}} = pq_api:sample(C, O#{shots => 5000, seed => 3, parallel => false}),
+    {ok, #result{samples = B}} = pq_api:sample(C, O#{shots => 5000, seed => 3, max_inflight => 4, chunk => 53}),
+    ?assertEqual(A, B),
+    ?assertMatch({error, {unsupported_input, _}}, pq_api:sample(C, #{shots => 10, multi_photon => 0.1, backend => fock})).

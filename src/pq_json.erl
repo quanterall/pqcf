@@ -52,6 +52,7 @@ instr_out({displacement, M, R, P}) -> #{<<"op">> => <<"displacement">>, <<"mode"
 instr_out({squeezing, M, R, P}) -> #{<<"op">> => <<"squeezing">>, <<"mode">> => M, <<"r">> => param_out(R), <<"phi">> => param_out(P)};
 instr_out({kerr, M, K}) -> #{<<"op">> => <<"kerr">>, <<"mode">> => M, <<"kappa">> => param_out(K)};
 instr_out({loss, M, E}) -> #{<<"op">> => <<"loss">>, <<"mode">> => M, <<"eta">> => param_out(E)};
+instr_out({thermal_loss, M, E, N}) -> #{<<"op">> => <<"thermal_loss">>, <<"mode">> => M, <<"eta">> => param_out(E), <<"nth">> => param_out(N)};
 instr_out({unitary, Ms, {cmat, _, _, _} = U}) ->
     {ok, {cmat, Rows}} = pq_core:unpack(U),
     #{<<"op">> => <<"unitary">>, <<"modes">> => Ms,
@@ -250,6 +251,7 @@ instr_in(#{<<"op">> := Op} = I, P) ->
         <<"squeezing">> -> {squeezing, int(G(<<"mode">>)), P(G(<<"r">>)), P(G(<<"phi">>))};
         <<"kerr">> -> {kerr, int(G(<<"mode">>)), P(G(<<"kappa">>))};
         <<"loss">> -> {loss, int(G(<<"mode">>)), P(G(<<"eta">>))};
+        <<"thermal_loss">> -> {thermal_loss, int(G(<<"mode">>)), P(G(<<"eta">>)), P(G(<<"nth">>))};
         <<"measure_pnr">> -> {measure_pnr, [int(M) || M <- list(G(<<"modes">>))]};
         <<"measure_threshold">> -> {measure_threshold, [int(M) || M <- list(G(<<"modes">>))]};
         <<"measure_homodyne">> -> {measure_homodyne, int(G(<<"mode">>)), P(G(<<"phi">>))};

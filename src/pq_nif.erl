@@ -10,6 +10,7 @@
          unitary_decompose/1, sample_categorical/3, gaussian_to_amat/3, gaussian_probability/5,
          fock_dm_apply_beamsplitter/7, fock_dm_apply_phaseshift/5, fock_dm_apply_kerr/5, fock_dm_apply_passive/5,
          fock_dm_apply_displacement/6, fock_dm_apply_squeezing/6, fock_dm_apply_loss/5,
+         fock_dm_apply_thermal_loss/6, gaussian_apply_thermal_loss/6,
          gaussian_measure_homodyne/6, stream_new/2, fock_measure_pnr/5, fock_apply_loss_trajectory/6,
          fock_adjoint_gradient/5, boson_partial_probability/4]).
 -on_load(load/0).
@@ -120,6 +121,11 @@ gaussian_apply_symplectic_raw(_Mean, _Cov, _S, _D, _Modes, _Tol) -> erlang:nif_e
                              [non_neg_integer()]) -> gauss().
 gaussian_apply_passive(_Mean, _Cov, _U, _Modes) -> erlang:nif_error(nif_not_loaded).
 
+%% Phase 4: loss of transmissivity Eta to a thermal environment of mean occupation Nth
+-spec gaussian_apply_thermal_loss(pq_core:packed_rvector(), pq_core:packed_rmatrix(), non_neg_integer(), float(), float(), float()) ->
+          {ok, {pq_core:packed_rvector(), pq_core:packed_rmatrix()}} | kernel_error().
+gaussian_apply_thermal_loss(_Mean, _Cov, _Mode, _Eta, _Nth, _Hbar) -> erlang:nif_error(nif_not_loaded).
+
 -spec gaussian_apply_loss(pq_core:packed_rvector(), pq_core:packed_rmatrix(), non_neg_integer(), float(), float()) ->
           gauss().
 gaussian_apply_loss(_Mean, _Cov, _Mode, _Eta, _Hbar) -> erlang:nif_error(nif_not_loaded).
@@ -197,7 +203,7 @@ gaussian_probability(_Mean, _Cov, _Hbar, _Pattern, _Detector) -> erlang:nif_erro
 
 dm(Rho, Op, N, C) ->
     case fock_dm_apply_raw(Rho, Op, N, C) of
-        {ok, {R, _}} when element(1, Op) =/= displacement, element(1, Op) =/= squeezing -> {ok, R};
+        {ok, {R, _}} when element(1, Op) =/= displacement, element(1, Op) =/= squeezing, element(1, Op) =/= thermal_loss -> {ok, R};
         Other -> Other
     end.
 
@@ -220,6 +226,11 @@ fock_dm_apply_squeezing(R, Rr, P, M, N, C) -> dm(R, {squeezing, Rr, P, M}, N, C)
 %% FS A.11, intensity transmissivity Eta on Mode
 -spec fock_dm_apply_loss(rho(), float(), non_neg_integer(), pos_integer(), non_neg_integer()) -> {ok, rho()} | kernel_error().
 fock_dm_apply_loss(R, Eta, M, N, C) -> dm(R, {loss, Eta, M}, N, C).
+
+%% Phase 4: loss to a thermal environment (the amplifier after pure loss, truncated at the cutoff)
+-spec fock_dm_apply_thermal_loss(rho(), float(), float(), non_neg_integer(), pos_integer(), non_neg_integer()) ->
+          {ok, {rho(), float()}} | kernel_error().
+fock_dm_apply_thermal_loss(R, Eta, Nth, M, N, C) -> dm(R, {thermal_loss, Eta, Nth, M}, N, C).
 
 fock_dm_apply_raw(_Rho, _Op, _N, _C) -> erlang:nif_error(nif_not_loaded).
 

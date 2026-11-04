@@ -7,7 +7,8 @@
 -module(pq_noise).
 -include("pq.hrl").
 -export([insert_loss/3, detector_efficiency/2]).
--export([shared_probabilities/2, visibility_gram/2, gram/2, dark_means/2, dark_rows/4, dark_distribution/4]).
+-export([shared_probabilities/2, visibility_gram/2, gram/2, dark_means/2, dark_rows/4, dark_distribution/4,
+         probabilities/3, source_mixture/3]).
 
 %% FR-N02: after every instruction that is not a measurement, a loss on each mode it touches; Etas maps modes to
 %% transmissivities (numeric or symbolic), modes without an entry get none. Opts is reserved.
@@ -34,6 +35,7 @@ touched({custom, _, Args}) -> maps:get(modes, Args, []);
 touched({Tag, _}) when Tag =:= measure_pnr; Tag =:= measure_threshold -> [];
 touched({measure_homodyne, _, _}) -> [];
 touched({loss, _, _}) -> [];
+touched({thermal_loss, _, _, _}) -> [];
 touched(I) -> [element(2, I)].
 
 measured({measure_pnr, Ms}) -> Ms;
@@ -53,6 +55,50 @@ shared_probabilities(N, Ms) when is_list(Ms), length(Ms) =:= N ->
         false -> {error, {bad_shape, #{visibility => Ms, expected => <<"numbers in [0, 1]">>}}}
     end;
 shared_probabilities(N, Ms) -> {error, {bad_shape, #{visibility => Ms, modes => N}}}.
+
+%% a probability per mode from a number or a list (Name for the error)
+-spec probabilities(pos_integer(), number() | [number()], atom()) -> {ok, [float()]} | {error, pq_core:reason()}.
+probabilities(N, Q, Name) when is_number(Q) -> probabilities(N, lists:duplicate(N, Q), Name);
+probabilities(N, Qs, Name) when is_list(Qs), length(Qs) =:= N ->
+    case lists:all(fun(X) -> is_number(X) andalso X >= 0 andalso X =< 1 end, Qs) of
+        true -> {ok, [float(X) || X <- Qs]};
+        false -> {error, {bad_shape, #{Name => Qs, expected => <<"probabilities in [0, 1]">>}}}
+    end;
+probabilities(N, Qs, Name) -> {error, {bad_shape, #{Name => Qs, modes => N}}}.
+
+%% multi_photon => Q (Phase 4): the inputs of the source mixture, each with its weight and the Gram matrix of its
+%% photons in input-mode order -- an occupied mode emits one more photon with probability Q_i, in a private internal
+%% state (overlap 0 with every other photon); the nominal photons keep the visibility model (or are identical)
+-spec source_mixture([non_neg_integer()], number() | [number()], number() | [number()] | none) ->
+          {ok, [{float(), [non_neg_integer()], pq_core:packed_cmatrix()}]} | {error, pq_core:reason()}.
+source_mixture(In, Q, Vis) ->
+    N = length(In),
+    case {probabilities(N, Q, multi_photon), case Vis of none -> {ok, lists:duplicate(N, 1.0)}; _ -> shared_probabilities(N, Vis) end} of
+        {{ok, Qs}, {ok, Ps}} ->
+            Occupied = [I || {I, K} <- lists:enumerate(0, In), K > 0],
+            Branches = subsets(Occupied),
+            {ok, [begin
+                      W = lists:foldl(fun(I, Acc) ->
+                                              Qi = lists:nth(I + 1, Qs),
+                                              case lists:member(I, E) of true -> Acc * Qi; false -> Acc * (1 - Qi) end
+                                      end, 1.0, Occupied),
+                      %% per mode: its nominal photons {shared, P}, then the extra one private
+                      Ph = lists:append([lists:duplicate(K, {shared, P}) ++ [private || lists:member(I, E)]
+                                         || {I, K, P} <- lists:zip3(lists:seq(0, N - 1), In, Ps)]),
+                      Rows = [[overlap(A, B, X =:= Y) || {Y, B} <- lists:enumerate(Ph)] || {X, A} <- lists:enumerate(Ph)],
+                      {ok, G} = pq_core:pack({cmat, Rows}),
+                      {W, [K + case lists:member(I, E) of true -> 1; false -> 0 end || {I, K} <- lists:enumerate(0, In)], G}
+                  end || E <- Branches]};
+        {{error, _} = E, _} -> E;
+        {_, {error, _} = E} -> E
+    end.
+
+overlap(_, _, true) -> 1.0;
+overlap({shared, Pa}, {shared, Pb}, false) -> math:sqrt(Pa * Pb);
+overlap(_, _, false) -> 0.0.
+
+subsets([]) -> [[]];
+subsets([X | Xs]) -> [S1 || S <- subsets(Xs), S1 <- [S, [X | S]]].
 
 %% the Gram matrix of that model over the photons in input-mode order: 1 on the diagonal, sqrt(p_a p_b) elsewhere
 -spec visibility_gram([non_neg_integer()], number() | [number()]) -> {ok, pq_core:packed_cmatrix()} | {error, pq_core:reason()}.

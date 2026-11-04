@@ -27,7 +27,7 @@ mod atoms {
         size, rvec, rmat, not_symplectic, homodyne, pnr, threshold, unsupported_input, pq_bug, beamsplitter,
         max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold,
         phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix, stream_ref, metropolis, burn_in, thin, chains, acceptance_rate,
-        probability, photons, shared
+        probability, photons, shared, thermal_loss, extra
     }
 }
 
@@ -284,12 +284,18 @@ fn sample_boson_raw<'a>(env: Env<'a>, u: Term<'a>, input: Vec<u32>, shots: usize
         Ok(t) => Some(t.decode()?),
         Err(_) => None,
     };
+    // extra => [Q] (Phase 4): per input mode the probability of one more, distinguishable photon
+    let extra: Option<Vec<f64>> = match opts.map_get(atoms::extra()) {
+        Ok(t) => Some(t.decode()?),
+        Err(_) => None,
+    };
     let cancel = cancelled_fn(&o);
-    let result = match (algorithm, &loss, &shared) {
-        (boson::Algorithm::Metropolis { burn_in, thin, chains }, boson::Loss::None, None) => {
+    let result = match (algorithm, &loss, &shared, &extra) {
+        (boson::Algorithm::Metropolis { burn_in, thin, chains }, boson::Loss::None, None, None) => {
             boson::metropolis(&a, rows, &input, shots, seed, burn_in, thin, chains, &cancel).map(|(s, r)| (s, Some(r)))
         }
-        (alg, _, _) => boson::sample_boson_noisy(&a, rows, &input, shots, seed, start, alg, &loss, shared.as_deref(), &cancel)
+        (alg, _, _, _) => boson::sample_boson_noisy(&a, rows, &input, shots, seed, start, alg, &loss, shared.as_deref(),
+                                                    extra.as_deref(), &cancel)
             .map(|s| (s, None)),
     };
     Ok(guarded(env, || match result {
@@ -542,6 +548,20 @@ fn gaussian_apply_loss<'a>(env: Env<'a>, mean: Term<'a>, cov: Term<'a>, mode: us
         return Ok(bad_shape(env, "eta outside [0, 1]"));
     }
     let res = gaussian::apply_loss(&mut mu, &mut sig, m, mode, eta, hbar).map(|_| (mu, sig));
+    Ok(gauss_result(env, res))
+}
+
+/// gaussian_apply_thermal_loss(Mean, Cov, Mode, Eta, Nth, Hbar) (Phase 4): loss to a thermal environment
+#[rustler::nif]
+fn gaussian_apply_thermal_loss<'a>(env: Env<'a>, mean: Term<'a>, cov: Term<'a>, mode: usize, eta: f64, nth: f64, hbar: f64) -> NifResult<Term<'a>> {
+    let (mut mu, mut sig, m) = match gauss(mean, cov) {
+        Ok(g) => g,
+        Err(e) => return Ok(bad_shape(env, &e)),
+    };
+    if !(0.0..=1.0).contains(&eta) || nth.is_nan() || nth < 0.0 {
+        return Ok(bad_shape(env, "eta outside [0, 1] or nth negative"));
+    }
+    let res = gaussian::apply_thermal_loss(&mut mu, &mut sig, m, mode, eta, nth, hbar).map(|_| (mu, sig));
     Ok(gauss_result(env, res))
 }
 
@@ -899,6 +919,12 @@ fn fock_dm_apply_raw<'a>(env: Env<'a>, rho: Term<'a>, op: Term<'a>, n: usize, c:
         if !in_range(&[m]) || !(0.0..=1.0).contains(&eta) { return Ok(bad_shape(env, "mode or eta")); }
         r = fockstate::dm::loss(&b, &r, eta, m);
         Ok(0.0)
+    } else if tag == atoms::thermal_loss() {
+        let (_, eta, nth, m): (Atom, f64, f64, usize) = op.decode()?;
+        if !in_range(&[m]) || !(0.0..=1.0).contains(&eta) || nth.is_nan() || nth < 0.0 { return Ok(bad_shape(env, "mode, eta or nth")); }
+        let (out, def) = fockstate::dm::thermal_loss(&b, &r, eta, nth, m);
+        r = out;
+        Ok(def)
     } else {
         return Err(rustler::Error::BadArg);
     };

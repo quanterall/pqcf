@@ -67,6 +67,7 @@ reuse. The functions in `pq_api` call it for you.
 | `{squeezing, M, R, Phi}` | |
 | `{kerr, M, Kappa}` | Fock backends only |
 | `{loss, M, Eta}` | pure-loss channel |
+| `{thermal_loss, M, Eta, Nth}` | loss to a thermal environment of mean occupation Nth (1.1) |
 | `{unitary, Modes, U}` | a passive unitary on the listed modes (numeric or symbolic matrix) |
 | `{measure_pnr, Modes}` | photon counting |
 | `{measure_threshold, Modes}` | click / no click |
@@ -279,6 +280,22 @@ H = lists:foldl(fun(I, Acc) -> pq_circuit:add(Acc, I) end, H0, [{beamsplitter, 0
 {ok, Pv, _} = pq_api:probabilities(H, #{visibility => 0.9}),      %% [1, 1] => 0.05: the dip is (1 - M) / 2
 {ok, Pd, _} = pq_api:probabilities(H, #{dark_counts => 0.01}),    %% [2, 1] => 0.5 * 0.01 * exp(-0.02); [1, 1] stays 0
 {ok, _} = pq_api:sample(H, #{shots => 1000, seed => 4, visibility => 0.9, dark_counts => 0.01}).
+```
+
+Two more models:
+
+- **`multi_photon => q`, or a list per input mode:** an occupied input mode emits one extra, distinguishable photon
+  with probability q, so a single-photon source has g2 = 2q/(1 + q)². It works in boson sampling and its exact
+  probabilities, and it combines with `visibility`.
+- **The instruction `{thermal_loss, Mode, Eta, Nth}`:** loss to a thermal environment of mean occupation Nth. It is
+  exact on the Gaussian backend. On density matrices it is truncated at the cutoff, and the trace deficit is
+  reported like that of displacement.
+
+```erlang
+{ok, T0} = pq_api:circuit(1, {fock, [1]}),
+T = pq_circuit:add(pq_circuit:add(T0, {thermal_loss, 0, 0.6, 0.8}), {measure_pnr, [0]}),
+fock_dm = pq_api:backend_for(T, #{}),
+{ok, Pt, _} = pq_api:probabilities(T, #{cutoff => 40}).     %% mean photon number 0.6 + 0.4 * 0.8
 ```
 
 `pq_stats` provides:

@@ -140,7 +140,12 @@ loss() ->
     ?assert(close(maps:get([1, 1], Pd, 0.0), 0.0)),
     ?assert(close(maps:get([2, 1], Pd), 0.5 * 0.01 * math:exp(-0.02))),
     {ok, #result{samples = Sh}} = pq_api:sample(H, #{shots => 1000, seed => 4, visibility => 0.9, dark_counts => 0.01}),
-    ?assertEqual(1000, length(Sh)).
+    ?assertEqual(1000, length(Sh)),
+    {ok, T0} = pq_api:circuit(1, {fock, [1]}),
+    T = pq_circuit:add(pq_circuit:add(T0, {thermal_loss, 0, 0.6, 0.8}), {measure_pnr, [0]}),
+    fock_dm = pq_api:backend_for(T, #{}),
+    {ok, Pt, _} = pq_api:probabilities(T, #{cutoff => 40}),
+    ?assert(abs(lists:sum([V * N || [N] := V <- Pt]) - (0.6 + 0.4 * 0.8)) < 1.0e-10).
 
 %% 9. Errors are values
 errors() ->

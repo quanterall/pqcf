@@ -1,15 +1,22 @@
 # N1: noise models
 
-**Decision: noise models as run options, not instructions, wherever the noise belongs to the photons or the
-detectors rather than to a point in the circuit: `visibility` and `gram` for partially distinguishable photons in
-boson sampling, and `dark_counts` for the detectors.** Phase 4, item 4 (FS 15 item 4). Released after 1.0.0-rc.1,
+**Decision: noise models as run options, not instructions, wherever the noise belongs to the photons, the sources
+or the detectors rather than to a point in the circuit:**
+
+- **`visibility` and `gram`:** partially distinguishable photons in boson sampling;
+- **`multi_photon`:** multi-photon source terms;
+- **`dark_counts`:** detector dark counts.
+
+**Noise at a point in the circuit is an instruction: `{thermal_loss, Mode, Eta, Nth}`.** Phase 4, item 4 (FS 15 item 4). Released after 1.0.0-rc.1,
 purely additive under the freeze:
 
 - new options;
 - new functions in `pq_noise`;
 - `pq_sampling:gram_distribution/4`;
-- one new kernel, `pq_nif:boson_partial_probability/4`;
-- an optional `shared` entry for `sample_boson`.
+- new kernels: `pq_nif:boson_partial_probability/4`, `gaussian_apply_thermal_loss/6` and
+  `fock_dm_apply_thermal_loss/6`;
+- optional `shared` and `extra` entries for `sample_boson`;
+- the new instruction `thermal_loss`.
 
 ## Partial distinguishability
 
@@ -84,6 +91,34 @@ Exact probabilities convolve the noiseless distribution:
 - **PNR:** with at most K extra counts per detector, where K is the smallest with a Poisson tail below 1e-13. The
   remainder is reported as `dark_count_truncated_mass`.
 
+## Multi-photon source terms
+
+`multi_photon => q`, or a list of q per input mode. An occupied input mode emits one more photon with probability
+q_i, in a private internal state: overlap 0 with every other photon. This is the noise photon of a quantum-dot
+source (Ollivier et al., PRL 126, 063602 (2021)). A single-photon source then has g2 = 2q/(1 + q)², whether or not
+the extra photon is distinguishable.
+
+- **Sampling:** the shot draws one uniform per occupied input mode before input loss. The extra photons pass input
+  loss (after the nominal ones) and are sampled alone.
+- **Exact probabilities:** the mixture over which modes emitted, each branch by the Gram formula, with the extra
+  photons' rows and columns zero off the diagonal. It combines with `visibility`, not with `gram`.
+
+## Thermal loss
+
+`{thermal_loss, Mode, Eta, Nth}` mixes the mode with a thermal state of mean occupation Nth at a beamsplitter of
+transmissivity η:
+
+- **Gaussian, exact:** μ → √η μ and Σ → ηΣ + (1 − η)(2Nth + 1)ħ/2 on the mode.
+- **Density matrices:** the quantum-limited amplifier of gain G = 1 + (1 − η)Nth after pure loss of transmissivity
+  η/G. The output mean photon number is then G(η/G)n + (G − 1) = ηn + (1 − η)Nth. The amplifier's Kraus operators
+  have ⟨n+k|A_k|n⟩ = √C(n+k, k) G^(−(n+1)/2) ((G − 1)/G)^(k/2). The amplifier raises photon numbers, so components
+  beyond the cutoff are dropped and reported as a trace deficit, like displacement (`truncated`; a warning above
+  `truncation_tol`).
+
+On the pure-state Fock backend thermal loss needs `promote_dm`, as plain loss does, and a Fock input with it goes to
+the density-matrix backend by default. Its parameters are not periodic and the adjoint is for pure states, so both
+gate-level gradient modes refuse them.
+
 ## Tests (`test/phase4_noise_tests.erl`, Rust `boson::tests`)
 
 - **The Gram formula's limits (Rust):** identical photons equal `bs_probability`, distinguishable ones
@@ -103,3 +138,16 @@ Exact probabilities convolve the noiseless distribution:
 - **Post-selection with dark counts:** collision-free acceptance falls, and no accepted row has a collision.
 - **D1:** identical samples for 1 or 8 workers and chunk 37, with both options.
 - **Refusals:** other backends, visibility outside [0, 1], Metropolis, negative means, mid-circuit measurements.
+- **Thermal loss, Rust:** vacuum gives the thermal distribution of mean (1 − η)Nth within 1e-15; one photon gives
+  the mean η + (1 − η)Nth; Nth = 0 equals pure loss.
+- **Thermal loss, Gaussian:** ⟨n⟩ and Σ_xx against the closed forms within 1e-13; Nth = 0 bit-identical to loss.
+- **Thermal loss, density matrix against Gaussian:** a squeezed, displaced, split two-mode state with thermal loss
+  on both modes, max difference 3.3e-16 at cutoff 18. Mutation check: the amplifier's G exponent off by one, caught
+  (4.8e-2).
+- **Thermal loss, other:** a Fock input's mean photon number; the JSON round trip; domain violations; the pure-state
+  backend without `promote_dm`; both gradient modes refusing.
+- **Multi-photon, Hanbury Brown–Twiss:** P(1,1) = q/2 and g2 = 2q/(1 + q)² exactly (q = 0.08: 0.13717); 300,000
+  shots fit the distribution.
+- **Multi-photon with partial distinguishability,** three photons on a mesh: the distribution sums to 1, and
+  500,000 shots give p = 0.380.
+- **Multi-photon, other:** identical samples for any chunking; other backends refused.

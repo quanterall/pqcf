@@ -401,6 +401,55 @@ pub mod dm {
         out
     }
 
+    /// The quantum-limited amplifier of gain g >= 1 on `mode`: rho -> sum_k A_k rho A_k^dagger with
+    /// <n+k|A_k|n> = sqrt(C(n+k, k)) g^(-(n+1)/2) ((g-1)/g)^(k/2); components beyond the cutoff are dropped (the
+    /// caller reports the trace deficit)
+    pub fn amplifier(b: &Basis, rho: &[C64], g: f64, mode: usize) -> Vec<C64> {
+        let d = b.patterns.len();
+        let binom = |n: u32, k: u32| -> f64 { (0..k).fold(1.0, |acc, i| acc * (n + k - i) as f64 / (i + 1) as f64) };
+        let ratio = (g - 1.0) / g;
+        let total: Vec<u32> = b.patterns.iter().map(|p| p.iter().sum()).collect();
+        let mut out = vec![C64::ZERO; d * d];
+        for (i, p) in b.patterns.iter().enumerate() {
+            for (j, q) in b.patterns.iter().enumerate() {
+                let z = rho[i * d + j];
+                if z.re == 0.0 && z.im == 0.0 {
+                    continue;
+                }
+                let (np, nq) = (p[mode], q[mode]);
+                let room = (b.cutoff as u32).saturating_sub(total[i].max(total[j]));
+                let base = g.powf(-((np + nq + 2) as f64) / 2.0);
+                let mut pp = p.clone();
+                let mut qq = q.clone();
+                for k in 0..=room {
+                    if k > 0 && ratio == 0.0 {
+                        break;
+                    }
+                    pp[mode] = np + k;
+                    qq[mode] = nq + k;
+                    // binom(n, k) here is C(n + k, k)
+                    let w = (binom(np, k) * binom(nq, k)).sqrt() * base * ratio.powi(k as i32);
+                    let (a, c) = (b.index(&pp), b.index(&qq));
+                    out[a * d + c] = out[a * d + c].add(z.scale(w));
+                }
+            }
+        }
+        out
+    }
+
+    /// The thermal loss channel (transmissivity eta, environment occupation nth) as the amplifier of gain
+    /// g = 1 + (1 - eta) nth after pure loss eta / g: the output mean photon number is eta n + (1 - eta) nth. Returns
+    /// the state and the trace deficit of the amplifier's truncation.
+    pub fn thermal_loss(b: &Basis, rho: &[C64], eta: f64, nth: f64, mode: usize) -> (Vec<C64>, f64) {
+        let d = b.patterns.len();
+        let g = 1.0 + (1.0 - eta) * nth;
+        let lost = loss(b, rho, eta / g, mode);
+        let before = trace(&lost, d);
+        let out = amplifier(b, &lost, g, mode);
+        let after = trace(&out, d);
+        (out, before - after)
+    }
+
     /// the diagonal as probabilities of `modes` (FR-F03), in the order of FS 3.4 on the measured modes
     pub fn pnr_probabilities(b: &Basis, rho: &[C64], modes: &[usize]) -> Vec<(Vec<u32>, f64)> {
         let d = b.patterns.len();
@@ -418,6 +467,31 @@ pub mod dm {
 mod dm_tests {
     use super::dm;
     use super::*;
+
+    /// vacuum through thermal loss is the thermal state of mean (1 - eta) nth; one photon gets eta + (1 - eta) nth
+    #[test]
+    fn thermal_loss_closed_forms() {
+        let b = Basis::new(1, 60);
+        let d = b.patterns.len();
+        let (eta, nth) = (0.6, 0.8);
+        let nbar = (1.0 - eta) * nth;
+        let vac: Vec<C64> = (0..d).map(|i| if i == 0 { C64::ONE } else { C64::ZERO }).collect();
+        let (rho, def) = dm::thermal_loss(&b, &dm::from_pure(&vac), eta, nth, 0);
+        assert!(def < 1e-15, "deficit {def}");
+        for k in 0..20 {
+            let want = (1.0 / (1.0 + nbar)) * (nbar / (1.0 + nbar)).powi(k as i32);
+            assert!((rho[k * d + k].re - want).abs() < 1e-15, "{k}");
+        }
+        let mut one = vec![C64::ZERO; d];
+        one[1] = C64::ONE;
+        let (rho1, _) = dm::thermal_loss(&b, &dm::from_pure(&one), eta, nth, 0);
+        let mean: f64 = (0..d).map(|k| k as f64 * rho1[k * d + k].re).sum();
+        assert!((mean - (eta + nbar)).abs() < 1e-13, "{mean}");
+        // nth = 0 is pure loss
+        let (r0, _) = dm::thermal_loss(&b, &dm::from_pure(&one), eta, 0.0, 0);
+        let rl = dm::loss(&b, &dm::from_pure(&one), eta, 0);
+        assert!(r0.iter().zip(&rl).all(|(a, c)| (a.re - c.re).abs() < 1e-15 && (a.im - c.im).abs() < 1e-15));
+    }
 
     #[test]
     fn loss_of_a_fock_state() {

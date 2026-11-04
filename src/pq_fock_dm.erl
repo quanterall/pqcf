@@ -11,7 +11,7 @@ name() -> fock_dm.
 
 capabilities() ->
     #{beamsplitter => exact, phaseshift => exact, unitary => exact, displacement => truncated,
-      squeezing => truncated, kerr => exact, loss => exact, measure_pnr => midcircuit,
+      squeezing => truncated, kerr => exact, loss => exact, thermal_loss => truncated, measure_pnr => midcircuit,
       measure_threshold => terminal, measure_homodyne => unsupported}.
 
 init(Input, #circuit{n_modes = N} = Circ, Opts) ->
@@ -51,6 +51,7 @@ apply(I, {#fock_dm{n_modes = N, cutoff = C, rho = R} = S, Def}, Opts) ->
               {displacement, M, Rr, P} -> pq_nif:fock_dm_apply_displacement(R, Rr, P, M, N, C);
               {squeezing, M, Rr, P} -> pq_nif:fock_dm_apply_squeezing(R, Rr, P, M, N, C);
               {loss, M, Eta} -> pq_nif:fock_dm_apply_loss(R, float(Eta), M, N, C);
+              {thermal_loss, M, Eta, Nth} -> pq_nif:fock_dm_apply_thermal_loss(R, float(Eta), float(Nth), M, N, C);
               _ -> {error, {unsupported_instruction, element(1, I), fock_dm}}
           end,
     case Res of

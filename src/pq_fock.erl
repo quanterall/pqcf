@@ -14,13 +14,13 @@ name() -> fock.
 
 capabilities() ->
     #{beamsplitter => exact, phaseshift => exact, unitary => exact, displacement => truncated,
-      squeezing => truncated, kerr => exact, loss => unsupported, measure_pnr => midcircuit,
+      squeezing => truncated, kerr => exact, loss => unsupported, thermal_loss => unsupported, measure_pnr => midcircuit,
       measure_threshold => terminal, measure_homodyne => unsupported}.
 
 %% FR-F05: with promote_dm, loss promotes the state to a density matrix
 capabilities(Opts) ->
     case maps:get(promote_dm, Opts, false) orelse maps:get(noise, Opts, none) =:= trajectory of
-        true -> (capabilities())#{loss => exact};
+        true -> (capabilities())#{loss => exact, thermal_loss => truncated};
         false -> capabilities()
     end.
 
@@ -66,6 +66,11 @@ apply({loss, M, Eta}, {#fock_state{n_modes = N, cutoff = C, amps = A} = S, Def},
     case pq_nif:fock_apply_loss_trajectory(A, float(Eta), M, N, C, maps:with([stream_ref], Opts)) of
         {ok, {Amps, _Lost}} -> {ok, {S#fock_state{amps = Amps}, Def}, []};
         {error, _} = E -> E
+    end;
+apply({thermal_loss, _, _, _} = I, {#fock_state{} = S, Def}, Opts) ->
+    case maps:get(promote_dm, Opts, false) of
+        true -> pq_fock_dm:apply(I, {pq_fock_dm:from_pure(S), Def}, Opts);
+        false -> {error, {unsupported_instruction, thermal_loss, fock}}
     end;
 apply({loss, _, _} = I, {#fock_state{amps = A} = S, Def}, Opts) ->
     case maps:get(promote_dm, Opts, false) of

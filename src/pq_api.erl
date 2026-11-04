@@ -16,7 +16,7 @@ circuit(N, Input) -> pq_circuit:new(N, Input).
 
 -spec run(#circuit{}, map()) -> result(#result{}).
 run(C, Opts) ->
-    case {backend_for(C, Opts), is_map_key(visibility, Opts) orelse is_map_key(gram, Opts)} of
+    case {backend_for(C, Opts), is_map_key(visibility, Opts) orelse is_map_key(gram, Opts) orelse is_map_key(multi_photon, Opts)} of
         {B, true} when B =/= boson ->
             {error, {unsupported_input, #{backend => B, distinguishability => <<"boson sampling only">>}}};
         _ -> run1(C, Opts)
@@ -86,7 +86,7 @@ dark({ok, Map, Meta}, Modes, Kind, #{dark_counts := Nu} = Opts) ->
     end;
 dark(R, _Modes, _Kind, _Opts) -> R.
 
-probs(B, _C, _Modes, _Kind, Opts) when B =/= boson, (is_map_key(visibility, Opts) orelse is_map_key(gram, Opts)) ->
+probs(B, _C, _Modes, _Kind, Opts) when B =/= boson, (is_map_key(visibility, Opts) orelse is_map_key(gram, Opts) orelse is_map_key(multi_photon, Opts)) ->
     {error, {unsupported_input, #{backend => B, distinguishability => <<"boson sampling only">>}}};
 probs(B, C, Modes, Kind, Opts) when B =:= fock; B =:= fock_dm ->
     case pq_simulator:evolve(backend_module(B), C, Opts) of
@@ -140,6 +140,7 @@ probs(boson, C, Modes, _Kind, Opts) ->
                 false -> {error, {dimension_limit, length(Pats), Max}};
                 true ->
                     Full0 = case {maps:find(visibility, Opts), maps:find(gram, Opts)} of
+                                _ when is_map_key(multi_photon, Opts) -> source_distribution(U, In, Opts);
                                 {error, error} -> {ok, [{P, element(1, element(2, pq_nif:bs_probability(U, In, P, #{})))} || P <- Pats]};
                                 %% Phase 4: partially distinguishable photons, the Gram formula
                                 {{ok, Vis}, _} ->
@@ -178,6 +179,26 @@ run_batch(C, Bindings, Opts) ->
     end.
 
 %% FS 7.1's choice of backend
+%% multi-photon source terms: the mixture over which modes emitted an extra photon, each branch by the Gram formula
+source_distribution(U, In, Opts) ->
+    case is_map_key(gram, Opts) of
+        true -> throw({error, {unsupported_input, #{multi_photon => maps:get(multi_photon, Opts), gram => <<"not together">>}}});
+        false -> ok
+    end,
+    case pq_noise:source_mixture(In, maps:get(multi_photon, Opts), maps:get(visibility, Opts, none)) of
+        {ok, Branches} ->
+            Acc = lists:foldl(
+                    fun({W, In2, G}, A) ->
+                            {ok, {cmat, Rows}} = pq_core:unpack(G),
+                            case pq_sampling:gram_distribution(U, In2, Rows, Opts) of
+                                {ok, D} -> lists:foldl(fun({T, P}, A2) -> maps:update_with(T, fun(V) -> V + W * P end, W * P, A2) end, A, D);
+                                {error, _} = E -> throw(E)
+                            end
+                    end, #{}, Branches),
+            {ok, maps:to_list(Acc)};
+        E -> E
+    end.
+
 gram_rows(G, _N) ->
     {ok, {cmat, Rows}} = pq_core:unpack(G),
     Rows.
@@ -187,7 +208,7 @@ backend_for(#circuit{input = In, instrs = Is}, Opts) ->
     case maps:find(backend, Opts) of
         {ok, B} -> B;
         %% Phase 4: partially distinguishable photons exist only in boson sampling
-        error when is_map_key(visibility, Opts); is_map_key(gram, Opts) -> boson;
+        error when is_map_key(visibility, Opts); is_map_key(gram, Opts); is_map_key(multi_photon, Opts) -> boson;
         error ->
             Kinds = [K || K <- pq_circuit:instruction_kinds(Is), K =/= feed_forward, K =/= conditional],
             Gaussian = (In =:= vacuum orelse element(1, In) =:= gaussian) andalso
@@ -195,7 +216,7 @@ backend_for(#circuit{input = In, instrs = Is}, Opts) ->
             if
                 Gaussian -> gaussian;
                 true ->
-                    case lists:member(loss, Kinds) of
+                    case lists:member(loss, Kinds) orelse lists:member(thermal_loss, Kinds) of
                         true -> fock_dm;
                         false -> fock
                     end
