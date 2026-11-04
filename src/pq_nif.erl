@@ -10,12 +10,13 @@
          unitary_decompose/1, sample_categorical/3, gaussian_to_amat/3, gaussian_probability/5,
          fock_dm_apply_beamsplitter/7, fock_dm_apply_phaseshift/5, fock_dm_apply_kerr/5, fock_dm_apply_passive/5,
          fock_dm_apply_displacement/6, fock_dm_apply_squeezing/6, fock_dm_apply_loss/5,
-         gaussian_measure_homodyne/6, stream_new/2, fock_measure_pnr/5, fock_apply_loss_trajectory/6]).
+         gaussian_measure_homodyne/6, stream_new/2, fock_measure_pnr/5, fock_apply_loss_trajectory/6,
+         fock_adjoint_gradient/5]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
 -define(NIF_MAJOR, 0).
--define(NIF_MINOR, 1).
+-define(NIF_MINOR, 2).
 
 load() ->
     Dir = case code:priv_dir(pq) of
@@ -242,3 +243,16 @@ fock_measure_pnr(_State, _Modes, _Outcome, _N, _C) -> erlang:nif_error(nif_not_l
 -spec fock_apply_loss_trajectory(pq_core:packed_cvector(), float(), non_neg_integer(), pos_integer(), non_neg_integer(),
                                  map()) -> {ok, {pq_core:packed_cvector(), non_neg_integer()}} | kernel_error().
 fock_apply_loss_trajectory(_A, _Eta, _Mode, _N, _C, _Opts) -> erlang:nif_error(nif_not_loaded).
+
+%% Adjoint gradients (Phase 4, FS 15 item 3; native/pq_nif/src/fockgrad.rs): the value of every observable term at
+%% the output of Gates applied to the pure state Amps, and the gradient of the weighted sum of the terms with
+%% respect to every gate parameter (one list per gate, in the instruction's parameter order; none for passive).
+-type adjoint_gate() :: {beamsplitter, float(), float(), non_neg_integer(), non_neg_integer()}
+                      | {phaseshift, float(), non_neg_integer()} | {kerr, float(), non_neg_integer()}
+                      | {passive, pq_core:packed_cmatrix(), [non_neg_integer()]}
+                      | {displacement, float(), float(), non_neg_integer()} | {squeezing, float(), float(), non_neg_integer()}.
+-type adjoint_term() :: {probability, float(), [non_neg_integer()], [non_neg_integer()]}
+                      | {photons, float(), [non_neg_integer()]}.
+-spec fock_adjoint_gradient(amps(), [adjoint_gate()], [adjoint_term()], pos_integer(), non_neg_integer()) ->
+          {ok, {[float()], [[float()]]}} | kernel_error().
+fock_adjoint_gradient(_A, _Gates, _Terms, _N, _C) -> erlang:nif_error(nif_not_loaded).

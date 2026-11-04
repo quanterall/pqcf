@@ -75,7 +75,19 @@ gradient() ->
     ?assert(close(Gs, -math:sin(2 * T))),
     {ok, #{theta := E}} = pq_gradient:symbolic_gradient(C, Obs, [theta]),
     {ok, V} = pq_symbolic:evaluate(E, #{theta => T}),
-    ?assert(close(re(V), -math:sin(2 * T))).
+    ?assert(close(re(V), -math:sin(2 * T))),
+    %% gate-level modes on a Kerr gate
+    {ok, K} = pq_symbolic:parse(<<"kappa">>),
+    {ok, C1} = pq_api:circuit(1, vacuum),
+    Ck = lists:foldl(fun(I, Acc) -> pq_circuit:add(Acc, I) end, C1,
+                     [{displacement, 0, 0.6, 0}, {kerr, 0, K}, {displacement, 0, 0.6, math:pi()}]),
+    Ok = {probability, [0], [0]},
+    {ok, #{kappa := Ga}} = pq_gradient:gradient(Ck, Ok, #{kappa => 0.4}, #{mode => adjoint, cutoff => 12}),
+    {ok, #{kappa := Gp}} = pq_gradient:gradient(Ck, Ok, #{kappa => 0.4}, #{mode => parameter_shift, cutoff => 12}),
+    {ok, #{kappa := Gk}} = pq_gradient:gradient(Ck, Ok, #{kappa => 0.4}, #{cutoff => 12}),
+    ?assert(abs(Ga - Gp) < 1.0e-10),
+    ?assert(abs(Ga - Gk) < 1.0e-6),
+    ?assert(abs(Ga) > 1.0e-3).
 
 re({complex, Re, _Im}) -> Re;
 re(X) when is_number(X) -> X.

@@ -1,11 +1,14 @@
 %% Gradients (FR-V03, Decision 6): gradient(Circuit, Observable, Binding, Opts) with mode numeric (central finite
 %% differences, always available; step, default 1e-6) or symbolic (passive circuits with a Fock input: the
 %% observable as a canonical expression in the entries of the symbolic unitary, differentiated and evaluated;
-%% anything else is differentiate_unsupported). A strategy module implementing this behaviour may be passed as
-%% strategy => Module; it must say for which instruction kinds its rule holds.
+%% anything else is differentiate_unsupported). Phase 4 adds adjoint (one forward and one backward pass on the
+%% pure-state Fock backend, pq_gradient_adjoint) and parameter_shift (exact shift rules on the Fock backends,
+%% pq_gradient_shift). A strategy module implementing this behaviour may be passed as strategy => Module; it must
+%% say for which instruction kinds its rule holds.
 -module(pq_gradient).
 -include("pq.hrl").
 -export([gradient/4, symbolic_gradient/3, value/3, supports/1]).
+-export_type([observable/0]).
 
 -callback supports(InstructionKind :: atom()) -> boolean().
 -callback gradient(#circuit{}, Observable :: term(), Binding :: map(), Opts :: map()) ->
@@ -30,6 +33,8 @@ gradient(C, Obs, Binding, Opts) ->
         _ ->
             case maps:get(mode, Opts, numeric) of
                 numeric -> numeric(C, Obs, Binding, Syms, Opts);
+                adjoint -> pq_gradient_adjoint:gradient(C, Obs, Binding, Opts#{symbols => Syms});
+                parameter_shift -> pq_gradient_shift:gradient(C, Obs, Binding, Opts#{symbols => Syms});
                 symbolic ->
                     case symbolic_gradient(C, Obs, Syms) of
                         {ok, Exprs} ->

@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 pub mod boson;
 pub mod fock;
+pub mod fockgrad;
 pub mod fockstate;
 pub mod gaussian;
 pub mod gbs;
@@ -25,12 +26,13 @@ mod atoms {
         probability_sum, photon_number_overflow, cvec, subsets, terms, non_physical_state, not_positive_definite,
         size, rvec, rmat, not_symplectic, homodyne, pnr, threshold, unsupported_input, pq_bug, beamsplitter,
         max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold,
-        phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix, stream_ref, metropolis, burn_in, thin, chains, acceptance_rate
+        phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix, stream_ref, metropolis, burn_in, thin, chains, acceptance_rate,
+        probability, photons
     }
 }
 
 /// NIF version {Major, Minor, Patch}; checked by pq_nif.erl at load time and in the node handshake.
-const VERSION: (u32, u32, u32) = (0, 1, 0);
+const VERSION: (u32, u32, u32) = (0, 2, 0);
 /// The largest rng_u64 count served on a normal scheduler (FS 8.1: only a small rng_u64 may run there).
 const RNG_MAX_COUNT: usize = 65_536;
 
@@ -984,6 +986,69 @@ fn fock_apply_loss_trajectory<'a>(env: Env<'a>, amps: Term<'a>, eta: f64, mode: 
     let u = src.with_shot(0, |st| st.uniform());
     let lost = fockstate::loss_trajectory(&b, &mut v, eta, mode, u);
     Ok((atoms::ok(), (put_cvec(env, &v), lost)).encode(env))
+}
+
+/// fock_adjoint_gradient(Amps, Gates, Terms, NModes, Cutoff) -> {TermValues, GateGradients} (Phase 4, FS 15 item 3):
+/// the gates as {beamsplitter, T, P, M1, M2}, {phaseshift, P, M}, {kerr, K, M}, {passive, U, Ms},
+/// {displacement, R, P, M}, {squeezing, R, P, M}; the terms {probability, W, Modes, Pattern} or {photons, W, Modes};
+/// the gradient of sum W f, one list per gate in its parameters' order (fockgrad.rs)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn fock_adjoint_gradient<'a>(env: Env<'a>, amps: Term<'a>, gates: Vec<Term<'a>>, terms: Vec<Term<'a>>, n: usize, c: usize) -> NifResult<Term<'a>> {
+    let (v, b) = fock_args!(env, amps, n, c, [0usize]);
+    let in_range = |ms: &[usize]| ms.iter().all(|&m| m < n);
+    let mut gs = Vec::with_capacity(gates.len());
+    for op in gates {
+        let tag: Atom = rustler::types::tuple::get_tuple(op)?.first().ok_or(rustler::Error::BadArg)?.decode()?;
+        let g = if tag == atoms::beamsplitter() {
+            let (_, theta, phi, ma, mb): (Atom, f64, f64, usize, usize) = op.decode()?;
+            if !in_range(&[ma, mb]) || ma == mb { return Ok(bad_shape(env, "modes")); }
+            fockgrad::Gate::Beamsplitter { theta, phi, ma, mb }
+        } else if tag == atoms::phaseshift() {
+            let (_, phi, mode): (Atom, f64, usize) = op.decode()?;
+            if !in_range(&[mode]) { return Ok(bad_shape(env, "mode")); }
+            fockgrad::Gate::Phaseshift { phi, mode }
+        } else if tag == atoms::kerr() {
+            let (_, kappa, mode): (Atom, f64, usize) = op.decode()?;
+            if !in_range(&[mode]) { return Ok(bad_shape(env, "mode")); }
+            fockgrad::Gate::Kerr { kappa, mode }
+        } else if tag == atoms::passive() {
+            let (_, u, modes): (Atom, Term, Vec<usize>) = op.decode()?;
+            let (uv, ur, uc) = match cmat(u) { Ok(x) => x, Err(e) => return Ok(bad_shape(env, &e)) };
+            if ur != uc || ur != modes.len() || !modes_ok(&modes, n) { return Ok(bad_shape(env, "U is k x k for k distinct modes")); }
+            fockgrad::Gate::Passive { u: uv, modes }
+        } else if tag == atoms::displacement() {
+            let (_, r, phi, mode): (Atom, f64, f64, usize) = op.decode()?;
+            if !in_range(&[mode]) { return Ok(bad_shape(env, "mode")); }
+            fockgrad::Gate::Displacement { r, phi, mode }
+        } else if tag == atoms::squeezing() {
+            let (_, r, phi, mode): (Atom, f64, f64, usize) = op.decode()?;
+            if !in_range(&[mode]) { return Ok(bad_shape(env, "mode")); }
+            fockgrad::Gate::Squeezing { r, phi, mode }
+        } else {
+            return Err(rustler::Error::BadArg);
+        };
+        gs.push(g);
+    }
+    let mut ts = Vec::with_capacity(terms.len());
+    for t in terms {
+        let tag: Atom = rustler::types::tuple::get_tuple(t)?.first().ok_or(rustler::Error::BadArg)?.decode()?;
+        let term = if tag == atoms::probability() {
+            let (_, weight, modes, pattern): (Atom, f64, Vec<usize>, Vec<u32>) = t.decode()?;
+            if !modes_ok(&modes, n) || modes.len() != pattern.len() { return Ok(bad_shape(env, "modes and pattern")); }
+            fockgrad::Term::Probability { weight, modes, pattern }
+        } else if tag == atoms::photons() {
+            let (_, weight, modes): (Atom, f64, Vec<usize>) = t.decode()?;
+            if !modes_ok(&modes, n) { return Ok(bad_shape(env, "modes")); }
+            fockgrad::Term::Photons { weight, modes }
+        } else {
+            return Err(rustler::Error::BadArg);
+        };
+        ts.push(term);
+    }
+    Ok(match fockgrad::adjoint(&b, &v, &gs, &ts) {
+        Ok((values, grads)) => (atoms::ok(), (values, grads)).encode(env),
+        Err(e) => fock_error(env, e),
+    })
 }
 
 rustler::init!("pq_nif");

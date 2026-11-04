@@ -219,6 +219,32 @@ Symbolic gradients are available in two cases:
 numeric mode instead. A custom rule can be plugged in with `strategy => Module`, a module implementing the
 `pq_gradient` behaviour.
 
+Two gate-level modes (1.1) work on the Fock backends, non-Gaussian gates included:
+
+- **`mode => adjoint`:** one forward and one backward pass over the pure state, so the cost does not grow with the
+  number of parameters. It covers beamsplitters, phase shifts, Kerr gates, numeric unitaries, displacement and
+  squeezing. The derivatives are exact for the truncated gates the backend applies, so the result is the gradient
+  of the model under the cutoff. Loss and feed-forward are refused.
+- **`mode => parameter_shift`:** exact shift rules, two evaluations per frequency of each gate parameter. The
+  frequencies are bounded by the cutoff P: P for a phase shift, 2P for a beamsplitter or a displacement angle, P² for
+  Kerr. It also runs with loss (the density-matrix backend). The magnitudes of displacement and squeezing and the
+  loss transmissivity are not periodic and are refused, and so are circuits on the Gaussian backend.
+
+```erlang
+{ok, K} = pq_symbolic:parse(<<"kappa">>),
+{ok, C0} = pq_api:circuit(1, vacuum),
+C = lists:foldl(fun(I, Acc) -> pq_circuit:add(Acc, I) end, C0,
+                [{displacement, 0, 0.6, 0}, {kerr, 0, K}, {displacement, 0, 0.6, math:pi()}]),
+Obs = {probability, [0], [0]},
+{ok, #{kappa := Ga}} = pq_gradient:gradient(C, Obs, #{kappa => 0.4}, #{mode => adjoint, cutoff => 12}),
+{ok, #{kappa := Gp}} = pq_gradient:gradient(C, Obs, #{kappa => 0.4}, #{mode => parameter_shift, cutoff => 12}).
+%% Ga and Gp agree to 1e-10; central differences to 1e-6
+```
+
+Both modes resolve defaults the way lowering does: a gate parameter given by a default that uses a differentiated
+symbol is differentiated through it, and a weight in a `weighted_sum` that depends on one adds dW/ds times its
+observable.
+
 ## 9. Loss and noise
 
 Loss moves the circuit to the density-matrix backend, which applies the exact Kraus sum. With

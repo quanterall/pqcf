@@ -10,7 +10,7 @@ fixture(Name) ->
     json:decode(Bin).
 
 version_test() ->
-    {0, 1, _, Triple} = pq_nif:nif_version(),
+    {0, 2, _, Triple} = pq_nif:nif_version(),
     ?assert(is_binary(Triple) orelse is_list(Triple)),
     ?assertEqual(ok, pq_nif:check_version()).
 
