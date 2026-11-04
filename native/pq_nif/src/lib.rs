@@ -9,6 +9,7 @@ pub mod fockgrad;
 pub mod fockstate;
 pub mod gaussian;
 pub mod gbs;
+pub mod gpu;
 pub mod hafnian;
 pub mod mesh;
 pub mod num;
@@ -27,7 +28,7 @@ mod atoms {
         size, rvec, rmat, not_symplectic, homodyne, pnr, threshold, unsupported_input, pq_bug, beamsplitter,
         max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold,
         phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix, stream_ref, metropolis, burn_in, thin, chains, acceptance_rate,
-        probability, photons, shared, thermal_loss, extra
+        probability, photons, shared, thermal_loss, extra, device, cpu, gpu, auto, reason
     }
 }
 
@@ -105,7 +106,20 @@ fn cmat(term: Term) -> Result<(Vec<C64>, usize, usize), String> {
 struct KernelOpts {
     cancel: Option<ResourceArc<CancelToken>>,
     threads: usize,
+    device: Device,
 }
+
+/// Where a permanent runs (Phase 4, FS 15 item 5): device => cpu (default) | gpu | auto (the GPU from n = GPU_AUTO_N
+/// when one is available)
+#[derive(Clone, Copy, PartialEq)]
+enum Device {
+    Cpu,
+    Gpu,
+    Auto,
+}
+
+/// Spike G1 on the GB10: the GPU passes 20 CPU threads from n = 24
+const GPU_AUTO_N: usize = 24;
 
 fn kernel_opts(opts: Term) -> NifResult<KernelOpts> {
     let cancel = match opts.map_get(atoms::cancel()) {
@@ -116,7 +130,14 @@ fn kernel_opts(opts: Term) -> NifResult<KernelOpts> {
         Ok(t) => t.decode::<usize>()?.max(1),
         Err(_) => 1,
     };
-    Ok(KernelOpts { cancel, threads })
+    let device = match opts.map_get(atoms::device()) {
+        Ok(t) => {
+            let a: Atom = t.decode()?;
+            if a == atoms::gpu() { Device::Gpu } else if a == atoms::auto() { Device::Auto } else if a == atoms::cpu() { Device::Cpu } else { return Err(rustler::Error::BadArg) }
+        }
+        Err(_) => Device::Cpu,
+    };
+    Ok(KernelOpts { cancel, threads, device })
 }
 
 fn error<'a, T: Encoder>(env: Env<'a>, detail: T) -> Term<'a> {
@@ -182,10 +203,57 @@ fn permanent<'a>(env: Env<'a>, m: Term<'a>, opts: Term<'a>) -> NifResult<Term<'a
         return Ok(bad_shape(env, "permanent needs a square matrix"));
     }
     let cancel = cancelled_fn(&o);
-    Ok(guarded(env, || match perm::permanent(&a, rows, o.threads, &cancel) {
-        Ok(r) => (atoms::ok(), ((r.value.re, r.value.im), info(env, &r, atoms::scale()))).encode(env),
-        Err(e) => perm_error(env, e),
+    Ok(guarded(env, || match permanent_on(&a, rows, &o, &cancel) {
+        Ok((r, dev)) => (atoms::ok(), ((r.value.re, r.value.im), info_on(env, &r, atoms::scale(), dev))).encode(env),
+        Err(t) => t(env),
     }))
+}
+
+type ErrFn = Box<dyn for<'b> FnOnce(Env<'b>) -> Term<'b>>;
+
+/// perm of a square matrix on the device the options ask for: the GPU kernel for device => gpu (an error when there
+/// is none), or for auto from GPU_AUTO_N when there is one; else the CPU kernel
+fn permanent_on(a: &[C64], n: usize, o: &KernelOpts, cancel: &(dyn Fn() -> bool + Sync)) -> Result<(perm::PermResult, Atom), ErrFn> {
+    let use_gpu = match o.device {
+        Device::Cpu => false,
+        Device::Gpu => true,
+        Device::Auto => n >= GPU_AUTO_N && gpu::device().is_ok(),
+    };
+    if use_gpu {
+        return match gpu::permanent_cancellable(a, n, cancel) {
+            Ok(r) => Ok((r, atoms::gpu())),
+            Err(gpu::Error::Unavailable(why)) => Err(Box::new(move |env| {
+                let d = Term::map_from_pairs(env, &[(atoms::device().encode(env), atoms::gpu().encode(env)),
+                                                    (atoms::reason().encode(env), why.encode(env))]).unwrap();
+                error(env, (atoms::unsupported_input(), d))
+            })),
+            Err(gpu::Error::Cancelled) => Err(Box::new(|env| error(env, atoms::cancelled()))),
+            Err(gpu::Error::NonFinite) => Err(Box::new(|env| perm_error(env, perm::Error::NonFinite("output")))),
+            Err(gpu::Error::BadShape(m)) => Err(Box::new(move |env| bad_shape(env, m))),
+        };
+    }
+    match perm::permanent(a, n, o.threads, cancel) {
+        Ok(r) => Ok((r, atoms::cpu())),
+        Err(e) => Err(Box::new(move |env| perm_error(env, e))),
+    }
+}
+
+/// the submatrix with rows and columns repeated by their multiplicities, when every multiplicity is 0 or 1 (the
+/// GPU kernel's case); None otherwise
+fn plain_submatrix(a: &[C64], rows: usize, cols: usize, r: &[u32], c: &[u32]) -> Option<(Vec<C64>, usize)> {
+    if r.len() != rows || c.len() != cols || r.iter().chain(c).any(|&x| x > 1) {
+        return None;
+    }
+    let ri: Vec<usize> = (0..rows).filter(|&i| r[i] == 1).collect();
+    let ci: Vec<usize> = (0..cols).filter(|&j| c[j] == 1).collect();
+    if ri.len() != ci.len() {
+        return None;
+    }
+    Some((ri.iter().flat_map(|&i| ci.iter().map(move |&j| a[i * cols + j])).collect(), ri.len()))
+}
+
+fn info_on<'a>(env: Env<'a>, r: &perm::PermResult, scale_key: Atom, dev: Atom) -> Term<'a> {
+    info(env, r, scale_key).map_put(atoms::device().encode(env), dev.encode(env)).unwrap()
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -202,8 +270,17 @@ fn permanent_repeated<'a>(
         Err(e) => return Ok(bad_shape(env, &e)),
     };
     let cancel = cancelled_fn(&o);
+    // the GPU kernel covers multiplicities 0 and 1; repeated rows or columns stay on the CPU
+    if o.device != Device::Cpu {
+        if let Some((sub, n)) = plain_submatrix(&a, rows, cols, &row_mult, &col_mult) {
+            return Ok(guarded(env, || match permanent_on(&sub, n, &o, &cancel) {
+                Ok((r, dev)) => (atoms::ok(), ((r.value.re, r.value.im), info_on(env, &r, atoms::scale(), dev))).encode(env),
+                Err(t) => t(env),
+            }));
+        }
+    }
     Ok(guarded(env, || match perm::permanent_repeated(&a, rows, cols, &row_mult, &col_mult, o.threads, &cancel) {
-        Ok(r) => (atoms::ok(), ((r.value.re, r.value.im), info(env, &r, atoms::scale()))).encode(env),
+        Ok(r) => (atoms::ok(), ((r.value.re, r.value.im), info_on(env, &r, atoms::scale(), atoms::cpu()))).encode(env),
         Err(e) => perm_error(env, e),
     }))
 }
@@ -225,8 +302,20 @@ fn bs_probability<'a>(
         return Ok(bad_shape(env, "bs_probability needs a square unitary"));
     }
     let cancel = cancelled_fn(&o);
+    // collision-free patterns on the GPU: |perm(U_(T,S))|^2, every factorial 1
+    if o.device != Device::Cpu && input.iter().sum::<u32>() == output.iter().sum::<u32>() {
+        if let Some((sub, n)) = plain_submatrix(&a, rows, cols, &output, &input) {
+            return Ok(guarded(env, || match permanent_on(&sub, n, &o, &cancel) {
+                Ok((r, dev)) => {
+                    let p = r.value.re * r.value.re + r.value.im * r.value.im;
+                    (atoms::ok(), (p, info_on(env, &r, atoms::permanent_scale(), dev))).encode(env)
+                }
+                Err(t) => t(env),
+            }));
+        }
+    }
     Ok(guarded(env, || match perm::bs_probability(&a, rows, &input, &output, o.threads, &cancel) {
-        Ok((p, r)) => (atoms::ok(), (p, info(env, &r, atoms::permanent_scale()))).encode(env),
+        Ok((p, r)) => (atoms::ok(), (p, info_on(env, &r, atoms::permanent_scale(), atoms::cpu()))).encode(env),
         Err(e) => perm_error(env, e),
     }))
 }

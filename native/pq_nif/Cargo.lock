@@ -198,6 +198,7 @@ dependencies = [
 name = "pq_nif"
 version = "1.0.0-rc.1"
 dependencies = [
+ "libloading",
  "nalgebra",
  "rand_chacha",
  "rand_core",

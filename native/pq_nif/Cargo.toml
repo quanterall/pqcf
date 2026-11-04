@@ -13,6 +13,8 @@ rustler = "0.36"
 rand_core = "0.9"
 rand_chacha = "0.9"
 nalgebra = { version = "0.35", default-features = false, features = ["std"] }
+# Phase 4: the CUDA driver API opened at run time (src/gpu.rs); no CUDA needed to build
+libloading = "0.8"
 
 [profile.release]
 opt-level = 3

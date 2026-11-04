@@ -141,7 +141,9 @@ probs(boson, C, Modes, _Kind, Opts) ->
                 true ->
                     Full0 = case {maps:find(visibility, Opts), maps:find(gram, Opts)} of
                                 _ when is_map_key(multi_photon, Opts) -> source_distribution(U, In, Opts);
-                                {error, error} -> {ok, [{P, element(1, element(2, pq_nif:bs_probability(U, In, P, #{})))} || P <- Pats]};
+                                {error, error} ->
+                                    KOpts = maps:with([device, threads], Opts),
+                                    {ok, [{P, element(1, element(2, ok_or_throw(pq_nif:bs_probability(U, In, P, KOpts))))} || P <- Pats]};
                                 %% Phase 4: partially distinguishable photons, the Gram formula
                                 {{ok, Vis}, _} ->
                                     case pq_noise:visibility_gram(In, Vis) of
@@ -198,6 +200,9 @@ source_distribution(U, In, Opts) ->
             {ok, maps:to_list(Acc)};
         E -> E
     end.
+
+ok_or_throw({ok, V}) -> {ok, V};
+ok_or_throw({error, _} = E) -> throw(E).
 
 gram_rows(G, _N) ->
     {ok, {cmat, Rows}} = pq_core:unpack(G),

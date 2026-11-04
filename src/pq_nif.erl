@@ -47,11 +47,15 @@ cancel_token_set(_Token) -> erlang:nif_error(nif_not_loaded).
           {ok, [non_neg_integer()]} | {error, {dimension_limit, #{count := non_neg_integer(), max := 65536}}}.
 rng_u64(_Seed, _Stream, _Count) -> erlang:nif_error(nif_not_loaded).
 
-%%% The permanent family (FS 8.4, AN 3; dirty CPU). Opts: cancel (a token), threads (default 1).
-%%% Info carries the scale S of AN 2.4 (amendment A-1): the error bound is about n * eps * S.
+%%% The permanent family (FS 8.4, AN 3; dirty CPU). Opts: cancel (a token), threads (default 1), device (Phase 4,
+%%% FS 15 item 5: cpu, the default; gpu, the CUDA kernel of native/pq_nif/gpu/perm.cu, an unsupported_input error
+%%% without a device; auto, the GPU from n = 24 when there is one). The GPU covers multiplicities 0 and 1; repeated
+%%% rows or columns run on the CPU. Info carries the scale S of AN 2.4 (amendment A-1): the error bound is about
+%%% n * eps * S; and the device that ran.
 
--type opts() :: #{cancel => reference(), threads => pos_integer()}.
--type perm_info() :: #{scale := float(), positions := non_neg_integer(), blocks := non_neg_integer()}.
+-type opts() :: #{cancel => reference(), threads => pos_integer(), device => cpu | gpu | auto}.
+-type perm_info() :: #{scale := float(), positions := non_neg_integer(), blocks := non_neg_integer(),
+                       device := cpu | gpu}.
 -type kernel_error() :: {error, pq_core:reason()}.
 
 -spec permanent(pq_core:packed_cmatrix(), opts()) -> {ok, {pq_core:nif_complex(), perm_info()}} | kernel_error().
@@ -64,7 +68,7 @@ permanent_repeated(_M, _RowMult, _ColMult, _Opts) -> erlang:nif_error(nif_not_lo
 %% FR-B02: probability of OutputOcc from InputOcc through the unitary U (U is not checked here).
 -spec bs_probability(pq_core:packed_cmatrix(), [non_neg_integer()], [non_neg_integer()], opts()) ->
           {ok, {float(), #{permanent_scale := float(), positions := non_neg_integer(),
-                           blocks := non_neg_integer()}}} | kernel_error().
+                           blocks := non_neg_integer(), device := cpu | gpu}}} | kernel_error().
 bs_probability(_U, _InputOcc, _OutputOcc, _Opts) -> erlang:nif_error(nif_not_loaded).
 
 %%% Boson sampling (FS 8.4, AN 5). Shot i uses stream (seed, stream_start + i), so samples do not depend on how
