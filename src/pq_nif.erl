@@ -11,7 +11,7 @@
          fock_dm_apply_beamsplitter/7, fock_dm_apply_phaseshift/5, fock_dm_apply_kerr/5, fock_dm_apply_passive/5,
          fock_dm_apply_displacement/6, fock_dm_apply_squeezing/6, fock_dm_apply_loss/5,
          gaussian_measure_homodyne/6, stream_new/2, fock_measure_pnr/5, fock_apply_loss_trajectory/6,
-         fock_adjoint_gradient/5]).
+         fock_adjoint_gradient/5, boson_partial_probability/4]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -70,7 +70,8 @@ bs_probability(_U, _InputOcc, _OutputOcc, _Opts) -> erlang:nif_error(nif_not_loa
 %%% shots are split between calls. Opts: algorithm (clifford_clifford, default | brute_force | metropolis), seed
 %%% (default 0), stream_start (default 0), max_enumeration (brute_force, default 1,000,000), burn_in, thin, chains
 %%% (metropolis: 100, 10, min(shots, 8); chain c on stream (seed, c), not shot-parallel), loss => {input | output,
-%%% [Eta]} (FR-B05; input loss with clifford_clifford only), cancel.
+%%% [Eta]} (FR-B05; input loss with clifford_clifford only), shared => [P] (Phase 4: per input mode the probability
+%%% of the shared internal state, partial distinguishability; clifford_clifford only), cancel.
 
 -spec sample_boson(pq_core:packed_cmatrix(), [non_neg_integer()], non_neg_integer(), map()) ->
           {ok, {pq_core:packed_imatrix(), #{algorithm := atom(), shots := non_neg_integer()}}} | kernel_error().
@@ -256,3 +257,9 @@ fock_apply_loss_trajectory(_A, _Eta, _Mode, _N, _C, _Opts) -> erlang:nif_error(n
 -spec fock_adjoint_gradient(amps(), [adjoint_gate()], [adjoint_term()], pos_integer(), non_neg_integer()) ->
           {ok, {[float()], [[float()]]}} | kernel_error().
 fock_adjoint_gradient(_A, _Gates, _Terms, _N, _C) -> erlang:nif_error(nif_not_loaded).
+
+%% Partial distinguishability (Phase 4, FS 15 item 4): the probability of Output through U for photons whose
+%% internal states have the Gram matrix Gram (n x n, the photons in input-mode order); n! permanents, n <= 12.
+-spec boson_partial_probability(pq_core:packed_cmatrix(), [non_neg_integer()], [non_neg_integer()], pq_core:packed_cmatrix()) ->
+          {ok, float()} | kernel_error().
+boson_partial_probability(_U, _In, _Out, _Gram) -> erlang:nif_error(nif_not_loaded).

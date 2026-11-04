@@ -27,7 +27,7 @@ mod atoms {
         size, rvec, rmat, not_symplectic, homodyne, pnr, threshold, unsupported_input, pq_bug, beamsplitter,
         max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold,
         phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix, stream_ref, metropolis, burn_in, thin, chains, acceptance_rate,
-        probability, photons
+        probability, photons, shared
     }
 }
 
@@ -279,12 +279,18 @@ fn sample_boson_raw<'a>(env: Env<'a>, u: Term<'a>, input: Vec<u32>, shots: usize
         }
         Err(_) => boson::Loss::None,
     };
+    // shared => [P] (Phase 4): per input mode the probability of the shared internal state
+    let shared: Option<Vec<f64>> = match opts.map_get(atoms::shared()) {
+        Ok(t) => Some(t.decode()?),
+        Err(_) => None,
+    };
     let cancel = cancelled_fn(&o);
-    let result = match (algorithm, &loss) {
-        (boson::Algorithm::Metropolis { burn_in, thin, chains }, boson::Loss::None) => {
+    let result = match (algorithm, &loss, &shared) {
+        (boson::Algorithm::Metropolis { burn_in, thin, chains }, boson::Loss::None, None) => {
             boson::metropolis(&a, rows, &input, shots, seed, burn_in, thin, chains, &cancel).map(|(s, r)| (s, Some(r)))
         }
-        (alg, _) => boson::sample_boson_lossy(&a, rows, &input, shots, seed, start, alg, &loss, &cancel).map(|s| (s, None)),
+        (alg, _, _) => boson::sample_boson_noisy(&a, rows, &input, shots, seed, start, alg, &loss, shared.as_deref(), &cancel)
+            .map(|s| (s, None)),
     };
     Ok(guarded(env, || match result {
         Ok((samples, rate)) => {
@@ -986,6 +992,22 @@ fn fock_apply_loss_trajectory<'a>(env: Env<'a>, amps: Term<'a>, eta: f64, mode: 
     let u = src.with_shot(0, |st| st.uniform());
     let lost = fockstate::loss_trajectory(&b, &mut v, eta, mode, u);
     Ok((atoms::ok(), (put_cvec(env, &v), lost)).encode(env))
+}
+
+/// boson_partial_probability(U, Input, Output, Gram) -> P (Phase 4, FS 15 item 4): the probability of Output for
+/// photons whose internal states have the Gram matrix Gram (n x n, photons in input-mode order); n! permanents
+#[rustler::nif(schedule = "DirtyCpu")]
+fn boson_partial_probability<'a>(env: Env<'a>, u: Term<'a>, input: Vec<u32>, output: Vec<u32>, gram: Term<'a>) -> NifResult<Term<'a>> {
+    let (a, rows, cols) = match cmat(u) { Ok(x) => x, Err(e) => return Ok(bad_shape(env, &e)) };
+    let (g, gr, gc) = match cmat(gram) { Ok(x) => x, Err(e) => return Ok(bad_shape(env, &e)) };
+    let n: usize = input.iter().map(|&x| x as usize).sum();
+    if rows != cols || input.len() != rows || output.len() != rows || gr != n || gc != n || n > 12 {
+        return Ok(bad_shape(env, "a square unitary, one occupation per mode, an n x n Gram matrix, n <= 12"));
+    }
+    Ok(match boson::partial_probability(&a, rows, &input, &output, &g) {
+        Ok(p) => (atoms::ok(), p).encode(env),
+        Err(_) => bad_shape(env, "input, output and Gram matrix"),
+    })
 }
 
 /// fock_adjoint_gradient(Amps, Gates, Terms, NModes, Cutoff) -> {TermValues, GateGradients} (Phase 4, FS 15 item 3):

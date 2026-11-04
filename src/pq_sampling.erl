@@ -2,7 +2,7 @@
 %% every mode, through the job server for parallel shots (FR-B04, FS 9.1).
 -module(pq_sampling).
 -include("pq.hrl").
--export([sample/3, probabilities/3, postselect/2, passive_unitary/1]).
+-export([sample/3, probabilities/3, postselect/2, passive_unitary/1, gram_distribution/4]).
 
 %% FS 7.1: exact probabilities with the backend given (pq_api:probabilities/2 with backend => Backend)
 -spec probabilities(gaussian | fock | fock_dm | boson, #circuit{}, map()) ->
@@ -24,20 +24,38 @@ postselect(#result{measured = Measured, samples = S, metadata = M} = R, Pred) ->
 
 -spec sample(boson, #circuit{}, map()) -> {ok, #result{}} | {error, pq_core:reason()}.
 sample(boson, C, Opts) ->
+    try sample1(C, Opts)
+    catch
+        throw:{error, _} = E -> E
+    end.
+
+sample1(C, Opts) ->
     Seed = maps:get(seed, Opts, random_seed()),
     Shots = maps:get(shots, Opts, 1),
     case prepare(C, Opts) of
         {ok, U, In, Measured} ->
             Alg = maps:get(algorithm, Opts, clifford_clifford),
-            Spec = maps:merge(maps:with([loss, burn_in, thin, chains], Opts),
-                              #{kind => boson, unitary => U, input => In, seed => Seed, algorithm => Alg,
-                                max_enumeration => pq_core:get(max_enumeration, Opts), crash => maps:get(crash, Opts, [])}),
+            Spec0 = maps:merge(maps:with([loss, burn_in, thin, chains], Opts),
+                               #{kind => boson, unitary => U, input => In, seed => Seed, algorithm => Alg,
+                                 max_enumeration => pq_core:get(max_enumeration, Opts), crash => maps:get(crash, Opts, [])}),
+            %% Phase 4: partial distinguishability, as the probability of the shared internal state per input mode
+            Spec = case maps:find(visibility, Opts) of
+                       {ok, Vis} ->
+                           case pq_noise:shared_probabilities(length(In), Vis) of
+                               {ok, Ps} -> Spec0#{shared => Ps};
+                               {error, _} = VE -> throw(VE)
+                           end;
+                       error -> Spec0
+                   end,
             %% every mode measured in mode order (the usual case): the rows are the samples, no projection
             Project = case Measured =:= lists:seq(0, length(In) - 1) of
                           true -> fun(Rs) -> Rs end;
                           false -> fun(Rs) -> [[lists:nth(M + 1, Row) || M <- Measured] || Row <- Rs] end
                       end,
-            Rows = fun(Start, N) -> {Project(rows(Spec, Alg, Start, N, Opts)), #{}} end,
+            Rows = case maps:find(gram, Opts) of
+                       error -> fun(Start, N) -> {Project(rows(Spec, Alg, Start, N, Opts)), #{}} end;
+                       {ok, G} -> gram_rows(U, In, G, Seed, Project, Opts)
+                   end,
             %% FR-B06: collision-free sampling is post-selection on at most one photon per measured mode, with the
             %% acceptance statistics, not another distribution; it combines with any postselect predicate
             CF = maps:get(collision_free, Opts, false),
@@ -48,7 +66,7 @@ sample(boson, C, Opts) ->
                        {true, {ok, P}} -> {'and', [collision_free(Measured), P]}
                    end,
             POpts = case Pred of none -> maps:remove(postselect, Opts); _ -> Opts#{postselect => Pred} end,
-            try pq_simulator:postselected(Rows, Shots, POpts#{measured_columns => Measured}) of
+            try pq_simulator:postselected(Rows, Shots, POpts#{measured_columns => Measured, seed => Seed}) of
                 {Samples, Attempts, _} ->
                     {ok, #result{kind = pnr, measured = Measured, samples = Samples,
                                  metadata = #{seed => Seed, shots_requested => Shots, shots_accepted => length(Samples),
@@ -59,6 +77,46 @@ sample(boson, C, Opts) ->
             end;
         E -> E
     end.
+
+%% gram => Rows: photons with a general Gram matrix of internal states, sampled from the exact distribution
+%% (n! permanents per pattern, so small n), shot k by one uniform from stream (Seed, k) like brute_force
+gram_rows(U, In, G, Seed, Project, Opts) ->
+    {Pats, Probs} = case gram_distribution(U, In, G, Opts) of
+                        {ok, D} -> lists:unzip(D);
+                        {error, _} = E -> throw(E)
+                    end,
+    {ok, P} = pq_core:pack({rvec, Probs}),
+    PatT = list_to_tuple(Pats),
+    fun(Start, N) ->
+            {ok, Idx} = pq_nif:sample_categorical(P, N, #{seed => Seed, stream_start => Start}),
+            {Project([element(I + 1, PatT) || I <- Idx]), #{}}
+    end.
+
+%% every output pattern with its probability for photons with the Gram matrix G, checked to sum to 1 (a matrix
+%% that is not positive semidefinite fails here)
+-spec gram_distribution(pq_core:packed_cmatrix(), [non_neg_integer()], term(), map()) ->
+          {ok, [{[non_neg_integer()], float()}]} | {error, pq_core:reason()}.
+gram_distribution(U, In, G0, Opts) ->
+    case pq_noise:gram(In, G0) of
+        {ok, G} ->
+            Pats = patterns(length(In), lists:sum(In)),
+            Max = pq_core:get(max_enumeration, Opts),
+            case length(Pats) =< Max of
+                false -> {error, {dimension_limit, length(Pats), Max}};
+                true ->
+                    D = [{T, element(2, pq_nif:boson_partial_probability(U, In, T, G))} || T <- Pats],
+                    Sum = lists:sum([X || {_, X} <- D]),
+                    case abs(Sum - 1) < 1.0e-9 andalso lists:all(fun({_, X}) -> X > -1.0e-12 end, D) of
+                        true -> {ok, [{T, max(X, 0.0)} || {T, X} <- D]};
+                        false -> {error, {bad_shape, #{gram => not_positive_semidefinite, probability_sum => Sum}}}
+                    end
+            end;
+        E -> E
+    end.
+
+%% patterns of N photons in M modes, mode 0 most significant, ascending
+patterns(1, N) -> [[N]];
+patterns(M, N) -> [[K | R] || K <- lists:seq(0, N), R <- patterns(M - 1, N - K)].
 
 collision_free(Measured) -> {'and', [{le, M, 1} || M <- Measured]}.
 

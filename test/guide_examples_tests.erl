@@ -129,7 +129,18 @@ loss() ->
     ?assert(close(maps:get([1], P), 0.5)),
     ?assert(close(maps:get([2], P), 0.25)),
     {ok, #result{samples = S}} = pq_api:sample(C, #{shots => 500, seed => 3, noise => trajectory}),
-    ?assertEqual(500, length(S)).
+    ?assertEqual(500, length(S)),
+    %% partial distinguishability and dark counts
+    {ok, H0} = pq_api:circuit(2, {fock, [1, 1]}),
+    H = lists:foldl(fun(I, Acc) -> pq_circuit:add(Acc, I) end, H0, [{beamsplitter, 0, 1, math:pi() / 4, 0}, {measure_pnr, [0, 1]}]),
+    {ok, Pv, _} = pq_api:probabilities(H, #{visibility => 0.9}),
+    ?assert(close(maps:get([1, 1], Pv), 0.05)),
+    {ok, Pd, _} = pq_api:probabilities(H, #{dark_counts => 0.01}),
+    %% dark counts only add: (2, 0) gains one on mode 1 with probability 0.01 exp(-0.02); (1, 1) stays empty
+    ?assert(close(maps:get([1, 1], Pd, 0.0), 0.0)),
+    ?assert(close(maps:get([2, 1], Pd), 0.5 * 0.01 * math:exp(-0.02))),
+    {ok, #result{samples = Sh}} = pq_api:sample(H, #{shots => 1000, seed => 4, visibility => 0.9, dark_counts => 0.01}),
+    ?assertEqual(1000, length(Sh)).
 
 %% 9. Errors are values
 errors() ->

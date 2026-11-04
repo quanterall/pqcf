@@ -57,7 +57,11 @@ run(Backend, C, Opts0) ->
                  seed => Seed},
         Rows = fun(Start, N) -> rows(Spec, Mid, Start, N, Opts) end,
         Measured = lists:append([modes(I) || I <- Rest, measurement(I)]),
-        {Samples, Attempts, Extra} = postselected(Rows, Shots, Opts#{measured_columns => Measured}),
+        (Mid andalso maps:is_key(dark_counts, Opts)) andalso
+            throw({error, {unsupported_input, #{dark_counts => midcircuit,
+                                                reason => <<"dark counts apply to terminal measurements">>}}}),
+        {Samples, Attempts, Extra} = postselected(Rows, Shots, Opts#{measured_columns => Measured,
+                                                                     dark_kinds => column_kinds(Rest, Mid)}),
         Kinds = maps:get(column_kinds, Extra, column_kinds(Rest, Mid)),
         Kind = case lists:usort(Kinds) of [K] -> K; _ -> mixed end,
         Meta0 = maps:merge(maps:without([column_kinds, extra_warnings], Extra),
@@ -193,7 +197,22 @@ modes({_, Ms}) -> Ms.
 %% Rows(Start, N) -> {Samples, Extra}: the shots Start .. Start + N - 1 (also used by pq_sampling)
 -spec postselected(fun((non_neg_integer(), non_neg_integer()) -> {list(), map()}), non_neg_integer(), map()) ->
           {list(), non_neg_integer(), map()}.
-postselected(Rows, Shots, Opts) ->
+postselected(Rows0, Shots, Opts) ->
+    %% dark counts (Phase 4) change the recorded outcomes before any predicate sees them
+    Rows = case maps:find(dark_counts, Opts) of
+               error -> Rows0;
+               {ok, Nu} ->
+                   Cols = maps:get(measured_columns, Opts),
+                   Means = case pq_noise:dark_means(Nu, Cols) of
+                               {ok, Ms} -> Ms;
+                               {error, _} = DE -> throw(DE)
+                           end,
+                   Kinds = maps:get(dark_kinds, Opts, [pnr || _ <- Cols]),
+                   fun(Start, N) ->
+                           {S, Extra} = Rows0(Start, N),
+                           {pq_noise:dark_rows(S, Start, Opts#{dark_means => Means}, Kinds), Extra}
+                   end
+           end,
     case maps:find(postselect, Opts) of
         error ->
             {S, Extra} = Rows(0, Shots),

@@ -16,6 +16,13 @@ circuit(N, Input) -> pq_circuit:new(N, Input).
 
 -spec run(#circuit{}, map()) -> result(#result{}).
 run(C, Opts) ->
+    case {backend_for(C, Opts), is_map_key(visibility, Opts) orelse is_map_key(gram, Opts)} of
+        {B, true} when B =/= boson ->
+            {error, {unsupported_input, #{backend => B, distinguishability => <<"boson sampling only">>}}};
+        _ -> run1(C, Opts)
+    end.
+
+run1(C, Opts) ->
     case backend_for(C, Opts) of
         boson -> pq_sampling:sample(boson, C, Opts);
         B -> pq_simulator:run(backend_module(B), C, Opts)
@@ -49,7 +56,11 @@ probabilities(#circuit{instrs = Is} = C, Opts) ->
     case pq_circuit:has_feed_forward(C) of
         %% the measured modes' joint distribution branches on the outcomes: sample it
         true -> {error, {unsupported_input, #{feed_forward => true, reason => <<"exact probabilities are not enumerated for feed-forward: sample it">>}}};
-        false -> probabilities1(Is, C, Opts)
+        false ->
+            try probabilities1(Is, C, Opts)
+            catch
+                throw:{error, _} = E -> E
+            end
     end.
 
 probabilities1(Is, C, Opts) ->
@@ -62,9 +73,21 @@ probabilities1(Is, C, Opts) ->
     Unitary = C#circuit{instrs = [I || I <- Is, not lists:member(element(1, I), [measure_pnr, measure_threshold, measure_homodyne])]},
     case Modes of
         [] -> {error, {unsupported_input, no_measurement}};
-        _ -> probs(backend_for(C, Opts), Unitary, Modes, Kind, Opts)
+        _ -> dark(probs(backend_for(C, Opts), Unitary, Modes, Kind, Opts), Modes, Kind, Opts)
     end.
 
+%% Phase 4: dark counts on the detectors (pq_noise:dark_distribution/4)
+dark({ok, Map, Meta}, Modes, Kind, #{dark_counts := Nu} = Opts) ->
+    case pq_noise:dark_means(Nu, Modes) of
+        {ok, Means} ->
+            {Map2, Lost} = pq_noise:dark_distribution(Map, Means, Kind, Opts),
+            {ok, Map2, Meta#{dark_count_truncated_mass => Lost}};
+        E -> E
+    end;
+dark(R, _Modes, _Kind, _Opts) -> R.
+
+probs(B, _C, _Modes, _Kind, Opts) when B =/= boson, (is_map_key(visibility, Opts) orelse is_map_key(gram, Opts)) ->
+    {error, {unsupported_input, #{backend => B, distinguishability => <<"boson sampling only">>}}};
 probs(B, C, Modes, Kind, Opts) when B =:= fock; B =:= fock_dm ->
     case pq_simulator:evolve(backend_module(B), C, Opts) of
         {ok, S, W} ->
@@ -116,7 +139,19 @@ probs(boson, C, Modes, _Kind, Opts) ->
             case length(Pats) =< Max of
                 false -> {error, {dimension_limit, length(Pats), Max}};
                 true ->
-                    Full = [{P, element(1, element(2, pq_nif:bs_probability(U, In, P, #{})))} || P <- Pats],
+                    Full0 = case {maps:find(visibility, Opts), maps:find(gram, Opts)} of
+                                {error, error} -> {ok, [{P, element(1, element(2, pq_nif:bs_probability(U, In, P, #{})))} || P <- Pats]};
+                                %% Phase 4: partially distinguishable photons, the Gram formula
+                                {{ok, Vis}, _} ->
+                                    case pq_noise:visibility_gram(In, Vis) of
+                                        {ok, {cmat, Nn, Nn, _} = G} ->
+                                            Rows = gram_rows(G, Nn),
+                                            pq_sampling:gram_distribution(U, In, Rows, Opts);
+                                        E0 -> E0
+                                    end;
+                                {_, {ok, G}} -> pq_sampling:gram_distribution(U, In, G, Opts)
+                            end,
+                    Full = case Full0 of {ok, F} -> F; {error, _} = FE -> throw(FE) end,
                     Map = lists:foldl(fun({P, Pr}, Acc) ->
                                               Key = [lists:nth(M + 1, P) || M <- Modes],
                                               maps:update_with(Key, fun(V) -> V + Pr end, Pr, Acc)
@@ -143,10 +178,16 @@ run_batch(C, Bindings, Opts) ->
     end.
 
 %% FS 7.1's choice of backend
+gram_rows(G, _N) ->
+    {ok, {cmat, Rows}} = pq_core:unpack(G),
+    Rows.
+
 -spec backend_for(#circuit{}, map()) -> gaussian | fock | fock_dm | boson.
 backend_for(#circuit{input = In, instrs = Is}, Opts) ->
     case maps:find(backend, Opts) of
         {ok, B} -> B;
+        %% Phase 4: partially distinguishable photons exist only in boson sampling
+        error when is_map_key(visibility, Opts); is_map_key(gram, Opts) -> boson;
         error ->
             Kinds = [K || K <- pq_circuit:instruction_kinds(Is), K =/= feed_forward, K =/= conditional],
             Gaussian = (In =:= vacuum orelse element(1, In) =:= gaussian) andalso

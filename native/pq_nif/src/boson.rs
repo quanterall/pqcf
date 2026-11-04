@@ -71,6 +71,103 @@ pub fn lossy_shot(u: &[C64], m: usize, input: &[u32], loss: &Loss, s: &mut Strea
     out
 }
 
+/// One shot with partial distinguishability (Phase 4, FS 15 item 4; docs/decisions/N1-noise-models.md): photon a
+/// of input mode i has the internal state sqrt(p_i)|0> + sqrt(1 - p_i)|a>, so <phi_a|phi_b> = sqrt(p_a p_b) and two
+/// photons with the same p show the Hong-Ou-Mandel visibility p^2. The internal states |a> are orthogonal and the
+/// unitary does not touch them, so the output distribution is exactly the mixture over which photons are in |0>:
+/// those are sampled together by Clifford-Clifford, each other one alone from |U[j][i]|^2.
+/// Stream order: input loss as in `lossy_shot`; one uniform per surviving photon in mode order (u < p_i: shared);
+/// the Clifford-Clifford shot of the shared photons; one uniform per private photon in mode order; output loss.
+pub fn noisy_shot(u: &[C64], m: usize, input: &[u32], loss: &Loss, shared: &[f64], s: &mut Stream) -> Vec<u32> {
+    let kept: Vec<u32> = match loss {
+        Loss::Input(eta) => (0..m).map(|i| (0..input[i]).filter(|_| s.uniform() < eta[i]).count() as u32).collect(),
+        _ => input.to_vec(),
+    };
+    let mut together = vec![0u32; m];
+    let mut alone: Vec<usize> = Vec::new();
+    for i in 0..m {
+        for _ in 0..kept[i] {
+            if s.uniform() < shared[i] {
+                together[i] += 1;
+            } else {
+                alone.push(i);
+            }
+        }
+    }
+    let mut out = clifford_clifford_shot(u, m, &together, s);
+    for i in alone {
+        let col: Vec<f64> = (0..m).map(|j| { let z = u[j * m + i]; z.re * z.re + z.im * z.im }).collect();
+        out[categorical(&col, s.uniform())] += 1;
+    }
+    if let Loss::Output(eta) = loss {
+        for (j, n) in out.iter_mut().enumerate() {
+            *n = (0..*n).filter(|_| s.uniform() < eta[j]).count() as u32;
+        }
+    }
+    out
+}
+
+/// The exact probability of output pattern `out` for photons with the Gram matrix `gram` of their internal states
+/// (n x n, row-major, photons listed in input-mode order, gram[a][b] = <phi_a|phi_b>):
+///   P(T) = sum over permutations pi of (prod_k gram[pi(k)][k]) perm(M o conj(M_pi)) / (prod T! * norm),
+/// M = U[rows of T with multiplicity; the photons' input modes], M_pi[r][k] = M[r][pi(k)], and norm the squared
+/// norm of the input state, the product over input modes of the permanent of gram on that mode's photons (prod S!
+/// for identical photons, 1 for distinguishable ones). n! permanents: an oracle for small n.
+pub fn partial_probability(u: &[C64], m: usize, input: &[u32], out: &[u32], gram: &[C64]) -> Result<f64, Error> {
+    let cols: Vec<usize> = (0..m).flat_map(|i| std::iter::repeat_n(i, input[i] as usize)).collect();
+    let rows: Vec<usize> = (0..m).flat_map(|j| std::iter::repeat_n(j, out[j] as usize)).collect();
+    let n = cols.len();
+    if input.len() != m || out.len() != m || gram.len() != n * n {
+        return Err(Error::BadShape("input, output and an n x n Gram matrix"));
+    }
+    if rows.len() != n {
+        return Ok(0.0);
+    }
+    let mm: Vec<C64> = (0..n * n).map(|x| u[rows[x / n] * m + cols[x % n]]).collect();
+    let conj = |z: C64| C64::new(z.re, -z.im);
+    let mut perm_idx: Vec<usize> = (0..n).collect();
+    let mut total = crate::num::CSum::new(1 << n.min(20));
+    let mut add = |pi: &[usize]| {
+        let mut w = C64::ONE;
+        for (k, &pk) in pi.iter().enumerate() {
+            w = w.mul(gram[pk * n + k]);
+        }
+        if w.re == 0.0 && w.im == 0.0 {
+            return;
+        }
+        let a: Vec<C64> = (0..n * n).map(|x| mm[x].mul(conj(mm[(x / n) * n + pi[x % n]]))).collect();
+        let p = perm::permanent(&a, n, 1, &never).expect("permanent").value;
+        total.add(w.mul(p));
+    };
+    // Heap's algorithm over all n! permutations
+    let mut c = vec![0usize; n];
+    add(&perm_idx);
+    let mut i = 0;
+    while i < n {
+        if c[i] < i {
+            if i % 2 == 0 { perm_idx.swap(0, i) } else { perm_idx.swap(c[i], i) }
+            add(&perm_idx);
+            c[i] += 1;
+            i = 0;
+        } else {
+            c[i] = 0;
+            i += 1;
+        }
+    }
+    // the input state's squared norm: per input mode, the permanent of gram on its photons
+    let mut norm = 1.0f64;
+    let mut start = 0;
+    for &k in input {
+        let k = k as usize;
+        if k > 1 {
+            let sub: Vec<C64> = (0..k * k).map(|x| gram[(start + x / k) * n + start + x % k]).collect();
+            norm *= perm::permanent(&sub, k, 1, &never).expect("permanent").value.re;
+        }
+        start += k;
+    }
+    Ok(total.value().re / (fact(out) * norm))
+}
+
 /// The permanents of the k minors of the (k-1) x k matrix U[rows; cols] (minor l without column l), by one
 /// Glynn walk over the rows in Gray-code order: per position the column sums v_j, and for every l the product of
 /// the others from prefix and suffix products (no division). O(k 2^k) instead of k Glynn sums (AN 5.1, Phase 3).
@@ -275,6 +372,32 @@ pub fn sample_boson_lossy(
     loss: &Loss,
     cancel: &dyn Fn() -> bool,
 ) -> Result<Vec<u32>, Error> {
+    sample_boson_noisy(u, m, input, shots, seed, stream_start, algorithm, loss, None, cancel)
+}
+
+/// sample_boson_lossy with partial distinguishability (`shared`: per input mode the probability p_i of the shared
+/// internal state, see `noisy_shot`); clifford_clifford only.
+#[allow(clippy::too_many_arguments)]
+pub fn sample_boson_noisy(
+    u: &[C64],
+    m: usize,
+    input: &[u32],
+    shots: usize,
+    seed: u64,
+    stream_start: u64,
+    algorithm: Algorithm,
+    loss: &Loss,
+    shared: Option<&[f64]>,
+    cancel: &dyn Fn() -> bool,
+) -> Result<Vec<u32>, Error> {
+    if let Some(p) = shared {
+        if p.len() != m || p.iter().any(|x| !(0.0..=1.0).contains(x)) {
+            return Err(Error::BadShape("one shared-state probability in [0, 1] per mode"));
+        }
+        if !matches!(algorithm, Algorithm::CliffordClifford) {
+            return Err(Error::BadShape("partial distinguishability with this algorithm"));
+        }
+    }
     if u.len() != m * m || input.len() != m {
         return Err(Error::BadShape("unitary and input"));
     }
@@ -295,7 +418,10 @@ pub fn sample_boson_lossy(
                     return Err(Error::Cancelled);
                 }
                 let mut s = Stream::new(seed, stream_start + i as u64);
-                out.extend(lossy_shot(u, m, input, loss, &mut s));
+                match shared {
+                    Some(p) => out.extend(noisy_shot(u, m, input, loss, p, &mut s)),
+                    None => out.extend(lossy_shot(u, m, input, loss, &mut s)),
+                }
             }
         }
         Algorithm::Metropolis { burn_in, thin, chains } => {
@@ -337,6 +463,39 @@ mod tests {
         assert_eq!(ones, 0);
         let twos = s.chunks(2).filter(|t| t == &[2, 0]).count();
         assert!((twos as f64 / 20000.0 - 0.5).abs() < 0.02);
+    }
+
+    /// the Gram formula: identical photons give |perm|^2 / (S! T!), distinguishable ones perm(|U|^2) / T!, and
+    /// Hong-Ou-Mandel with overlap x gives P(1,1) = (1 - |x|^2) / 2
+    #[test]
+    fn partial_probability_limits() {
+        let u = hom();
+        let gram = |x: f64| vec![C64::ONE, C64::new(x, 0.0), C64::new(x, 0.0), C64::ONE];
+        for x in [0.0, 0.3, 0.8, 1.0] {
+            let p = partial_probability(&u, 2, &[1, 1], &[1, 1], &gram(x)).unwrap();
+            assert!((p - (1.0 - x * x) / 2.0).abs() < 1e-15, "{x}: {p}");
+        }
+        // three photons, two of them in one input mode, on a random-ish 3x3 unitary from two beamsplitters
+        let (c, s) = (0.6f64, 0.8f64);
+        let b1 = [C64::new(c, 0.0), C64::new(-s, 0.0), C64::ZERO, C64::new(s, 0.0), C64::new(c, 0.0), C64::ZERO, C64::ZERO, C64::ZERO, C64::ONE];
+        let (c2, s2) = (0.8f64, 0.6f64);
+        let b2 = [C64::ONE, C64::ZERO, C64::ZERO, C64::ZERO, C64::new(c2, 0.0), C64::new(0.0, -s2), C64::ZERO, C64::new(0.0, -s2), C64::new(c2, 0.0)];
+        let mut u3 = vec![C64::ZERO; 9];
+        for r in 0..3 { for k in 0..3 { for l in 0..3 { u3[r * 3 + k] = u3[r * 3 + k].add(b2[r * 3 + l].mul(b1[l * 3 + k])); } } }
+        let ones = vec![C64::ONE; 9];
+        let id: Vec<C64> = (0..9).map(|x| if x % 4 == 0 { C64::ONE } else { C64::ZERO }).collect();
+        let w: Vec<C64> = u3.iter().map(|z| C64::new(z.re * z.re + z.im * z.im, 0.0)).collect();
+        let mut tot = (0.0, 0.0);
+        for t in patterns(3, 3) {
+            let pi = partial_probability(&u3, 3, &[2, 1, 0], &t, &ones).unwrap();
+            let want = perm::bs_probability(&u3, 3, &[2, 1, 0], &t, 1, &never).unwrap().0;
+            assert!((pi - want).abs() < 1e-14, "identical {t:?}");
+            let pd = partial_probability(&u3, 3, &[2, 1, 0], &t, &id).unwrap();
+            let want_d = perm::permanent_repeated(&w, 3, 3, &t, &[2, 1, 0], 1, &never).unwrap().value.re / fact(&t);
+            assert!((pd - want_d).abs() < 1e-14, "distinguishable {t:?}");
+            tot = (tot.0 + pi, tot.1 + pd);
+        }
+        assert!((tot.0 - 1.0).abs() < 1e-13 && (tot.1 - 1.0).abs() < 1e-13);
     }
 
     #[test]

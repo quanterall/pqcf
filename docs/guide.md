@@ -261,6 +261,26 @@ fock_dm = pq_api:backend_for(C, #{}),
 `pq_noise:insert_loss/3` and `pq_noise:detector_efficiency/2` add loss to an existing circuit. Boson sampling
 takes loss at the inputs or the outputs, and has a Metropolis sampler for large instances.
 
+Two further noise options (1.1) work on sampling and on exact probabilities:
+
+- **`visibility => M`, or a list of M per input mode:** partially distinguishable photons in boson sampling. Each
+  photon shares an internal state with the others with probability √M, so two photons with the same M show the
+  Hong–Ou–Mandel visibility M. The sampler stays as fast as Clifford–Clifford, and it is exact for this model. For
+  arbitrary overlaps, give `gram => Rows` instead: the n × n Gram matrix of the photons' internal states, with the
+  photons listed in input-mode order. The probabilities then cost n! permanents per pattern, so keep n small.
+- **`dark_counts => Nu`, or `#{Mode => Nu}`:** every detector adds Poisson-distributed counts with mean ν per shot.
+  A photon-counting detector reports n + k; a threshold detector clicks when it saw light, or otherwise with
+  probability 1 − e^(−ν). The noise comes from its own stream per shot, so samples still do not depend on chunking,
+  and post-selection sees the noisy outcomes. It applies to terminal measurements only.
+
+```erlang
+{ok, H0} = pq_api:circuit(2, {fock, [1, 1]}),
+H = lists:foldl(fun(I, Acc) -> pq_circuit:add(Acc, I) end, H0, [{beamsplitter, 0, 1, math:pi() / 4, 0}, {measure_pnr, [0, 1]}]),
+{ok, Pv, _} = pq_api:probabilities(H, #{visibility => 0.9}),      %% [1, 1] => 0.05: the dip is (1 - M) / 2
+{ok, Pd, _} = pq_api:probabilities(H, #{dark_counts => 0.01}),    %% [2, 1] => 0.5 * 0.01 * exp(-0.02); [1, 1] stays 0
+{ok, _} = pq_api:sample(H, #{shots => 1000, seed => 4, visibility => 0.9, dark_counts => 0.01}).
+```
+
 `pq_stats` provides:
 
 - `mean_photon_number/2`
