@@ -464,7 +464,43 @@ fn hafnian<'a>(env: Env<'a>, m: Term<'a>, opts: Term<'a>) -> NifResult<Term<'a>>
         Err(e) => return Ok(bad_shape(env, &e)),
     };
     let cancel = cancelled_fn(&o);
-    Ok(guarded(env, || haf_result(env, hafnian::hafnian(&a, n, None, o.threads, &cancel))))
+    let ones = vec![1u32; n];
+    Ok(guarded(env, || haf_on(env, &a, n, None, &ones, &o, &cancel)))
+}
+
+/// the (loop) hafnian with repeated indices on the device the options ask for: device => gpu runs the expanded
+/// matrix on the GPU unless Kan's formula is cheaper (then the CPU); auto keeps the CPU (spike G1: the GB10's FP64
+/// rate does not beat 20 CPU threads up to m = 40)
+fn haf_on<'a>(env: Env<'a>, a: &[C64], n: usize, loops: Option<&[C64]>, mult: &[u32], o: &KernelOpts,
+              cancel: &(dyn Fn() -> bool + Sync)) -> Term<'a> {
+    let on_cpu = |r: Result<hafnian::HafResult, hafnian::Error>| put_haf(env, r, atoms::cpu());
+    if o.device != Device::Gpu || mult.len() != n || a.len() != n * n || hafnian::kan_is_cheaper(n, mult) {
+        return on_cpu(hafnian::hafnian_repeated(a, n, loops, mult, o.threads, cancel));
+    }
+    let (b, k, l) = match hafnian::expand(a, n, loops, mult) {
+        Ok(x) => x,
+        Err(e) => return on_cpu(Err(e)),
+    };
+    match gpu::hafnian(&b, k, l.as_deref(), cancel) {
+        Ok(r) => put_haf(env, Ok(r), atoms::gpu()),
+        Err(gpu::Error::Unavailable(why)) => {
+            let d = Term::map_from_pairs(env, &[(atoms::device().encode(env), atoms::gpu().encode(env)),
+                                                (atoms::reason().encode(env), why.encode(env))]).unwrap();
+            error(env, (atoms::unsupported_input(), d))
+        }
+        Err(gpu::Error::Cancelled) => error(env, atoms::cancelled()),
+        Err(gpu::Error::NonFinite) => on_cpu(Err(hafnian::Error::NonFinite("output"))),
+        Err(gpu::Error::BadShape(m)) => bad_shape(env, m),
+    }
+}
+
+/// haf_result with the device in the info map
+fn put_haf<'a>(env: Env<'a>, r: Result<hafnian::HafResult, hafnian::Error>, dev: Atom) -> Term<'a> {
+    let t = haf_result(env, r);
+    match t.decode::<(Atom, (Term, Term))>() {
+        Ok((ok, (v, info))) if ok == atoms::ok() => (ok, (v, info.map_put(atoms::device().encode(env), dev.encode(env)).unwrap())).encode(env),
+        _ => t,
+    }
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -475,7 +511,7 @@ fn hafnian_repeated<'a>(env: Env<'a>, m: Term<'a>, mult: Vec<u32>, opts: Term<'a
         Err(e) => return Ok(bad_shape(env, &e)),
     };
     let cancel = cancelled_fn(&o);
-    Ok(guarded(env, || haf_result(env, hafnian::hafnian_repeated(&a, n, None, &mult, o.threads, &cancel))))
+    Ok(guarded(env, || haf_on(env, &a, n, None, &mult, &o, &cancel)))
 }
 
 /// loop_hafnian(M, Diag, Mult, Opts): the hafnian of M with its diagonal replaced by Diag (FS A.9)
@@ -491,7 +527,7 @@ fn loop_hafnian<'a>(env: Env<'a>, m: Term<'a>, diag: Term<'a>, mult: Vec<u32>, o
         Err(e) => return Ok(bad_shape(env, &e)),
     };
     let cancel = cancelled_fn(&o);
-    Ok(guarded(env, || haf_result(env, hafnian::hafnian_repeated(&a, n, Some(&d), &mult, o.threads, &cancel))))
+    Ok(guarded(env, || haf_on(env, &a, n, Some(&d), &mult, &o, &cancel)))
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]

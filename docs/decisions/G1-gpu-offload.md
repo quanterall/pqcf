@@ -70,10 +70,52 @@ Long enumerations run as launches of 2^16 threads (2^28 positions), with the can
   bit-identity for speed. Not done: the bit-identical terms are what make the GPU path testable against the CPU
   kernel.
 
+## The hafnian (follow-up, 5 Nov 2026)
+
+`gpu/haf.cu`: each subset term of the power-trace formula is computed independently, so a thread takes a group of
+16 subsets in Gray-code order. The thread computes, operation for operation like `hafnian.rs`:
+
+- E = (A X)_Z;
+- the Householder reduction to Hessenberg form;
+- La Budde's characteristic polynomial;
+- Newton's identities;
+- the loop terms;
+- the exponential's power series.
+
+With `-fmad=false` and IEEE division and square root, every term is bit-identical to the CPU's. The thread adds
+its terms with Neumaier summation, and the host adds the threads in order, so the result is reproducible bit for bit
+and equal to the CPU within the regrouped rounding (0.00 ε S measured, m = 16–40). The matrices of a thread, up to
+2n × 2n, live in a global-memory workspace; launches are capped at 16,384 threads and 256 MB of workspace.
+
+- **Covered:** `hafnian/2`, `hafnian_repeated/3` and `loop_hafnian/4` with `device => gpu`, odd sizes included.
+  Repeated indices are expanded on the GPU unless Kan's formula is cheaper, in which case they run on the CPU and
+  the info map says so.
+- **Speed: no gain on the GB10.** A smaller group (16 instead of 64) and bigger launches helped, but against 20 CPU
+  threads, on a machine shared with other work:
+
+  | m | GPU | CPU, 20 threads |
+  | --- | --- | --- |
+  | 28 | 0.16 s | 0.09 s |
+  | 32 | 0.27 s | 0.24 s |
+  | 36 | 1.07 s | 0.45–1.5 s |
+  | 40 | 6.2 s | 5.2 s |
+
+  The work is O(d³) complex FP64 per subset, with its matrices in global memory, which is the GB10's weak spot
+  (low FP64 rate, memory shared with the CPU). So `auto` keeps the hafnian on the CPU. The GPU path is exact and
+  tested, ready for a GPU with high FP64 throughput.
+- **Tests:**
+  - GT-H01 through the GPU path: 52 cases of the golden file up to m = 28, 42 of them on the GPU (the others on
+    Kan's formula), all within 1e-10 of the scale;
+  - Rust: hafnians and loop hafnians at m = 2–22 against the CPU kernel, bit-identical on repetition;
+  - `auto` choosing the CPU, and the refusal without a GPU;
+  - mutation check: one Householder reflection factor 2 → 1 in the CUDA source, caught by GT-H01.
+
 ## Open
 
-- **Hafnian and torontonian on the GPU (GT-H01 on the GPU path):** the power-trace algorithm needs an eigenvalue or
-  characteristic-polynomial step per subset, a different kernel shape. Left for a later item.
+- **Torontonian on the GPU:** its Cholesky walk carries state from subset to subset, a third kernel shape. Not
+  done: on the GB10 it would meet the same FP64 limit as the hafnian.
+- **`auto` for the hafnian:** stays on the CPU until a GPU with high FP64 throughput is measured, such as the
+  dedicated machine's, if it has one.
 - **Fock gates on the GPU:** these are memory-bound, and the GB10's memory is shared with the CPU, so a gain is
   unlikely there. To be measured on the dedicated machine.
 

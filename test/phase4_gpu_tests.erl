@@ -34,7 +34,8 @@ gpu() ->
 
 gpu_test_() ->
     case gpu() of
-        true -> [{"GT-P01 on the GPU", fun gt_p01/0}, {"against the CPU kernel", fun against_cpu/0},
+        true -> [{"GT-P01 on the GPU", fun gt_p01/0}, {timeout, 300, {"GT-H01 on the GPU", fun gt_h01/0}},
+                 {"against the CPU kernel", fun against_cpu/0},
                  {"auto and repeated rows", fun auto/0}, {timeout, 60, {"cancel", fun cancel/0}}];
         false -> [fun refused/0]
     end.
@@ -50,6 +51,30 @@ gt_p01() ->
          {ok, {P, #{permanent_scale := S}}} = pq_nif:bs_probability(cmat(U), In, Out, #{device => gpu}),
          ?assert(abs(P - W) =< ?TOL * max(S * S, 1.0e-6))
      end || #{<<"unitary">> := U, <<"input">> := In, <<"output">> := Out, <<"probability">> := W} <- Pr].
+
+%% GT-H01: the hafnian family of the golden file (thewalrus 0.22.0) through the GPU path, m <= 28, within 1e-10 of
+%% the scale; plain matrices and loop weights on the GPU, repeated indices on the GPU unless Kan's formula is cheaper
+gt_h01() ->
+    {ok, Bin} = file:read_file(filename:join([code:lib_dir(pq), "..", "..", "..", "..", "test", "fixtures", "gt_h01.json"])),
+    #{<<"cases">> := Cases} = json:decode(Bin),
+    Cv = fun(L) -> {ok, V} = pq_core:pack({cvec, [{complex, Re, Im} || [Re, Im] <- L]}), V end,
+    Run = [begin
+               M = length(Rows),
+               A = cmat(Rows),
+               Mult = maps:get(<<"mult">>, C, lists:duplicate(M, 1)),
+               R = case maps:find(<<"loops">>, C) of
+                       {ok, L} -> pq_nif:loop_hafnian(A, Cv(L), Mult, #{device => gpu});
+                       error -> pq_nif:hafnian_repeated(A, Mult, #{device => gpu})
+                   end,
+               {ok, {{Re, Im}, #{scale := S, device := Dev}}} = R,
+               [WRe, WIm] = maps:get(<<"value">>, C),
+               ?assert((abs(Re - WRe) + abs(Im - WIm)) / max(S, 1.0) =< ?TOL),
+               Dev
+           end || #{<<"matrix">> := Rows} = C <- Cases, length(Rows) =< 28],
+    ?debugFmt("GT-H01 through the GPU path: ~p cases, ~p on the GPU", [length(Run), length([g || gpu <- Run])]),
+    ?assert(length([g || gpu <- Run]) > 0),
+    %% auto keeps the hafnian on the CPU (spike G1)
+    {ok, {_, #{device := cpu}}} = pq_nif:hafnian(cmat(hd([R || #{<<"matrix">> := R} <- Cases])), #{device => auto}).
 
 %% n = 2..22: within 8 eps S of the CPU kernel, the scale too; bit-identical on repetition
 against_cpu() ->
@@ -89,5 +114,9 @@ cancel() ->
 
 refused() ->
     ?assertMatch({error, {unsupported_input, #{device := gpu}}}, pq_nif:permanent(random(5, 1), #{device => gpu})),
+    ?assertMatch({error, {unsupported_input, #{device := gpu}}}, pq_nif:hafnian(sym(6), #{device => gpu})),
     %% auto falls back to the CPU
     ?assertMatch({ok, {_, #{device := cpu}}}, pq_nif:permanent(random(24, 1), #{device => auto})).
+
+sym(M) ->
+    cmat([[[1.0 / (1 + I + J), 0.1 * (I + J)] || J <- lists:seq(1, M)] || I <- lists:seq(1, M)]).

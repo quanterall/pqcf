@@ -357,15 +357,27 @@ pub fn hafnian_repeated(
     if mult.len() != m || a.len() != m * m {
         return Err(Error::BadShape("multiplicities"));
     }
-    let kan_terms: f64 = mult.iter().map(|&x| x as f64 + 1.0).product::<f64>() * (m * m) as f64;
-    let n_total: u32 = mult.iter().sum();
-    let expand_terms = 2f64.powi((n_total / 2) as i32) * (n_total as f64).powi(3).max(1.0);
-    if kan_terms < expand_terms {
+    if kan_is_cheaper(m, mult) {
         if a.iter().chain(loops.unwrap_or(&[])).any(|z| !z.is_finite()) {
             return Err(Error::NonFinite("input"));
         }
         return kan(a, m, loops, mult, cancel);
     }
+    let (b, k, l) = expand(a, m, loops, mult)?;
+    hafnian(&b, k, l.as_deref(), threads, cancel)
+}
+
+/// Kan's formula is cheaper than expanding the repeated indices (then `kan`, else `expand` and `hafnian`)
+pub fn kan_is_cheaper(m: usize, mult: &[u32]) -> bool {
+    let kan_terms: f64 = mult.iter().map(|&x| x as f64 + 1.0).product::<f64>() * (m * m) as f64;
+    let n_total: u32 = mult.iter().sum();
+    let expand_terms = 2f64.powi((n_total / 2) as i32) * (n_total as f64).powi(3).max(1.0);
+    kan_terms < expand_terms
+}
+
+/// the matrix and loop weights with every index repeated by its multiplicity
+#[allow(clippy::type_complexity)]
+pub fn expand(a: &[C64], m: usize, loops: Option<&[C64]>, mult: &[u32]) -> Result<(Vec<C64>, usize, Option<Vec<C64>>), Error> {
     let idx: Vec<usize> = (0..m).flat_map(|i| std::iter::repeat_n(i, mult[i] as usize)).collect();
     let k = idx.len();
     if k / 2 > MAX_PAIRS {
@@ -373,7 +385,7 @@ pub fn hafnian_repeated(
     }
     let b: Vec<C64> = idx.iter().flat_map(|&i| idx.iter().map(move |&j| a[i * m + j])).collect();
     let l: Option<Vec<C64>> = loops.map(|l| idx.iter().map(|&i| l[i]).collect());
-    hafnian(&b, k, l.as_deref(), threads, cancel)
+    Ok((b, k, l))
 }
 
 #[cfg(test)]

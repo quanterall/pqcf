@@ -1,5 +1,5 @@
-//! GPU offload (Phase 4, FS 15 item 5; docs/decisions/G1-gpu-offload.md): Glynn's permanent on an NVIDIA GPU
-//! through the CUDA driver API, loaded at run time.
+//! GPU offload (Phase 4, FS 15 item 5; docs/decisions/G1-gpu-offload.md): Glynn's permanent and the (loop)
+//! hafnian on an NVIDIA GPU through the CUDA driver API, loaded at run time.
 //!
 //! The kernel is gpu/perm.cu, compiled once to PTX with -fmad=false (gpu/build_ptx.sh) and embedded; the driver
 //! JIT-compiles it for the device. Nothing CUDA is needed to build the crate: without libcuda.so.1 or a device every
@@ -13,10 +13,12 @@
 //! NFR-04: the kernel logic is the PTX and the safe code below; `unsafe` is confined to the `driver` submodule, the
 //! FFI boundary to libcuda, like the Rustler glue in lib.rs.
 use crate::num::{CSum, Sum, C64};
+use crate::hafnian::HafResult;
 use crate::perm::PermResult;
 use std::sync::OnceLock;
 
 const PTX: &str = include_str!("../gpu/perm.ptx");
+const HAF_PTX: &str = include_str!("../gpu/haf.ptx");
 /// Positions per GPU thread: the CPU kernel's refresh interval (perm::REFRESH).
 pub const THREAD_POSITIONS: u64 = 4096;
 const MAX_N: usize = 40;
@@ -86,10 +88,88 @@ pub fn permanent_cancellable(a: &[C64], n: usize, cancel: &dyn Fn() -> bool) -> 
     Ok(PermResult { value, scale, positions, blocks: threads })
 }
 
+/// Subsets per hafnian thread (Gray-code order, added with Neumaier summation in the thread); 16 measured faster
+/// than 64 on the GB10 (more threads in flight).
+pub const HAF_GROUP: u64 = 16;
+/// Hafnian threads per launch: at most 16384, and at most HAF_WORKSPACE_BYTES of workspace (allocated per launch).
+const HAF_LAUNCH: u64 = 16384;
+const HAF_WORKSPACE_BYTES: u64 = 256 << 20;
+/// The largest number of pairs on the GPU (the workspace grows as (2n)^2 per thread).
+pub const HAF_MAX_PAIRS: usize = 32;
+
+/// complex entries of a hafnian thread's workspace for n pairs (the layout in gpu/haf.cu)
+fn haf_workspace(n: usize) -> usize {
+    let d = 2 * n;
+    2 * d * d + (d + 1) * (d + 2) / 2 + 3 * d + 3 * n + 2
+}
+
+/// haf(A), or the loop hafnian with `loops` on the diagonal, of a symmetric m x m matrix on the GPU: the subset terms
+/// of hafnian.rs bit for bit, regrouped in threads of HAF_GROUP subsets
+pub fn hafnian(a: &[C64], m: usize, loops: Option<&[C64]>, cancel: &dyn Fn() -> bool) -> Result<HafResult, Error> {
+    if a.len() != m * m || loops.is_some_and(|l| l.len() != m) {
+        return Err(Error::BadShape("matrix and loop weights"));
+    }
+    if a.iter().chain(loops.unwrap_or(&[])).any(|z| !z.is_finite()) {
+        return Err(Error::NonFinite);
+    }
+    if m % 2 == 1 {
+        return match loops {
+            None => Ok(HafResult { value: C64::ZERO, scale: 0.0, subsets: 0 }),
+            Some(l) => {
+                // as the CPU kernel: one more vertex with loop weight 1 and no edges
+                let mp = m + 1;
+                let mut ap = vec![C64::ZERO; mp * mp];
+                for i in 0..m {
+                    for j in 0..m {
+                        ap[i * mp + j] = a[i * m + j];
+                    }
+                }
+                let mut lp = l.to_vec();
+                lp.push(C64::ONE);
+                hafnian(&ap, mp, Some(&lp), cancel)
+            }
+        };
+    }
+    let n = m / 2;
+    if n == 0 {
+        return Ok(HafResult { value: C64::ONE, scale: 1.0, subsets: 0 });
+    }
+    if n > HAF_MAX_PAIRS {
+        return Err(Error::BadShape("at most 32 pairs on the GPU"));
+    }
+    let total = 1u64 << n;
+    let threads = total.div_ceil(HAF_GROUP);
+    let fa: Vec<f64> = a.iter().flat_map(|z| [z.re, z.im]).collect();
+    let fl: Option<Vec<f64>> = loops.map(|l| l.iter().flat_map(|z| [z.re, z.im]).collect());
+    let stride = 2 * haf_workspace(n) as u64;
+    let dev = driver::get()?;
+    let mut partial = Vec::with_capacity(3 * threads as usize);
+    let mut first = 0;
+    while first < threads {
+        if cancel() {
+            return Err(Error::Cancelled);
+        }
+        let count = HAF_LAUNCH.min(HAF_WORKSPACE_BYTES / (8 * stride)).max(1).min(threads - first);
+        partial.extend(dev.hafnian_terms(&fa, m, fl.as_deref(), n, HAF_GROUP, first, count, stride)?);
+        first += count;
+    }
+    let mut sum = CSum::new(threads);
+    let mut scale = Sum::new(threads);
+    for t in 0..threads as usize {
+        sum.add(C64::new(partial[3 * t], partial[3 * t + 1]));
+        scale.add(partial[3 * t + 2]);
+    }
+    let value = sum.value();
+    if !value.is_finite() {
+        return Err(Error::NonFinite);
+    }
+    Ok(HafResult { value, scale: scale.value(), subsets: total })
+}
+
 /// The FFI boundary to the CUDA driver API (libcuda.so.1), opened once per process.
 #[allow(unsafe_code)]
 mod driver {
-    use super::{Error, OnceLock, PTX};
+    use super::{Error, OnceLock, HAF_PTX, PTX};
     use libloading::{Library, Symbol};
     use std::ffi::{c_char, c_int, c_uint, c_void, CString};
     use std::sync::Mutex;
@@ -107,6 +187,7 @@ mod driver {
         _lib: Library,
         ctx: CuContext,
         func: CuFunction,
+        haf: CuFunction,
         api: Api,
         lock: Mutex<()>,
     }
@@ -183,11 +264,85 @@ mod driver {
             let fname = CString::new("glynn").expect("name");
             let mut func: CuFunction = std::ptr::null_mut();
             check(get_function(&mut func, module, fname.as_ptr()), "cuModuleGetFunction")?;
-            Ok(Device { name, _lib: lib, ctx, func, api, lock: Mutex::new(()) })
+            let hptx = CString::new(HAF_PTX).map_err(|_| "PTX contains a NUL byte".to_string())?;
+            let mut hmodule: CuModule = std::ptr::null_mut();
+            check(module_load(&mut hmodule, hptx.as_ptr() as *const c_void), "cuModuleLoadData (hafnian)")?;
+            let hname = CString::new("hafnian_terms").expect("name");
+            let mut haf: CuFunction = std::ptr::null_mut();
+            check(get_function(&mut haf, hmodule, hname.as_ptr()), "cuModuleGetFunction (hafnian)")?;
+            Ok(Device { name, _lib: lib, ctx, func, haf, api, lock: Mutex::new(()) })
         }
     }
 
     impl Device {
+        /// one launch of hafnian_terms over threads first .. first + threads - 1 (3 doubles each), with a workspace of
+        /// `stride` doubles per thread
+        #[allow(clippy::too_many_arguments)]
+        pub fn hafnian_terms(&self, a: &[f64], m: usize, loops: Option<&[f64]>, n: usize, group: u64, first: u64, threads: u64,
+                             stride: u64) -> Result<Vec<f64>, Error> {
+            let _guard = self.lock.lock().map_err(|_| Error::Unavailable("device lock poisoned".into()))?;
+            let fail = |e: String| Error::Unavailable(e);
+            let mut out = vec![0.0f64; 3 * threads as usize];
+            unsafe {
+                check((self.api.ctx_set_current)(self.ctx), "cuCtxSetCurrent").map_err(fail)?;
+                let sizes = [a.len() * 8, loops.map_or(0, |l| l.len() * 8), (stride * threads) as usize * 8, out.len() * 8];
+                let mut ptrs = [0u64; 4];
+                let mut taken = 0;
+                let mut alloc_err = None;
+                for (k, &bytes) in sizes.iter().enumerate() {
+                    if bytes == 0 {
+                        continue;
+                    }
+                    if let Err(e) = check((self.api.mem_alloc)(&mut ptrs[k], bytes), "cuMemAlloc") {
+                        alloc_err = Some(e);
+                        break;
+                    }
+                    taken = k + 1;
+                }
+                let free_all = |ptrs: &[u64; 4]| {
+                    for &p in ptrs.iter().take(taken) {
+                        if p != 0 {
+                            (self.api.mem_free)(p);
+                        }
+                    }
+                };
+                if let Some(e) = alloc_err {
+                    free_all(&ptrs);
+                    return Err(fail(e));
+                }
+                let mut run = || -> Result<(), String> {
+                    check((self.api.htod)(ptrs[0], a.as_ptr() as *const c_void, sizes[0]), "cuMemcpyHtoD")?;
+                    if let Some(l) = loops {
+                        check((self.api.htod)(ptrs[1], l.as_ptr() as *const c_void, sizes[1]), "cuMemcpyHtoD")?;
+                    }
+                    let (mut pa, mut mm, mut pl, mut nn) = (ptrs[0], m as c_int, ptrs[1], n as c_int);
+                    let (mut grp, mut fst, mut thr, mut pw, mut st, mut po) = (group, first, threads, ptrs[2], stride, ptrs[3]);
+                    let mut args: [*mut c_void; 10] = [
+                        &mut pa as *mut u64 as *mut c_void,
+                        &mut mm as *mut c_int as *mut c_void,
+                        &mut pl as *mut u64 as *mut c_void,
+                        &mut nn as *mut c_int as *mut c_void,
+                        &mut grp as *mut u64 as *mut c_void,
+                        &mut fst as *mut u64 as *mut c_void,
+                        &mut thr as *mut u64 as *mut c_void,
+                        &mut pw as *mut u64 as *mut c_void,
+                        &mut st as *mut u64 as *mut c_void,
+                        &mut po as *mut u64 as *mut c_void,
+                    ];
+                    let block: u64 = 64;
+                    let grid = threads.div_ceil(block) as c_uint;
+                    check((self.api.launch)(self.haf, grid, 1, 1, block as c_uint, 1, 1, 0, std::ptr::null_mut(),
+                                            args.as_mut_ptr(), std::ptr::null_mut()), "cuLaunchKernel (hafnian)")?;
+                    check((self.api.sync)(), "cuCtxSynchronize")?;
+                    check((self.api.dtoh)(out.as_mut_ptr() as *mut c_void, ptrs[3], sizes[3]), "cuMemcpyDtoH")
+                };
+                let r = run();
+                free_all(&ptrs);
+                r.map_err(fail)?;
+            }
+            Ok(out)
+        }
+
         /// one launch of the glynn kernel over threads first .. first + threads - 1: 3 doubles per thread
         pub fn glynn(&self, u: &[f64], n: usize, positions: u64, first: u64, threads: u64) -> Result<Vec<f64>, Error> {
             let _guard = self.lock.lock().map_err(|_| Error::Unavailable("device lock poisoned".into()))?;
@@ -267,6 +422,37 @@ mod tests {
         }
     }
 
+    fn symmetric(m: usize, seed: u64) -> Vec<C64> {
+        let a = matrix(m, seed);
+        let mut s = vec![C64::ZERO; m * m];
+        for i in 0..m {
+            for j in 0..m {
+                s[i * m + j] = a[i * m + j].add(a[j * m + i]).scale(0.5);
+            }
+        }
+        s
+    }
+
+    /// the hafnian and loop hafnian on the GPU against the CPU kernel: within a few ulps of the scale, odd sizes
+    /// included, and bit-identical on repetition
+    #[test]
+    fn hafnian_against_the_cpu_kernel() {
+        let Ok(_) = device() else { return };
+        for m in [2usize, 4, 7, 10, 16, 22] {
+            let a = symmetric(m, 50 + m as u64);
+            let l = matrix(1, 70 + m as u64).into_iter().cycle().take(m).enumerate().map(|(i, z)| z.scale(1.0 + i as f64 * 0.1)).collect::<Vec<_>>();
+            for loops in [None, Some(l.as_slice())] {
+                let cpu = crate::hafnian::hafnian(&a, m, loops, 1, &|| false).unwrap();
+                let gpu = hafnian(&a, m, loops, &|| false).unwrap();
+                let tol = 8.0 * f64::EPSILON * cpu.scale.max(1e-300);
+                assert!((gpu.value.re - cpu.value.re).abs() <= tol && (gpu.value.im - cpu.value.im).abs() <= tol,
+                        "m = {m} loops {}: {:?} vs {:?} (scale {})", loops.is_some(), gpu.value, cpu.value, cpu.scale);
+                assert_eq!(gpu.subsets, cpu.subsets);
+                assert_eq!(gpu.value, hafnian(&a, m, loops, &|| false).unwrap().value);
+            }
+        }
+    }
+
     /// spike G1: time against the CPU kernel (1 and `threads` threads) at n = 20..28, and the difference in units of
     /// eps * S. cargo test --release --lib gpu::tests::spike_g1 -- --ignored --nocapture
     #[test]
@@ -294,6 +480,27 @@ mod tests {
             let err = (gpu.value.re - cpu_n.value.re).abs().max((gpu.value.im - cpu_n.value.im).abs());
             eprintln!("n = {n}: GPU {tg:.4} s, CPU x{threads} {tn:.4} s, CPU x1 {t1:.4} s; |GPU - CPU| = {:.2} eps S",
                       err / (f64::EPSILON * cpu_n.scale));
+        }
+    }
+
+    /// spike G1 for the hafnian: cargo test --release --lib gpu::tests::spike_g1_hafnian -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn spike_g1_hafnian() {
+        let Ok(name) = device() else { return };
+        let threads = std::thread::available_parallelism().map(|x| x.get()).unwrap_or(1);
+        eprintln!("device {name}; CPU threads {threads}");
+        for m in [16usize, 24, 28, 32, 36] {
+            let a = symmetric(m, 200 + m as u64);
+            let _ = hafnian(&a, m, None, &|| false).unwrap();
+            let t = std::time::Instant::now();
+            let gpu = hafnian(&a, m, None, &|| false).unwrap();
+            let tg = t.elapsed().as_secs_f64();
+            let t = std::time::Instant::now();
+            let cpu = crate::hafnian::hafnian(&a, m, None, threads, &|| false).unwrap();
+            let tc = t.elapsed().as_secs_f64();
+            let err = (gpu.value.re - cpu.value.re).abs().max((gpu.value.im - cpu.value.im).abs());
+            eprintln!("m = {m}: GPU {tg:.3} s, CPU x{threads} {tc:.3} s; |GPU - CPU| = {:.2} eps S", err / (f64::EPSILON * cpu.scale));
         }
     }
 }

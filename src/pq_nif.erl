@@ -91,8 +91,10 @@ sample_boson(U, InputOcc, NShots, Opts) ->
 sample_boson_raw(_U, _InputOcc, _NShots, _Opts) -> erlang:nif_error(nif_not_loaded).
 
 %%% Hafnians and the torontonian (FS 8.4, AN 4; dirty CPU). Info carries the scale S (amendment A-1).
+%%% The hafnians take device too (gpu/haf.cu; repeated indices on the GPU unless Kan's formula is cheaper; auto stays
+%%% on the CPU, spike G1) and report it in info; the torontonian runs on the CPU.
 
--type haf_info() :: #{scale := float(), subsets := non_neg_integer()}.
+-type haf_info() :: #{scale := float(), subsets := non_neg_integer(), device => cpu | gpu}.
 
 -spec hafnian(pq_core:packed_cmatrix(), opts()) -> {ok, {pq_core:nif_complex(), haf_info()}} | kernel_error().
 hafnian(_M, _Opts) -> erlang:nif_error(nif_not_loaded).
