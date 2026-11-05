@@ -27,6 +27,8 @@ top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust 
 The symbolic engine is compared with FORM every week: [`comparison/form`](comparison/form) (latest results in
 `comparison/form/RESULTS.md`).
 
+From Python: the `pqcf` package in [`python/`](python/README.md), a client of PQCF's JSON service (guide section 16).
+
 The user guide is [`docs/guide.md`](docs/guide.md); every example in it is a test (`test/guide_examples_tests.erl`).
 Design decisions and spike results are in `docs/decisions/`.
 

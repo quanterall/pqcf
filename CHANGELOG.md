@@ -3,6 +3,25 @@
 PQCF follows semantic versioning from the API freeze (`docs/decisions/API-freeze.md`). Until 2.0, every change to
 the public API is additive.
 
+## Unreleased (1.2.0)
+
+### Added
+
+- **A JSON service and a Python client** (`C1`):
+  - `pq_service`: version, validate, backend_for, run, sample, probabilities, evolve and gradient as JSON
+    requests;
+  - two transports: stdio (`-s pq_service stdio`), and HTTP (`-s pq_service http`, `start_http/1,2`, 127.0.0.1 by
+    default);
+  - atom-safe: option keys, enum values and symbol names are matched against fixed tables or the circuit's own
+    symbols.
+- **The `pqcf` package** (`python/`, standard library only):
+  - `Circuit`, a builder of the JSON circuit format;
+  - `connect()`, the client;
+  - observables;
+  - `pqcf.convert`, to and from Perceval and Piquasso;
+  - `pqcf.linear`, a passive circuit's unitary.
+- `pq_json:predicate_from_json/1` (internal).
+
 ## 1.1.0 (5 November 2026)
 
 The first release after 1.0.0-rc.1: Phase 4 of the specification's roadmap (FS 15). Everything is additive. Code

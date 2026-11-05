@@ -8,4 +8,4 @@ RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-too
 WORKDIR /src
 COPY . .
 RUN rebar3 compile
-CMD ["sh", "-c", "rebar3 eunit && rebar3 dialyzer && rebar3 xref && cd native/pq_nif && cargo test --release -q && cargo clippy --release --all-targets -- -D warnings"]
+CMD ["sh", "-c", "rebar3 eunit && rebar3 dialyzer && rebar3 xref && PQCF_QUIET=1 python3 -W error::ResourceWarning -m unittest discover -s python/tests && cd native/pq_nif && cargo test --release -q && cargo clippy --release --all-targets -- -D warnings"]

@@ -489,3 +489,32 @@ categories. The common ones are:
 
 Warnings (`truncation`, `gbs_truncation`, `unused_bindings`) never fail a run. They are returned in the
 metadata, or as the third element of `evolve/2`.
+
+## 16. From Python (1.2)
+
+The `pqcf` Python package (`python/`) builds circuits in the JSON format of section 12 and runs them through
+PQCF's JSON service, `pq_service`. Simulations run in PQCF itself: Python only describes circuits and reads
+results.
+
+```python
+import pqcf
+c = pqcf.Circuit(2, fock=[1, 1]).beamsplitter(0, 1, "pi/4").measure_pnr([0, 1])
+with pqcf.connect() as q:                       # starts `erl ... -s pq_service stdio`; no network
+    q.probabilities(c)                          # {(0, 2): 0.5, (1, 1): ~0, (2, 0): 0.5, ...}
+    q.sample(c, shots=1000, seed=1).samples     # the same samples as pq_api:sample/2 with that seed
+    q.probabilities(c, visibility=0.9)          # every run option of section 5, by name
+    q.gradient(pqcf.Circuit(2, fock=[1, 0]).beamsplitter(0, 1, "t"),
+               pqcf.probability([0], [1]), {"t": 0.3}, mode="adjoint")
+```
+
+- **Transports:**
+  - **stdio**, the default: `pqcf.connect()` starts the service as a subprocess, using `PQCF_HOME`'s build or
+    `PQCF_COMMAND`, and talks over its standard input and output.
+  - **HTTP:** start `erl ... -s pq_service http`, which listens on 127.0.0.1 with `PQ_HTTP_PORT`, or `start_http/2`
+    from Erlang, then use `pqcf.connect("http://127.0.0.1:PORT")`. The service has no authentication: bind it to
+    another address only behind something that adds it.
+- **Errors** raise `pqcf.PqcfError`, carrying PQCF's error category (section 15).
+- **Converters:** `pqcf.convert` converts to and from Perceval and Piquasso, with numpy, and `pqcf.linear.unitary`
+  gives a passive circuit's unitary.
+- **Tests:** the package's tests run with the container's test suite, and the converters' tests in the oracle image
+  (`python/README.md`).

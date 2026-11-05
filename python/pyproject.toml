@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pqcf"
+version = "1.2.0.dev0"
+description = "Python client of PQCF, the Photonic Quantum Computing Framework (Erlang/OTP and Rust)"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+numpy = ["numpy"]
+perceval = ["numpy", "perceval-quandela"]
+piquasso = ["numpy", "piquasso"]
+
+[project.urls]
+Homepage = "https://github.com/quanterall/pqcf"
+
+[tool.setuptools.packages.find]
+where = ["src"]

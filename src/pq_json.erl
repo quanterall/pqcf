@@ -5,6 +5,8 @@
 -module(pq_json).
 -include("pq.hrl").
 -export([to_json/1, from_json/1, from_json/2]).
+%% internal: the service (pq_service) reads post-selection predicates with the same rules
+-export([predicate_from_json/1]).
 
 -define(V, 1).
 
@@ -90,6 +92,14 @@ pred_in(#{<<"op">> := Op, <<"modes">> := Ms, <<"value">> := V})
 pred_in(#{<<"op">> := Op, <<"mode">> := M, <<"value">> := V}) when Op =:= <<"eq">>; Op =:= <<"ge">>; Op =:= <<"le">> ->
     {binary_to_existing_atom(Op), int(M), num(V)};
 pred_in(P) -> fail({json_instruction, {predicate, P}}).
+
+-spec predicate_from_json(term()) -> {ok, term()} | {error, pq_core:reason()}.
+predicate_from_json(P) ->
+    try {ok, pred_in(P)}
+    catch
+        throw:{error, _} = E -> E;
+        error:_ -> {error, {json_input, predicate}}
+    end.
 
 meta_out(M) ->
     maps:from_list([begin
