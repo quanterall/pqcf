@@ -210,8 +210,8 @@ expressions (HEP processes) are not published; the resultants are fully specifie
   about 800 times faster than sympy on res(7,4) (0.68 s against 548 s).
 - **Evaluation cost:**
   - PQCF's straight-line programs only share atom powers, monomials and identical polynomials. They do no Horner
-    schemes and no common-subexpression search, which gives 2.4 to 2.5 times the operations of a direct expansion
-    reduction, and 4.2 to 5.8 times FORM 5's `O4`.
+    schemes and no common-subexpression search. That reduces the expanded form's operations 2.4 to 2.9 times, where
+    FORM 5's `O4` reduces them 9.9 to 16.6 times, so PQCF needs 4.2 to 5.8 times `O4`'s operations.
   - FORM 5's `O4` is 20–25 % better than the 2014 paper's best results, which it grew out of.
 
   This is the largest gap the comparison has found that matters to PQCF. Compiled expressions are what PQCF
