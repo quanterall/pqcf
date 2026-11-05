@@ -5,7 +5,7 @@ sampling, a symbolic engine for parameterised circuits, and parallel, reproducib
 top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust library loaded as a NIF
 (`pq_nif`, through [Rustler](https://github.com/rusterlium/rustler)).
 
-**Status: 1.1.0 (`CHANGELOG.md`).**
+**Status: 1.2.0 (`CHANGELOG.md`).**
 
 - The API is frozen (`docs/decisions/API-freeze.md`): changes to the public API are additive only until 2.0.
 - Every functional requirement of the specification is implemented and tested.
@@ -16,6 +16,9 @@ top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust 
   - noise models: partial distinguishability, multi-photon sources, dark counts, thermal loss;
   - GPU offload of permanents and hafnians;
   - photon-number-block storage for density matrices.
+- Beyond the roadmap (1.2):
+  - a JSON service and a Python client (`python/`);
+  - density-matrix gates 5–25 times faster.
 - Benchmarks are from a provisional reference machine (`bench/HARDWARE.md`).
 
 | Done | Next |

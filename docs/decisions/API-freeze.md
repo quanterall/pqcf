@@ -69,6 +69,24 @@ These additions are frozen from 1.1.0 by the same rule. Phase 4 decision records
   - `pq_simulator:evolve_state/3`;
   - the NIF contract, now 0.2.
 
+## Added in 1.2.0 (5 November 2026)
+
+Frozen by the same rule (decision records `C1`, `B2`):
+
+- **`pq_service`:** `handle/1`, `request/1`, `stdio/0`, `http/0`, `start_http/1`, `start_http/2`, `stop_http/1`.
+- **Its JSON protocol, service version 1:**
+  - the ops `version`, `validate`, `backend_for`, `run`, `sample`, `probabilities`, `evolve` and `gradient`;
+  - the request fields `id`, `op`, `circuit`, `options`, `observable` and `binding`;
+  - the response shapes `ok` and `error` (`category`, `reason`, `detail`);
+  - the option names, as for the Erlang API.
+
+  New ops, options and result keys may be added; none is removed.
+- **The Python package `pqcf`:** `Circuit` and its methods, `connect`, `Client` (`version`, `validate`,
+  `backend_for`, `run`, `sample`, `probabilities`, `probabilities_with_metadata`, `evolve`, `gradient`,
+  `request`), `Result`, `PqcfError`, `probability`, `mean_photon_number`, `weighted_sum`,
+  `pqcf.convert` (`from_perceval`, `to_perceval`, `to_piquasso`, `from_piquasso`) and `pqcf.linear.unitary`.
+- **Not frozen (internal):** `fockplan.rs` (behind the NIF contract), and `pq_json:predicate_from_json/1`.
+
 ## Not frozen
 
 - **Internal modules:** the `pq_sym_*` modules, `pq_job`, `pq_worker`, the supervisors, `pq_node_registry`,

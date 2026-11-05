@@ -3,7 +3,10 @@
 PQCF follows semantic versioning from the API freeze (`docs/decisions/API-freeze.md`). Until 2.0, every change to
 the public API is additive.
 
-## Unreleased (1.2.0)
+## 1.2.0 (5 November 2026)
+
+Beyond the specification's roadmap: PQCF from Python, and faster density matrices. Everything is additive and
+results are bit for bit the same as 1.1.0's. Upgrade every node of a cluster together, as for 1.1.0.
 
 ### Added
 
