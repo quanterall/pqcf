@@ -132,8 +132,8 @@ cost_test_() ->
 refusals_test() ->
     Obs = {mean_photon_number, [0]},
     Lossy = c(2, {fock, [1, 0]}, [{beamsplitter, 0, 1, s(t), 0}, {loss, 0, 0.5}]),
-    ?assertMatch({error, {differentiate_unsupported, #{mode := adjoint, instructions := [loss]}}},
-                 pq_gradient:gradient(Lossy, Obs, #{t => 0.2}, #{mode => adjoint})),
+    %% loss runs on density matrices, within max_dm_dim
+    ?assertMatch({error, {dimension_limit, 3, 2}}, pq_gradient:gradient(Lossy, Obs, #{t => 0.2}, #{mode => adjoint, max_dm_dim => 2})),
     ?assertMatch({error, {differentiate_unsupported, #{mode := adjoint, backend := gaussian}}},
                  pq_gradient:gradient(Lossy, Obs, #{t => 0.2}, #{mode => adjoint, backend => gaussian})),
     %% the magnitude of a displacement is not periodic; nor is anything on the Gaussian backend
@@ -153,6 +153,31 @@ refusals_test() ->
                                {feed_forward, {phaseshift, 1, s(m)}, #{m => 0}}]),
     ?assertMatch({error, {differentiate_unsupported, {instructions, [feed_forward]}}},
                  pq_gradient:gradient(Ff, Obs, #{t => 0.2}, #{mode => adjoint})).
+
+%% density matrices (the follow-up of item 3): loss differentiated, thermal loss passed through
+lossy_against_differences_test() ->
+    C = c(3, {fock, [2, 1, 0]}, [{beamsplitter, 0, 1, s(t), s(p)}, {loss, 0, s(e)}, {kerr, 1, s(k)},
+                                 {beamsplitter, 1, 2, 0.6, s(p)}, {loss, 2, {mul, [s(e), s(e)]}}, {phaseshift, 2, s(f)},
+                                 {thermal_loss, 1, 0.9, 0.2}, {beamsplitter, 0, 1, 0.5, 0.1}]),
+    B = #{t => 0.4, p => 0.3, e => 0.8, k => 0.25, f => 0.6},
+    Opts = #{cutoff => 5},
+    [begin
+         Gn = grad(C, O, B, Opts),
+         Ga = grad(C, O, B, Opts#{mode => adjoint}),
+         close(Ga, Gn, 1.0e-8)
+     end || O <- [{probability, [0, 1], [1, 1]}, {mean_photon_number, [1, 2]},
+                  {weighted_sum, [{s(e), {probability, [2], [0]}}, {1, {mean_photon_number, [0]}}]}]],
+    %% the periodic parameters against the exact shift rules (density-matrix backend)
+    Bp = maps:remove(e, B),
+    Cp = C#circuit{params = #{e => 0.8}},
+    close(grad(Cp, {probability, [0], [1]}, Bp, Opts#{mode => adjoint}),
+          grad(Cp, {probability, [0], [1]}, Bp, Opts#{mode => parameter_shift}), 1.0e-10).
+
+%% pq_stats:mean_photon_number/2 on a density matrix (it had no clause): one photon through loss 0.3 keeps 0.3
+mean_photon_number_dm_test() ->
+    {ok, S, _} = pq_api:evolve(c(1, {fock, [1]}, [{loss, 0, 0.3}]), #{}),
+    {ok, M} = pq_stats:mean_photon_number(S, [0]),
+    ?assert(abs(M - 0.3) < 1.0e-15).
 
 %% the kernel directly: a malformed gate list is a bad_shape, not a crash
 kernel_shape_test() ->

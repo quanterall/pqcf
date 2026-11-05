@@ -6,7 +6,7 @@
 
 %% Gaussian state: sum over Modes of (mu_x^2 + mu_p^2 + Sigma_xx + Sigma_pp) / (2 hbar) - 1/2; Fock state: sum n p(n)
 %% over Modes; a result: the sample mean of each listed column.
--spec mean_photon_number(#gaussian_state{} | #fock_state{} | #result{}, [non_neg_integer()]) ->
+-spec mean_photon_number(#gaussian_state{} | #fock_state{} | #fock_dm{} | #result{}, [non_neg_integer()]) ->
           {ok, float() | [float()]} | {error, pq_core:reason()}.
 mean_photon_number(#gaussian_state{n_modes = N, hbar = H} = S, Modes) ->
     case valid(Modes, N) of
@@ -19,6 +19,14 @@ mean_photon_number(#gaussian_state{n_modes = N, hbar = H} = S, Modes) ->
     end;
 mean_photon_number(#fock_state{n_modes = N, cutoff = C, amps = A}, Modes) ->
     case valid(Modes, N) andalso pq_nif:fock_pnr_probabilities(A, Modes, N, C) of
+        {ok, PP} -> {ok, lists:sum([lists:sum(P) * Pr || {P, Pr} <- PP])};
+        false -> {error, {mode_out_of_range, Modes}};
+        {error, _} = E -> E
+    end;
+%% a density matrix (it had no clause: the numeric gradient of a mean photon number through loss crashed, found
+%% in Phase 4 by the density-matrix adjoint's tests)
+mean_photon_number(#fock_dm{n_modes = N, cutoff = C, rho = R}, Modes) ->
+    case valid(Modes, N) andalso pq_nif:fock_pnr_probabilities(R, Modes, N, C) of
         {ok, PP} -> {ok, lists:sum([lists:sum(P) * Pr || {P, Pr} <- PP])};
         false -> {error, {mode_out_of_range, Modes}};
         {error, _} = E -> E

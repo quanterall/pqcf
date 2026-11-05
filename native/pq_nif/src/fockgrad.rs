@@ -316,6 +316,254 @@ pub fn adjoint(b: &Basis, x0: &[C64], gates: &[Gate], terms: &[Term]) -> Result<
     Ok((values, grads))
 }
 
+/// d/dp of gate g applied to v, parameter j in the gate's order (the pure-state derivatives above, per vector)
+fn derivative_vector(b: &Basis, g: &Gate, j: usize, v: &[C64], mats: Option<&Mats>) -> Result<Vec<C64>, Error> {
+    let mut y = v.to_vec();
+    apply(b, &mut y, g, mats)?;
+    Ok(match g {
+        Gate::Phaseshift { mode, .. } => number_times(b, &y, *mode, 1, true),
+        Gate::Kerr { mode, .. } => number_times(b, &y, *mode, 2, true),
+        Gate::Beamsplitter { theta, phi, ma, mb } => {
+            if j == 0 {
+                beamsplitter_generator(b, &y, *phi, *ma, *mb)
+            } else {
+                let mut bnx = number_times(b, v, *ma, 1, false);
+                fockstate::beamsplitter(b, &mut bnx, *theta, *phi, *ma, *mb)?;
+                let nay = number_times(b, &y, *ma, 1, false);
+                bnx.iter().zip(&nay).map(|(p, q)| C64::new(-(p.im - q.im), p.re - q.re)).collect()
+            }
+        }
+        Gate::Displacement { mode, .. } | Gate::Squeezing { mode, .. } => {
+            let m = mats.ok_or(Error::Internal("matrices".into()))?;
+            let mut z = v.to_vec();
+            fockstate::single_mode(b, &mut z, if j == 0 { &m.1 } else { &m.2 }, *mode);
+            z
+        }
+        Gate::Passive { .. } => return Err(Error::Internal("no parameters".into())),
+    })
+}
+
+/// A channel of the density-matrix adjoint: a gate, pure loss (its transmissivity differentiable), or thermal loss
+/// (passed through; its parameters are not differentiated).
+pub enum Channel {
+    Gate(Gate),
+    Loss { eta: f64, mode: usize },
+    Thermal { eta: f64, nth: f64, mode: usize },
+}
+
+impl Channel {
+    pub fn arity(&self) -> usize {
+        match self {
+            Channel::Gate(g) => g.arity(),
+            Channel::Loss { .. } => 1,
+            Channel::Thermal { .. } => 0,
+        }
+    }
+    fn kept(&self) -> bool {
+        !matches!(self, Channel::Gate(g) if !g.truncated())
+    }
+}
+
+/// G on every column of a D x D matrix (row-major)
+fn on_columns(m: &mut [C64], d: usize, mut f: impl FnMut(&mut [C64]) -> Result<(), Error>) -> Result<(), Error> {
+    let mut col = vec![C64::ZERO; d];
+    for j in 0..d {
+        for i in 0..d {
+            col[i] = m[i * d + j];
+        }
+        f(&mut col)?;
+        for i in 0..d {
+            m[i * d + j] = col[i];
+        }
+    }
+    Ok(())
+}
+
+/// Re tr(A B)
+fn re_trace_product(a: &[C64], bm: &[C64], d: usize) -> f64 {
+    let mut s = Sum::new((d * d) as u64);
+    for i in 0..d {
+        for j in 0..d {
+            let (x, y) = (a[i * d + j], bm[j * d + i]);
+            s.add(x.re * y.re - x.im * y.im);
+        }
+    }
+    s.value()
+}
+
+fn binom(n: u32, k: u32) -> f64 {
+    (0..k).fold(1.0, |acc, i| acc * (n - i) as f64 / (i + 1) as f64)
+}
+
+/// the adjoint of FS A.11 loss: Lambda'[p][q] = sum_l w(np, nq, l) Lambda[p - l][q - l]
+fn loss_adjoint(b: &Basis, lam: &[C64], eta: f64, mode: usize) -> Vec<C64> {
+    let d = b.patterns.len();
+    let mut out = vec![C64::ZERO; d * d];
+    for (i, p) in b.patterns.iter().enumerate() {
+        for (j, q) in b.patterns.iter().enumerate() {
+            let (np, nq) = (p[mode], q[mode]);
+            let (mut pp, mut qq) = (p.clone(), q.clone());
+            let mut acc = C64::ZERO;
+            for l in 0..=np.min(nq) {
+                pp[mode] = np - l;
+                qq[mode] = nq - l;
+                let w = (binom(np, l) * binom(nq, l)).sqrt() * eta.powf((np + nq - 2 * l) as f64 / 2.0) * (1.0 - eta).powi(l as i32);
+                acc = acc.add(lam[b.index(&pp) * d + b.index(&qq)].scale(w));
+            }
+            out[i * d + j] = acc;
+        }
+    }
+    out
+}
+
+/// d/d eta of eta^a (1 - eta)^l, without 0 * inf at the ends
+fn dpow(eta: f64, a: f64, l: i32) -> f64 {
+    let first = if a == 0.0 { 0.0 } else { a * eta.powf(a - 1.0) * (1.0 - eta).powi(l) };
+    let second = if l == 0 { 0.0 } else { l as f64 * eta.powf(a) * (1.0 - eta).powi(l - 1) };
+    first - second
+}
+
+/// tr(Lambda dL/deta (rho)) for loss on `mode`
+fn loss_gradient(b: &Basis, rho: &[C64], lam: &[C64], eta: f64, mode: usize) -> f64 {
+    let d = b.patterns.len();
+    let mut s = Sum::new((d * d) as u64);
+    for (i, p) in b.patterns.iter().enumerate() {
+        for (j, q) in b.patterns.iter().enumerate() {
+            let z = rho[i * d + j];
+            if z.re == 0.0 && z.im == 0.0 {
+                continue;
+            }
+            let (np, nq) = (p[mode], q[mode]);
+            let (mut pp, mut qq) = (p.clone(), q.clone());
+            for l in 0..=np.min(nq) {
+                pp[mode] = np - l;
+                qq[mode] = nq - l;
+                let w = (binom(np, l) * binom(nq, l)).sqrt() * dpow(eta, (np + nq - 2 * l) as f64 / 2.0, l as i32);
+                // tr(Lambda X) picks Lambda[target col][target row] X[target row][target col]
+                let lv = lam[b.index(&qq) * d + b.index(&pp)];
+                s.add(w * (z.re * lv.re - z.im * lv.im));
+            }
+        }
+    }
+    s.value()
+}
+
+/// the adjoint of the truncated amplifier (fockstate::dm::amplifier): Lambda'[p][q] = sum_k w_k Lambda[p + k][q + k]
+/// over the same k (the room under the cutoff)
+fn amplifier_adjoint(b: &Basis, lam: &[C64], g: f64, mode: usize) -> Vec<C64> {
+    let d = b.patterns.len();
+    let binom_up = |n: u32, k: u32| -> f64 { (0..k).fold(1.0, |acc, i| acc * (n + k - i) as f64 / (i + 1) as f64) };
+    let ratio = (g - 1.0) / g;
+    let total: Vec<u32> = b.patterns.iter().map(|p| p.iter().sum()).collect();
+    let mut out = vec![C64::ZERO; d * d];
+    for (i, p) in b.patterns.iter().enumerate() {
+        for (j, q) in b.patterns.iter().enumerate() {
+            let (np, nq) = (p[mode], q[mode]);
+            let room = (b.cutoff as u32).saturating_sub(total[i].max(total[j]));
+            let base = g.powf(-((np + nq + 2) as f64) / 2.0);
+            let (mut pp, mut qq) = (p.clone(), q.clone());
+            let mut acc = C64::ZERO;
+            for k in 0..=room {
+                if k > 0 && ratio == 0.0 {
+                    break;
+                }
+                pp[mode] = np + k;
+                qq[mode] = nq + k;
+                let w = (binom_up(np, k) * binom_up(nq, k)).sqrt() * base * ratio.powi(k as i32);
+                acc = acc.add(lam[b.index(&pp) * d + b.index(&qq)].scale(w));
+            }
+            out[i * d + j] = acc;
+        }
+    }
+    out
+}
+
+/// The density-matrix adjoint (Phase 4 follow-up; docs/decisions/AD1-adjoint-gradients.md): f = tr(O rho_K),
+/// rho_k = Phi_k(rho_(k-1)); Lambda_K = O, Lambda_(k-1) = Phi_k^dagger(Lambda_k); df/dp = tr(Lambda_k dPhi_k/dp
+/// (rho_(k-1))): for a gate 2 Re tr(G^dagger Lambda (dG/dp) rho), for loss the derivative of its Kraus weights.
+/// The state before each loss, thermal loss and truncated gate is kept; exact gates are inverted.
+pub fn adjoint_dm(b: &Basis, x0: &[C64], chans: &[Channel], terms: &[Term]) -> Result<(Vec<f64>, Vec<Vec<f64>>), Error> {
+    use fockstate::dm;
+    let d = b.patterns.len();
+    let c = b.cutoff;
+    let mats: Vec<Option<Mats>> = chans
+        .iter()
+        .map(|ch| match ch {
+            Channel::Gate(g) if g.truncated() => single_mode_matrices(g, c).map(Some),
+            _ => Ok(None),
+        })
+        .collect::<Result<_, _>>()?;
+    let mut rho = dm::from_pure(x0);
+    let mut kept: Vec<Option<Vec<C64>>> = Vec::with_capacity(chans.len());
+    for (ch, m) in chans.iter().zip(&mats) {
+        kept.push(if ch.kept() { Some(rho.clone()) } else { None });
+        match ch {
+            Channel::Gate(g) => {
+                dm::unitary_like(b, &mut rho, |v| apply(b, v, g, m.as_ref()))?;
+            }
+            Channel::Loss { eta, mode } => rho = dm::loss(b, &rho, *eta, *mode),
+            Channel::Thermal { eta, nth, mode } => rho = dm::thermal_loss(b, &rho, *eta, *nth, *mode).0,
+        }
+    }
+    let values: Vec<f64> = terms
+        .iter()
+        .map(|t| {
+            let mut s = Sum::new(d as u64);
+            for (i, p) in b.patterns.iter().enumerate() {
+                s.add(t.diag(p) * rho[i * d + i].re);
+            }
+            s.value()
+        })
+        .collect();
+    let mut lam = vec![C64::ZERO; d * d];
+    for (i, p) in b.patterns.iter().enumerate() {
+        lam[i * d + i] = C64::new(terms.iter().map(|t| t.weight() * t.diag(p)).sum::<f64>(), 0.0);
+    }
+    let mut grads = vec![Vec::new(); chans.len()];
+    for k in (0..chans.len()).rev() {
+        let m = mats[k].as_ref();
+        let x = match kept[k].take() {
+            Some(x) => x,
+            None => {
+                let Channel::Gate(g) = &chans[k] else { unreachable!() };
+                let mut x = rho.clone();
+                dm::unitary_like(b, &mut x, |v| apply_adjoint(b, v, g, m))?;
+                x
+            }
+        };
+        match &chans[k] {
+            Channel::Gate(g) => {
+                if g.arity() > 0 {
+                    // W = G^dagger Lambda; grad_j = 2 Re tr(W (dG/dp_j) x)
+                    let mut w = lam.clone();
+                    on_columns(&mut w, d, |v| apply_adjoint(b, v, g, m))?;
+                    for j in 0..g.arity() {
+                        let mut dx = x.clone();
+                        on_columns(&mut dx, d, |v| {
+                            let r = derivative_vector(b, g, j, v, m)?;
+                            v.copy_from_slice(&r);
+                            Ok(())
+                        })?;
+                        grads[k].push(2.0 * re_trace_product(&w, &dx, d));
+                    }
+                }
+                // Lambda <- G^dagger Lambda G
+                dm::unitary_like(b, &mut lam, |v| apply_adjoint(b, v, g, m))?;
+            }
+            Channel::Loss { eta, mode } => {
+                grads[k].push(loss_gradient(b, &x, &lam, *eta, *mode));
+                lam = loss_adjoint(b, &lam, *eta, *mode);
+            }
+            Channel::Thermal { eta, nth, mode } => {
+                let g = 1.0 + (1.0 - eta) * nth;
+                lam = loss_adjoint(b, &amplifier_adjoint(b, &lam, g, *mode), eta / g, *mode);
+            }
+        }
+        rho = x;
+    }
+    Ok((values, grads))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -409,5 +657,45 @@ mod tests {
             Term::Photons { weight: -0.3, modes: vec![0, 1] },
         ];
         check(2, 8, &[0, 1], gates, terms, 1e-9);
+    }
+
+    /// the density-matrix adjoint against a fourth-order central difference, with loss (differentiated), thermal
+    /// loss and truncated gates on the way
+    #[test]
+    fn density_matrix_against_differences() {
+        let b = Basis::new(2, 6);
+        let mut x0 = vec![C64::ZERO; b.patterns.len()];
+        x0[b.index(&[1, 1])] = C64::ONE;
+        // every differentiable parameter, in channel order: 12
+        let build = |h: &[f64]| -> Vec<Channel> {
+            vec![
+                Channel::Gate(Gate::Beamsplitter { theta: 0.4 + h[0], phi: 0.3 + h[1], ma: 0, mb: 1 }),
+                Channel::Loss { eta: 0.7 + h[2], mode: 0 },
+                Channel::Gate(Gate::Kerr { kappa: 0.2 + h[3], mode: 1 }),
+                Channel::Gate(Gate::Displacement { r: 0.3 + h[4], phi: 0.5 + h[5], mode: 1 }),
+                Channel::Thermal { eta: 0.9, nth: 0.2, mode: 1 },
+                Channel::Gate(Gate::Beamsplitter { theta: 0.8 + h[6], phi: h[7], ma: 0, mb: 1 }),
+                Channel::Gate(Gate::Phaseshift { phi: 0.6 + h[8], mode: 0 }),
+                Channel::Loss { eta: 0.85 + h[9], mode: 1 },
+                Channel::Gate(Gate::Beamsplitter { theta: 0.5 + h[10], phi: 0.2 + h[11], ma: 0, mb: 1 }),
+            ]
+        };
+        let terms = vec![
+            Term::Probability { weight: 1.0, modes: vec![0], pattern: vec![1] },
+            Term::Photons { weight: -0.4, modes: vec![1] },
+        ];
+        let value = |h: &[f64]| -> f64 {
+            let (v, _) = adjoint_dm(&b, &x0, &build(h), &terms).unwrap();
+            v[0] - 0.4 * v[1]
+        };
+        let (_, grads) = adjoint_dm(&b, &x0, &build(&[0.0; 12]), &terms).unwrap();
+        let flat: Vec<f64> = grads.iter().flatten().copied().collect();
+        assert_eq!(flat.len(), 12);
+        let hh = 1e-3;
+        for (p, &g) in flat.iter().enumerate() {
+            let at = |s: f64| { let mut h = [0.0; 12]; h[p] = s; value(&h) };
+            let fd = (-at(2.0 * hh) + 8.0 * at(hh) - 8.0 * at(-hh) + at(-2.0 * hh)) / (12.0 * hh);
+            assert!((g - fd).abs() < 1e-9, "parameter {p}: adjoint {g} vs fd {fd}");
+        }
     }
 }

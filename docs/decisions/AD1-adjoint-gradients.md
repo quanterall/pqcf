@@ -39,9 +39,27 @@ matrix one or two levels larger, not as (P A P)(P D P), which would be wrong at 
 sign, and the Clements mesh of U†. Only the state before each truncated gate is kept, so memory is
 (1 + number of truncated gates) × D amplitudes, not K × D.
 
-**Scope:** pure states only. Loss (the density-matrix backend), mid-circuit conditioning and feed-forward are
-refused with `differentiate_unsupported`. Reverse mode through Kraus channels needs the adjoint channel kernel and is
-left for later; until then, use `parameter_shift` or `numeric` there.
+**Scope:** pure states; with loss, density matrices (below). Mid-circuit conditioning and feed-forward are refused
+with `differentiate_unsupported`.
+
+## Density matrices: loss and thermal loss (follow-up, 5 Nov 2026)
+
+With `loss` or `thermal_loss` in the circuit, the same reverse pass runs on density matrices
+(`fockgrad::adjoint_dm`, NIF `fock_dm_adjoint_gradient/5`, within `max_dm_dim`). The quantities are
+f = tr(O ρ_K) and ρ_k = Φ_k(ρ_(k−1)), and the backward pass carries an operator, Λ_K = O and Λ_(k−1) = Φ_k†(Λ_k):
+
+- **A gate:** Φ†(Λ) = G†ΛG, and df/dp = 2 Re tr(G†Λ (∂G/∂p) ρ_(k−1)), with the per-vector derivatives of the
+  pure-state pass applied to the columns of ρ.
+- **Pure loss:** Φ†(Λ)[p][q] = Σ_l w_l(n_p, n_q) Λ[p − l][q − l], the forward weights pulled back. The transmissivity
+  is differentiated through the weights, d/dη of η^a (1 − η)^l, written without 0 · ∞ at η = 0 and η = 1.
+- **Thermal loss:** passed through as the adjoint of its two stages, loss_(η/G)† ∘ amplifier_G†. The amplifier's
+  adjoint is limited to the same room under the cutoff as its forward map, so it is the exact adjoint of the
+  truncated channel the backend applies. Its parameters are not differentiated (refused).
+
+The state before each loss, thermal loss and truncated gate is kept (D² entries each); exact gates are inverted.
+
+Found on the way: `pq_stats:mean_photon_number/2` had no clause for density matrices. The `numeric` gradient of a
+mean photon number through loss crashed with `function_clause`; it now has the clause.
 
 ## Parameter-shift mode
 
@@ -86,6 +104,20 @@ weight whose default is an exact rational is `unbound_symbols` there. The gate-l
 is in the frozen modes, since an error there is not a wrong answer.
 
 ## Tests (`test/phase4_gradients_tests.erl`, Rust `fockgrad::tests`)
+
+Density matrices (follow-up):
+
+- **Rust:** all 12 parameters of a circuit against fourth-order differences within 1e-9: beamsplitters, two
+  differentiated losses, Kerr, a truncated displacement, a thermal loss between them. Mutation check: the sign of
+  the loss weight's (1 − η) derivative, caught here and in Erlang.
+- **Erlang:**
+  - three modes, two photons, loss parameters e and e², against central differences within 1e-8, for three
+    observables including a weight that depends on e;
+  - the periodic parameters against the parameter-shift rules within 1e-10;
+  - `max_dm_dim` enforced;
+  - `mean_photon_number` on a density matrix.
+
+Pure states (the first part of item 3):
 
 - **Rust:**
   - every derivative of every gate kind, the truncated ones included, against a fourth-order central difference

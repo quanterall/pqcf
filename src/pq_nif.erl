@@ -13,7 +13,8 @@
          fock_dm_apply_thermal_loss/6, gaussian_apply_thermal_loss/6,
          gaussian_measure_homodyne/6, stream_new/2, fock_measure_pnr/5, fock_apply_loss_trajectory/6,
          fock_adjoint_gradient/5, boson_partial_probability/4,
-         fock_dmb_from/3, fock_dmb_to_dense/3, fock_dmb_apply/4, fock_dmb_pnr_probabilities/4, fock_dmb_measure_pnr/5]).
+         fock_dmb_from/3, fock_dmb_to_dense/3, fock_dmb_apply/4, fock_dmb_pnr_probabilities/4, fock_dmb_measure_pnr/5,
+         fock_dm_adjoint_gradient/5]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -304,3 +305,10 @@ fock_dmb_pnr_probabilities(_Blocks, _Modes, _N, _C) -> erlang:nif_error(nif_not_
 -spec fock_dmb_measure_pnr(dm_blocks(), [non_neg_integer()], [non_neg_integer()], pos_integer(), non_neg_integer()) ->
           {ok, {float(), dm_blocks()}} | kernel_error().
 fock_dmb_measure_pnr(_Blocks, _Modes, _Outcome, _N, _C) -> erlang:nif_error(nif_not_loaded).
+
+%% The adjoint on density matrices (Phase 4 follow-up, fockgrad.rs adjoint_dm): from the pure input Amps through the
+%% channels -- the gates of fock_adjoint_gradient/5, {loss, Eta, M} (one gradient, d/dEta) and
+%% {thermal_loss, Eta, Nth, M} (none) -- the terms' values and the gradient per channel.
+-spec fock_dm_adjoint_gradient(amps(), [adjoint_gate() | {loss, float(), non_neg_integer()} | {thermal_loss, float(), float(), non_neg_integer()}],
+                               [adjoint_term()], pos_integer(), non_neg_integer()) -> {ok, {[float()], [[float()]]}} | kernel_error().
+fock_dm_adjoint_gradient(_A, _Chans, _Terms, _N, _C) -> erlang:nif_error(nif_not_loaded).

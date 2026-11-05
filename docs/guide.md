@@ -228,7 +228,9 @@ Two gate-level modes (1.1) work on the Fock backends, non-Gaussian gates include
 - **`mode => adjoint`:** one forward and one backward pass over the pure state, so the cost does not grow with the
   number of parameters. It covers beamsplitters, phase shifts, Kerr gates, numeric unitaries, displacement and
   squeezing. The derivatives are exact for the truncated gates the backend applies, so the result is the gradient
-  of the model under the cutoff. Loss and feed-forward are refused.
+  of the model under the cutoff. With loss or thermal loss in the circuit it runs on density matrices (within
+  `max_dm_dim`), and the loss transmissivity is differentiated too. Feed-forward and the parameters of thermal loss
+  are refused.
 - **`mode => parameter_shift`:** exact shift rules, two evaluations per frequency of each gate parameter. The
   frequencies are bounded by the cutoff P: P for a phase shift, 2P for a beamsplitter or a displacement angle, P² for
   Kerr. It also runs with loss (the density-matrix backend). The magnitudes of displacement and squeezing and the

@@ -1269,57 +1269,101 @@ fn fock_dmb_measure_pnr<'a>(env: Env<'a>, blocks: Term<'a>, modes: Vec<usize>, o
 #[rustler::nif(schedule = "DirtyCpu")]
 fn fock_adjoint_gradient<'a>(env: Env<'a>, amps: Term<'a>, gates: Vec<Term<'a>>, terms: Vec<Term<'a>>, n: usize, c: usize) -> NifResult<Term<'a>> {
     let (v, b) = fock_args!(env, amps, n, c, [0usize]);
-    let in_range = |ms: &[usize]| ms.iter().all(|&m| m < n);
     let mut gs = Vec::with_capacity(gates.len());
     for op in gates {
-        let tag: Atom = rustler::types::tuple::get_tuple(op)?.first().ok_or(rustler::Error::BadArg)?.decode()?;
-        let g = if tag == atoms::beamsplitter() {
-            let (_, theta, phi, ma, mb): (Atom, f64, f64, usize, usize) = op.decode()?;
-            if !in_range(&[ma, mb]) || ma == mb { return Ok(bad_shape(env, "modes")); }
-            fockgrad::Gate::Beamsplitter { theta, phi, ma, mb }
-        } else if tag == atoms::phaseshift() {
-            let (_, phi, mode): (Atom, f64, usize) = op.decode()?;
-            if !in_range(&[mode]) { return Ok(bad_shape(env, "mode")); }
-            fockgrad::Gate::Phaseshift { phi, mode }
-        } else if tag == atoms::kerr() {
-            let (_, kappa, mode): (Atom, f64, usize) = op.decode()?;
-            if !in_range(&[mode]) { return Ok(bad_shape(env, "mode")); }
-            fockgrad::Gate::Kerr { kappa, mode }
-        } else if tag == atoms::passive() {
-            let (_, u, modes): (Atom, Term, Vec<usize>) = op.decode()?;
-            let (uv, ur, uc) = match cmat(u) { Ok(x) => x, Err(e) => return Ok(bad_shape(env, &e)) };
-            if ur != uc || ur != modes.len() || !modes_ok(&modes, n) { return Ok(bad_shape(env, "U is k x k for k distinct modes")); }
-            fockgrad::Gate::Passive { u: uv, modes }
-        } else if tag == atoms::displacement() {
-            let (_, r, phi, mode): (Atom, f64, f64, usize) = op.decode()?;
-            if !in_range(&[mode]) { return Ok(bad_shape(env, "mode")); }
-            fockgrad::Gate::Displacement { r, phi, mode }
-        } else if tag == atoms::squeezing() {
-            let (_, r, phi, mode): (Atom, f64, f64, usize) = op.decode()?;
-            if !in_range(&[mode]) { return Ok(bad_shape(env, "mode")); }
-            fockgrad::Gate::Squeezing { r, phi, mode }
-        } else {
-            return Err(rustler::Error::BadArg);
-        };
-        gs.push(g);
+        match decode_gate(op, n)? {
+            Ok(g) => gs.push(g),
+            Err(m) => return Ok(bad_shape(env, m)),
+        }
     }
+    let ts = match decode_terms(terms, n)? {
+        Ok(t) => t,
+        Err(m) => return Ok(bad_shape(env, m)),
+    };
+    Ok(match fockgrad::adjoint(&b, &v, &gs, &ts) {
+        Ok((values, grads)) => (atoms::ok(), (values, grads)).encode(env),
+        Err(e) => fock_error(env, e),
+    })
+}
+
+/// a gate tuple of the adjoint NIFs: Ok(Err(message)) for a bad shape
+fn decode_gate(op: Term, n: usize) -> NifResult<Result<fockgrad::Gate, &'static str>> {
+    let tag: Atom = rustler::types::tuple::get_tuple(op)?.first().ok_or(rustler::Error::BadArg)?.decode()?;
+    let in_range = |ms: &[usize]| ms.iter().all(|&m| m < n);
+    Ok(if tag == atoms::beamsplitter() {
+        let (_, theta, phi, ma, mb): (Atom, f64, f64, usize, usize) = op.decode()?;
+        if !in_range(&[ma, mb]) || ma == mb { Err("modes") } else { Ok(fockgrad::Gate::Beamsplitter { theta, phi, ma, mb }) }
+    } else if tag == atoms::phaseshift() {
+        let (_, phi, mode): (Atom, f64, usize) = op.decode()?;
+        if !in_range(&[mode]) { Err("mode") } else { Ok(fockgrad::Gate::Phaseshift { phi, mode }) }
+    } else if tag == atoms::kerr() {
+        let (_, kappa, mode): (Atom, f64, usize) = op.decode()?;
+        if !in_range(&[mode]) { Err("mode") } else { Ok(fockgrad::Gate::Kerr { kappa, mode }) }
+    } else if tag == atoms::passive() {
+        let (_, u, modes): (Atom, Term, Vec<usize>) = op.decode()?;
+        match cmat(u) {
+            Ok((uv, ur, uc)) if ur == uc && ur == modes.len() && modes_ok(&modes, n) => Ok(fockgrad::Gate::Passive { u: uv, modes }),
+            _ => Err("U is k x k for k distinct modes"),
+        }
+    } else if tag == atoms::displacement() {
+        let (_, r, phi, mode): (Atom, f64, f64, usize) = op.decode()?;
+        if !in_range(&[mode]) { Err("mode") } else { Ok(fockgrad::Gate::Displacement { r, phi, mode }) }
+    } else if tag == atoms::squeezing() {
+        let (_, r, phi, mode): (Atom, f64, f64, usize) = op.decode()?;
+        if !in_range(&[mode]) { Err("mode") } else { Ok(fockgrad::Gate::Squeezing { r, phi, mode }) }
+    } else {
+        return Err(rustler::Error::BadArg);
+    })
+}
+
+fn decode_terms(terms: Vec<Term>, n: usize) -> NifResult<Result<Vec<fockgrad::Term>, &'static str>> {
     let mut ts = Vec::with_capacity(terms.len());
     for t in terms {
         let tag: Atom = rustler::types::tuple::get_tuple(t)?.first().ok_or(rustler::Error::BadArg)?.decode()?;
-        let term = if tag == atoms::probability() {
+        if tag == atoms::probability() {
             let (_, weight, modes, pattern): (Atom, f64, Vec<usize>, Vec<u32>) = t.decode()?;
-            if !modes_ok(&modes, n) || modes.len() != pattern.len() { return Ok(bad_shape(env, "modes and pattern")); }
-            fockgrad::Term::Probability { weight, modes, pattern }
+            if !modes_ok(&modes, n) || modes.len() != pattern.len() { return Ok(Err("modes and pattern")); }
+            ts.push(fockgrad::Term::Probability { weight, modes, pattern });
         } else if tag == atoms::photons() {
             let (_, weight, modes): (Atom, f64, Vec<usize>) = t.decode()?;
-            if !modes_ok(&modes, n) { return Ok(bad_shape(env, "modes")); }
-            fockgrad::Term::Photons { weight, modes }
+            if !modes_ok(&modes, n) { return Ok(Err("modes")); }
+            ts.push(fockgrad::Term::Photons { weight, modes });
         } else {
             return Err(rustler::Error::BadArg);
-        };
-        ts.push(term);
+        }
     }
-    Ok(match fockgrad::adjoint(&b, &v, &gs, &ts) {
+    Ok(Ok(ts))
+}
+
+/// fock_dm_adjoint_gradient(Amps, Channels, Terms, NModes, Cutoff) -> {TermValues, ChannelGradients}: the adjoint
+/// on density matrices (fockgrad::adjoint_dm), from the pure input Amps; channels the gates of
+/// fock_adjoint_gradient, {loss, Eta, M} (one gradient) and {thermal_loss, Eta, Nth, M} (none)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn fock_dm_adjoint_gradient<'a>(env: Env<'a>, amps: Term<'a>, chans: Vec<Term<'a>>, terms: Vec<Term<'a>>, n: usize, c: usize) -> NifResult<Term<'a>> {
+    let (v, b) = fock_args!(env, amps, n, c, [0usize]);
+    let mut cs = Vec::with_capacity(chans.len());
+    for op in chans {
+        let tag: Atom = rustler::types::tuple::get_tuple(op)?.first().ok_or(rustler::Error::BadArg)?.decode()?;
+        if tag == atoms::loss() {
+            let (_, eta, m): (Atom, f64, usize) = op.decode()?;
+            if m >= n || !(0.0..=1.0).contains(&eta) { return Ok(bad_shape(env, "mode or eta")); }
+            cs.push(fockgrad::Channel::Loss { eta, mode: m });
+        } else if tag == atoms::thermal_loss() {
+            let (_, eta, nth, m): (Atom, f64, f64, usize) = op.decode()?;
+            if m >= n || !(0.0..=1.0).contains(&eta) || nth.is_nan() || nth < 0.0 { return Ok(bad_shape(env, "mode, eta or nth")); }
+            cs.push(fockgrad::Channel::Thermal { eta, nth, mode: m });
+        } else {
+            match decode_gate(op, n)? {
+                Ok(g) => cs.push(fockgrad::Channel::Gate(g)),
+                Err(m) => return Ok(bad_shape(env, m)),
+            }
+        }
+    }
+    let ts = match decode_terms(terms, n)? {
+        Ok(t) => t,
+        Err(m) => return Ok(bad_shape(env, m)),
+    };
+    Ok(match fockgrad::adjoint_dm(&b, &v, &cs, &ts) {
         Ok((values, grads)) => (atoms::ok(), (values, grads)).encode(env),
         Err(e) => fock_error(env, e),
     })
