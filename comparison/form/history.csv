@@ -39,3 +39,13 @@ date,machine,arch,pqcf,form,task,terms,form_s,native_s,bridge_s,check
 2026-11-02T05:17:17Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2e90425,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T4 mesh k=4",400,0.003,0.005,-,ok
 2026-11-02T05:17:17Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2e90425,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T4 mesh k=6",11616,0.029,0.052,-,ok
 2026-11-02T05:17:17Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2e90425,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T4 mesh k=8",276800,0.579,2.300,-,ok
+2026-11-05T10:26:08Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,f56756a,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T1 power n=12",18564,0.009,0.097,0.248,ok
+2026-11-05T10:26:08Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,f56756a,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T1 power n=16",74613,0.031,0.615,1.488,ok
+2026-11-05T10:26:08Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,f56756a,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T1 power n=20",230230,0.112,2.538,5.615,ok
+2026-11-05T10:26:08Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,f56756a,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T2 product",10626,0.135,1.385,0.534,ok
+2026-11-05T10:26:08Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,f56756a,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T3 permanent n=6",720,0.005,0.003,0.010,ok
+2026-11-05T10:26:08Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,f56756a,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T3 permanent n=7",5040,0.020,0.023,0.064,ok
+2026-11-05T10:26:08Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,f56756a,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T3 permanent n=8",40320,0.163,0.274,0.908,ok
+2026-11-05T10:26:08Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,f56756a,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T4 mesh k=4",400,0.005,0.007,-,ok
+2026-11-05T10:26:08Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,f56756a,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T4 mesh k=6",11616,0.027,0.050,-,ok
+2026-11-05T10:26:08Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,f56756a,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T4 mesh k=8",276800,0.455,2.413,-,ok

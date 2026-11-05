@@ -117,7 +117,7 @@ GPU and doubles the times, so use `--test-threads=1`. Every result agrees with t
 | Hafnian, m | 16 | 24 | 28 | 32 | 36 |
 | --- | --- | --- | --- | --- | --- |
 | GPU | 0.019 s | 0.090 s | 0.16 s | 0.27 s | 1.38 s |
-| CPU, 20 threads | 0.0004 s | 0.018 s | 0.050 s | 0.061 s | 0.37 s |
+| CPU, 20 threads | < 0.0005 s | 0.018 s | 0.050 s | 0.061 s | 0.37 s |
 
 The permanent passes the CPU at n = 24, where `auto` switches. The hafnian stays behind the CPU on the GB10, so
 `auto` keeps it on the CPU.
