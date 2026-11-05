@@ -10,7 +10,7 @@
 %%
 %%   erl -pa _build/default/lib/*/ebin -pa <dir> -noshell -eval 'compare:main("comparison/form")'
 -module(compare).
--export([main/1, tasks/0]).
+-export([main/1, tasks/0, charts_only/1]).
 
 -define(LIMITS, #{sym_timeout_ms => 900000, sym_max_heap_words => 4000000000, max_poly_terms => 50000000,
                   max_expand_power => 64, max_expr_nodes => 500000000}).
@@ -324,9 +324,35 @@ write_charts(Dir, Env, Rows) ->
                          dot_plot("pq_symbolic and FORM 5 on the reference tasks",
                                   io_lib:format("~s, ~s, ~s. Right: PQCF native time over FORM's.",
                                                 [lists:sublist(D, 10), M, hd(string:split(F, " ("))]),
-                                  [{1, "FORM 5"}, {2, "PQCF native"}, {3, "PQCF bridge to FORM"}], Latest, -3, 1)),
+                                  [{1, "FORM 5"}, {2, "PQCF native"}, {3, "PQCF bridge to FORM"}], Latest,
+                                  axis_lo(Rows), axis_hi(Rows))),
     ok = file:write_file(filename:join([Dir, "charts", "improvement.svg"]), improvement()),
     ok = file:write_file(filename:join([Dir, "charts", "history.svg"]), history(Dir)).
+
+%% the charts again from history.csv's latest run, without running the tasks (after a change to the charts); its
+%% ratios come from the CSV's rounded times, so a regular run is what RESULTS.md and the charts should share
+charts_only(Dir) ->
+    {ok, Bin} = file:read_file(filename:join(Dir, "history.csv")),
+    [_ | Lines] = [L || L <- string:split(binary_to_list(Bin), "\n", all), L =/= ""],
+    Last = lists:last(lists:sort([hd(string:split(L, ",")) || L <- Lines])),
+    Rows = [begin
+                F = string:split(L, ",", all),
+                N = length(F),
+                #{name => string:trim(lists:nth(N - 5, F), both, "\""), form => num(lists:nth(N - 3, F)), native => num(lists:nth(N - 2, F)),
+                  bridge => num(lists:nth(N - 1, F))}
+            end || L <- Lines, hd(string:split(L, ",")) =:= Last],
+    [_, Machine | _] = string:split(hd([L || L <- Lines, hd(string:split(L, ",")) =:= Last]), ",", all),
+    [_, FormV | _] = string:split(hd([L || L <- Lines, hd(string:split(L, ",")) =:= Last]), "\"", all),
+    write_charts(Dir, #{date => Last, machine => Machine, form => FormV}, Rows).
+
+%% the time axis covers every measured time (a fixed upper end of 10 s clipped the slowest tasks: 5 Nov 2026)
+axis_lo(Rows) -> max(-4, floor_log(lists:min(times_of(Rows)))).
+axis_hi(Rows) -> max(1, ceil_log(lists:max(times_of(Rows)))).
+
+times_of(Rows) -> [T || #{form := Tf, native := Tn, bridge := Tb} <- Rows, T <- [Tf, Tn, Tb], is_number(T), T > 0] ++ [1.0].
+
+floor_log(T) -> floor(math:log10(T)).
+ceil_log(T) -> ceil(math:log10(T)).
 
 %% the algorithm change of 2 Nov 2026, measured on dev-aarch64-shared (docs/decisions/SY-FORM-comparison.md);
 %% "refused" (a safety limit) is drawn at the axis' end with its tooltip saying so
@@ -356,12 +382,19 @@ history(Dir) ->
                 [Date, Mach | _] = string:split(L, ",", all),
                 Fields = string:split(L, ",", all),
                 Tf = lists:nth(length(Fields) - 3, Fields), Tn = lists:nth(length(Fields) - 2, Fields),
-                {lists:sublist(Date, 16), Mach, num(Tf), num(Tn)}
+                Task = lists:nth(length(Fields) - 5, Fields),
+                {lists:sublist(Date, 16), Mach, num(Tf), num(Tn), Task}
             end || L <- Lines],
-    Runs = lists:usort([{D, M} || {D, M, _, _} <- Recs]),
+    Runs = lists:usort([{D, M} || {D, M, _, _, _} <- Recs]),
+    %% the mean over the tasks every run of the machine has, so adding a task does not move the line
+    Common = fun(M) ->
+                     Sets = [sets:from_list([K || {D2, M2, _, _, K} <- Recs, D2 =:= D, M2 =:= M]) || {D, M1} <- Runs, M1 =:= M],
+                     sets:intersection(Sets)
+             end,
     Points = [{D, M, math:pow(10, lists:sum(Ls) / length(Ls))}
-              || {D, M} <- Runs, Ls <- [[math:log10(Tn / Tf) || {D2, M2, Tf, Tn} <- Recs, D2 =:= D, M2 =:= M,
-                                                               is_float(Tf), is_float(Tn), Tf > 0.002]], Ls =/= []],
+              || {D, M} <- Runs, Cm <- [Common(M)],
+                 Ls <- [[math:log10(Tn / Tf) || {D2, M2, Tf, Tn, K} <- Recs, D2 =:= D, M2 =:= M, sets:is_element(K, Cm),
+                                                 is_float(Tf), is_float(Tn), Tf > 0.002]], Ls =/= []],
     Machines = lists:sublist(lists:usort([M || {_, M, _} <- Points]), 3),
     Dates = lists:usort([D || {D, _, _} <- Points]),
     {W, H, L, R, T, B} = {?W, 300, 70, 30, 80, 46},
@@ -398,7 +431,7 @@ history(Dir) ->
      "' width='", integer_to_list(W), "' role='img' aria-label='The ratio over the weekly runs'>", style(),
      io_lib:format("<rect class='bg' width='~b' height='~b' rx='8'/>", [W, H]),
      "<text class='t1' x='20' y='30' font-size='16' font-weight='600'>PQCF native time over FORM's, run by run</text>",
-     "<text class='t2' x='20' y='46' font-size='12'>The geometric mean over the reference tasks (lower is closer to FORM); one line per machine.</text>",
+     "<text class='t2' x='20' y='46' font-size='12'>The geometric mean over the tasks in every run (lower is closer to FORM); one line per machine.</text>",
      Grid, Series, XL, "</svg>\n"].
 
 index(X, L) -> length(lists:takewhile(fun(Y) -> Y =/= X end, L)) + 1.
