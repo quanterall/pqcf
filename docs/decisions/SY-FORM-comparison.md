@@ -156,3 +156,66 @@ alone.
   to the n), which halved the read-back at n = 4.
 
 Results are unchanged: the bridge's 15 tests and the symbolic test suite pass.
+
+## A real task from FORM's literature: the resultant benchmarks (5 November 2026)
+
+The project owner asked for a real task from a paper that uses FORM, with a published description, done with PQCF
+and compared with FORM. Most recent work that uses FORM is outside `pq_symbolic`'s scope: Dirac traces, integral
+reductions, rational functions. The expression-simplification papers of Ruijl, Plaat, van den Herik and Vermaseren
+(HEPGAME, arXiv:1405.6369; arXiv:1409.5223, table II) are inside it.
+
+Their benchmarks include res(m, n) = res_x(Σ_(i≤m) a_i x^i, Σ_(i≤n) b_i x^i), the resultant of two polynomials
+with symbolic coefficients. The task is to expand it, then find a cheap way to evaluate it. The papers' other
+expressions (HEP processes) are not published; the resultants are fully specified.
+
+**Method** (`comparison/form/resultants.erl`):
+
+- **PQCF:** the Sylvester determinant is expanded row by row over the subsets of columns used, with
+  `pq_symbolic`'s exact arithmetic at every step. The determinant itself is outside the scope fence (SY 1.2), so it
+  lives in the study.
+- **FORM:** the same determinant, built independently as a product of row sums over a column-recording function,
+  antisymmetrised after every row.
+- **The check:** FORM subtracts PQCF's expression and must get exactly 0. For res(7,4), sympy's resultant also
+  agrees.
+- **Evaluation cost:** FORM 5's output optimisation (`Format O1`–`O4`, `#Optimize`), against PQCF's straight-line
+  programs (`compile/3`), both counted the way FORM counts: powers, multiplications and additions. Everything ran
+  single-threaded on core 8 of the provisional reference.
+
+**Results:**
+
+| | res(7,4) | res(7,5) | res(7,6) |
+| --- | --- | --- | --- |
+| variables | 13 | 14 | 15 |
+| terms (PQCF = FORM; = sympy for res(7,4)) | 2,562 | 11,380 | 43,166 |
+| FORM − PQCF | 0 | 0 | 0 |
+| build: PQCF | 0.68 s | 4.6 s | 26.5 s |
+| build: FORM 5 | 0.16 s | 1.17 s | 4.8 s |
+| operations as expanded, by FORM's counter | 29,163 | 142,711 | 587,880 |
+| the paper's "original" | 29,163 | 142,711 | 587,880 |
+| PQCF straight-line program | 12,375 | 54,288 | 203,775 |
+| FORM 5 `O1` | 4,968 | 20,210 | 71,262 |
+| FORM 5 `O2` | 3,969 | 16,398 | 55,685 |
+| FORM 5 `O3` | 3,458 | 11,006 | 35,945 |
+| FORM 5 `O4` | 2,936 | 10,722 | 35,419 |
+| the paper's best (MCTS/SLS, 2014) | ≈3,820 | ≈13,770 | ≈45,500 |
+| time: PQCF `compile/3` | 0.02 s | 0.17 s | 0.92 s |
+| time: FORM `O1` / `O4` (wall, with start-up) | 0.6 / 2.6 s | 0.8 / 9.8 s | 1.4 / 57 s |
+
+**What this shows:**
+
+- **The same expressions.** FORM's own counter, applied to PQCF's result, gives the paper's "original" operation
+  counts exactly. The paper's term counts (2,561, 11,379, 43,165) are one less than the actual number of terms:
+  they equal FORM's count of additions.
+- **Building the expanded resultant:** PQCF is 4 to 6 times FORM's time, as on the other bulk-product tasks, and
+  about 800 times faster than sympy on res(7,4) (0.68 s against 548 s).
+- **Evaluation cost:**
+  - PQCF's straight-line programs only share atom powers, monomials and identical polynomials. They do no Horner
+    schemes and no common-subexpression search, which gives 2.4 to 2.5 times the operations of a direct expansion
+    reduction, and 4.2 to 5.8 times FORM 5's `O4`.
+  - FORM 5's `O4` is 20–25 % better than the 2014 paper's best results, which it grew out of.
+
+  This is the largest gap the comparison has found that matters to PQCF. Compiled expressions are what PQCF
+  evaluates under many bindings (SY 8.1).
+- **Next step, a candidate:** multivariate Horner schemes with a greedy variable order, and common subexpressions
+  across them, in `pq_sym_slp`. That is behind an option, because the operation order and so the results'
+  rounding would change (D1 holds within one choice).
