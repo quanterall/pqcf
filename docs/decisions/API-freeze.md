@@ -45,6 +45,30 @@ Also frozen:
 - **Interchange:** the JSON circuit format (Appendix B, version 1) and the safe binary format of
   `pq_circuit:to_binary/1`.
 
+## Added in 1.1.0 (5 November 2026)
+
+These additions are frozen from 1.1.0 by the same rule. Phase 4 decision records: `L1`, `F1`, `AD1`, `N1`, `G1` and
+`B1`.
+
+- **Instructions:** `{feed_forward, Gate, #{Symbol => Mode}}`, `{conditional, Predicate, [Gate]}`,
+  `{thermal_loss, Mode, Eta, Nth}`, and their JSON ops (Appendix B, version 1, extended).
+- **Gradients:**
+  - the modes `adjoint` and `parameter_shift` of `pq_gradient:gradient/4`;
+  - the strategy modules `pq_gradient_adjoint` (`gradient/4`, `supports/1`) and `pq_gradient_shift`
+    (`gradient/4`, `supports/1`, `rule/2`);
+  - the type `pq_gradient:observable/0`.
+- **Options:** `visibility`, `gram`, `multi_photon`, `dark_counts`, `device`, `dm_storage`, `max_dm_entries`.
+- **Metadata and info keys:** `dark_count_truncated_mass`, and `device` in the permanent and hafnian info maps.
+- **Results that used to be errors:** threshold detection of displaced Gaussian states, and
+  `pq_stats:mean_photon_number/2` on a `#fock_dm{}`.
+- **Not frozen (internal):**
+  - the new helper exports of `pq_noise` (`shared_probabilities/2`, `visibility_gram/2`, `gram/2`, `dark_means/2`,
+    `dark_rows/4`, `dark_distribution/4`, `probabilities/3`, `source_mixture/3`);
+  - `pq_gradient_chain`;
+  - `pq_sampling:gram_distribution/4`;
+  - `pq_simulator:evolve_state/3`;
+  - the NIF contract, now 0.2.
+
 ## Not frozen
 
 - **Internal modules:** the `pq_sym_*` modules, `pq_job`, `pq_worker`, the supervisors, `pq_node_registry`,

@@ -5,7 +5,18 @@ sampling, a symbolic engine for parameterised circuits, and parallel, reproducib
 top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust library loaded as a NIF
 (`pq_nif`, through [Rustler](https://github.com/rusterlium/rustler)).
 
-**Status: 1.0.0-rc.1, the API frozen (`docs/decisions/API-freeze.md`): every functional requirement of the specification implemented and tested; benchmarks on a provisional reference machine (`bench/HARDWARE.md`).** Changes to the public API are additive only until 2.0. Phase 4 (the roadmap of the specification) in progress: displaced threshold detection (the loop torontonian), feed-forward, adjoint gradients with parameter-shift rules, the noise models (partial distinguishability, multi-photon sources, dark counts, thermal loss), the GPU permanent, and photon-number-block storage for density matrices done: Phase 4 complete, with follow-ups done: adjoint gradients through loss, the hafnian on the GPU (exact, but no faster than 20 CPU threads on the GB10).
+**Status: 1.1.0 (`CHANGELOG.md`).**
+
+- The API is frozen (`docs/decisions/API-freeze.md`): changes to the public API are additive only until 2.0.
+- Every functional requirement of the specification is implemented and tested.
+- Phase 4, the specification's roadmap, is complete:
+  - threshold detection of displaced states (the loop torontonian);
+  - feed-forward;
+  - adjoint gradients (through loss too) and parameter-shift rules;
+  - noise models: partial distinguishability, multi-photon sources, dark counts, thermal loss;
+  - GPU offload of permanents and hafnians;
+  - photon-number-block storage for density matrices.
+- Benchmarks are from a provisional reference machine (`bench/HARDWARE.md`).
 
 | Done | Next |
 | --- | --- |

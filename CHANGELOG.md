@@ -1,0 +1,59 @@
+# Changelog
+
+PQCF follows semantic versioning from the API freeze (`docs/decisions/API-freeze.md`). Until 2.0, every change to
+the public API is additive.
+
+## 1.1.0 (5 November 2026)
+
+The first release after 1.0.0-rc.1: Phase 4 of the specification's roadmap (FS 15). Everything is additive. Code
+written for 1.0.0-rc.1 runs unchanged, and with the defaults its results are bit for bit the same, including the
+sampling streams. Each item has a decision record in `docs/decisions/`.
+
+### Added
+
+- **Threshold detection of displaced Gaussian states** (the loop torontonian, `L1`). Threshold probabilities and
+  the threshold sampler now accept non-zero means instead of returning `nonzero_mean_threshold`.
+- **Feed-forward** (`F1`):
+  - the instructions `{feed_forward, Gate, #{Symbol => Mode}}` and `{conditional, Predicate, [Gate]}`;
+  - gate parameters and conditions may depend on earlier measurement outcomes in the same shot;
+  - the JSON ops `feed_forward` and `conditional`.
+- **Gradients** (`AD1`):
+  - `mode => adjoint`: one forward and one backward pass over the Fock state, on density matrices when there is
+    loss, with the loss transmissivity differentiated too;
+  - `mode => parameter_shift`: exact shift rules with frequencies bounded by the cutoff, also with loss;
+  - the strategy modules `pq_gradient_adjoint` and `pq_gradient_shift`, and the type `pq_gradient:observable/0`.
+- **Noise models** (`N1`):
+  - `visibility` and `gram`: partially distinguishable photons in boson sampling;
+  - `multi_photon`: multi-photon source terms;
+  - `dark_counts`: detector dark counts, also in exact probabilities;
+  - the instruction `{thermal_loss, Mode, Eta, Nth}`, exact on the Gaussian backend and truncated on density
+    matrices, with the JSON op `thermal_loss`.
+- **GPU offload** (`G1`): `device => cpu | gpu | auto` for permanents, boson probabilities and hafnians, on NVIDIA
+  GPUs through the CUDA driver.
+  - The GPU computes every term bit-identically to the CPU kernel, and the results are reproducible bit for bit.
+  - `auto` uses the GPU for permanents from n = 24 and keeps hafnians on the CPU (spike G1 on the GB10).
+  - Building needs no CUDA.
+- **Density matrices by photon-number blocks** (`B1`): `dm_storage => blocks` and `max_dm_entries`. Results are the
+  same, with far less memory for number-conserving circuits: cutoff 20 on 4 modes takes 0.18 GB instead of 1.81 GB.
+- **New metadata and info keys:** `dark_count_truncated_mass`, and `device` in the permanent and hafnian kernels'
+  info maps.
+
+### Fixed
+
+- `pq_stats:mean_photon_number/2` had no clause for density matrices, so the numeric gradient of a mean photon
+  number through loss crashed with `function_clause`.
+
+### Changed
+
+- The NIF contract is 0.2: new kernels only, and `pq_nif` remains internal.
+- **Upgrade every node of a cluster together.** The node handshake (unchanged) shares work only between nodes with
+  the same `pq` version and NIF minor version. A 1.1.0 node and a 1.0.0-rc.1 node do not split jobs: each runs its
+  own jobs locally, with the same results.
+- `pq_api:backend_for/2` chooses `boson` when `visibility`, `gram` or `multi_photon` is given, and `fock_dm` for
+  circuits with `thermal_loss`. These are the only backends that model them.
+
+## 1.0.0-rc.1 (1 November 2026)
+
+- The API frozen (`docs/decisions/API-freeze.md`).
+- Every functional requirement of the specification implemented and tested.
+- Benchmarks on a provisional reference machine (`bench/HARDWARE.md`).
