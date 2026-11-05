@@ -7,6 +7,7 @@ pub mod boson;
 pub mod fock;
 pub mod fockdmb;
 pub mod fockgrad;
+pub mod fockplan;
 pub mod fockstate;
 pub mod gaussian;
 pub mod gbs;
@@ -1018,28 +1019,28 @@ fn fock_dm_apply_raw<'a>(env: Env<'a>, rho: Term<'a>, op: Term<'a>, n: usize, c:
     let res: Result<f64, fockstate::Error> = if tag == atoms::beamsplitter() {
         let (_, t, p, m1, m2): (Atom, f64, f64, usize, usize) = op.decode()?;
         if !in_range(&[m1, m2]) || m1 == m2 { return Ok(bad_shape(env, "modes")); }
-        fockstate::dm::unitary_like(&b, &mut r, |v| fockstate::beamsplitter(&b, v, t, p, m1, m2))
+        match fockplan::Plan::beamsplitter(&b, t, p, m1, m2) { Ok(pl) => fockstate::dm::unitary_like(&b, &mut r, |v| { pl.apply(v); Ok(()) }), Err(e) => Err(e) }
     } else if tag == atoms::phaseshift() {
         let (_, p, m): (Atom, f64, usize) = op.decode()?;
         if !in_range(&[m]) { return Ok(bad_shape(env, "mode")); }
-        fockstate::dm::unitary_like(&b, &mut r, |v| { fockstate::phaseshift(&b, v, p, m); Ok(()) })
+        { let pl = fockplan::Plan::phaseshift(&b, p, m); fockstate::dm::unitary_like(&b, &mut r, |v| { pl.apply(v); Ok(()) }) }
     } else if tag == atoms::kerr() {
         let (_, k, m): (Atom, f64, usize) = op.decode()?;
         if !in_range(&[m]) { return Ok(bad_shape(env, "mode")); }
-        fockstate::dm::unitary_like(&b, &mut r, |v| { fockstate::kerr(&b, v, k, m); Ok(()) })
+        { let pl = fockplan::Plan::kerr(&b, k, m); fockstate::dm::unitary_like(&b, &mut r, |v| { pl.apply(v); Ok(()) }) }
     } else if tag == atoms::passive() {
         let (_, u, ms): (Atom, Term, Vec<usize>) = op.decode()?;
         let (uv, ur, uc) = match cmat(u) { Ok(x) => x, Err(e) => return Ok(bad_shape(env, &e)) };
         if ur != uc || ur != ms.len() || !modes_ok(&ms, n) { return Ok(bad_shape(env, "U is k x k for k distinct modes")); }
-        fockstate::dm::unitary_like(&b, &mut r, |v| fockstate::passive(&b, v, &uv, &ms))
+        match fockplan::Plan::passive(&b, &uv, &ms) { Ok(pl) => fockstate::dm::unitary_like(&b, &mut r, |v| { pl.apply(v); Ok(()) }), Err(e) => Err(e) }
     } else if tag == atoms::displacement() {
         let (_, rr, p, m): (Atom, f64, f64, usize) = op.decode()?;
         if !in_range(&[m]) { return Ok(bad_shape(env, "mode")); }
-        fockstate::dm::unitary_like(&b, &mut r, |v| { fockstate::displacement(&b, v, rr, p, m); Ok(()) })
+        { let pl = fockplan::Plan::displacement(&b, rr, p, m); fockstate::dm::unitary_like(&b, &mut r, |v| { pl.apply(v); Ok(()) }) }
     } else if tag == atoms::squeezing() {
         let (_, rr, p, m): (Atom, f64, f64, usize) = op.decode()?;
         if !in_range(&[m]) { return Ok(bad_shape(env, "mode")); }
-        fockstate::dm::unitary_like(&b, &mut r, |v| fockstate::squeezing(&b, v, rr, p, m).map(|_| ()))
+        match fockplan::Plan::squeezing(&b, rr, p, m) { Ok(pl) => fockstate::dm::unitary_like(&b, &mut r, |v| { pl.apply(v); Ok(()) }), Err(e) => Err(e) }
     } else if tag == atoms::loss() {
         let (_, eta, m): (Atom, f64, usize) = op.decode()?;
         if !in_range(&[m]) || !(0.0..=1.0).contains(&eta) { return Ok(bad_shape(env, "mode or eta")); }
@@ -1234,28 +1235,28 @@ fn fock_dmb_apply<'a>(env: Env<'a>, blocks: Term<'a>, op: Term<'a>, n: usize, c:
     let res: Result<f64, fockstate::Error> = if tag == atoms::beamsplitter() {
         let (_, t, p, m1, m2): (Atom, f64, f64, usize, usize) = op.decode()?;
         if !in_range(&[m1, m2]) || m1 == m2 { return Ok(bad_shape(env, "modes")); }
-        r.unitary_like(&b, |v| fockstate::beamsplitter(&b, v, t, p, m1, m2))
+        fockplan::Plan::beamsplitter(&b, t, p, m1, m2).and_then(|pl| r.unitary_plan(&b, &pl))
     } else if tag == atoms::phaseshift() {
         let (_, p, m): (Atom, f64, usize) = op.decode()?;
         if !in_range(&[m]) { return Ok(bad_shape(env, "mode")); }
-        r.unitary_like(&b, |v| { fockstate::phaseshift(&b, v, p, m); Ok(()) })
+        r.unitary_plan(&b, &fockplan::Plan::phaseshift(&b, p, m))
     } else if tag == atoms::kerr() {
         let (_, k, m): (Atom, f64, usize) = op.decode()?;
         if !in_range(&[m]) { return Ok(bad_shape(env, "mode")); }
-        r.unitary_like(&b, |v| { fockstate::kerr(&b, v, k, m); Ok(()) })
+        r.unitary_plan(&b, &fockplan::Plan::kerr(&b, k, m))
     } else if tag == atoms::passive() {
         let (_, u, ms): (Atom, Term, Vec<usize>) = op.decode()?;
         let (uv, ur, uc) = match cmat(u) { Ok(x) => x, Err(e) => return Ok(bad_shape(env, &e)) };
         if ur != uc || ur != ms.len() || !modes_ok(&ms, n) { return Ok(bad_shape(env, "U is k x k for k distinct modes")); }
-        r.unitary_like(&b, |v| fockstate::passive(&b, v, &uv, &ms))
+        fockplan::Plan::passive(&b, &uv, &ms).and_then(|pl| r.unitary_plan(&b, &pl))
     } else if tag == atoms::displacement() {
         let (_, rr, p, m): (Atom, f64, f64, usize) = op.decode()?;
         if !in_range(&[m]) { return Ok(bad_shape(env, "mode")); }
-        r.unitary_like(&b, |v| { fockstate::displacement(&b, v, rr, p, m); Ok(()) })
+        r.unitary_plan(&b, &fockplan::Plan::displacement(&b, rr, p, m))
     } else if tag == atoms::squeezing() {
         let (_, rr, p, m): (Atom, f64, f64, usize) = op.decode()?;
         if !in_range(&[m]) { return Ok(bad_shape(env, "mode")); }
-        r.unitary_like(&b, |v| fockstate::squeezing(&b, v, rr, p, m).map(|_| ()))
+        fockplan::Plan::squeezing(&b, rr, p, m).and_then(|pl| r.unitary_plan(&b, &pl))
     } else if tag == atoms::loss() {
         let (_, eta, m): (Atom, f64, usize) = op.decode()?;
         if !in_range(&[m]) || !(0.0..=1.0).contains(&eta) { return Ok(bad_shape(env, "mode or eta")); }

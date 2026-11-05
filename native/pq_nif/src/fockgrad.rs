@@ -478,6 +478,25 @@ fn amplifier_adjoint(b: &Basis, lam: &[C64], g: f64, mode: usize) -> Vec<C64> {
     out
 }
 
+/// the plans of G and G^dagger (fockplan.rs), for the 2D vector applications of a density-matrix step
+fn plans(b: &Basis, g: &Gate, mats: Option<&Mats>) -> Result<(crate::fockplan::Plan, crate::fockplan::Plan), Error> {
+    use crate::fockplan::Plan;
+    Ok(match g {
+        Gate::Beamsplitter { theta, phi, ma, mb } => {
+            (Plan::beamsplitter(b, *theta, *phi, *ma, *mb)?, Plan::beamsplitter(b, -theta, *phi, *ma, *mb)?)
+        }
+        Gate::Phaseshift { phi, mode } => (Plan::phaseshift(b, *phi, *mode), Plan::phaseshift(b, -phi, *mode)),
+        Gate::Kerr { kappa, mode } => (Plan::kerr(b, *kappa, *mode), Plan::kerr(b, -kappa, *mode)),
+        Gate::Passive { u, modes } => {
+            (Plan::passive(b, u, modes)?, Plan::passive(b, &conj_transpose(u, modes.len()), modes)?)
+        }
+        Gate::Displacement { mode, .. } | Gate::Squeezing { mode, .. } => {
+            let m = mats.ok_or(Error::Internal("matrices".into()))?;
+            (Plan::single_mode(b, m.0.clone(), *mode), Plan::single_mode(b, conj_transpose(&m.0, b.cutoff + 1), *mode))
+        }
+    })
+}
+
 /// The density-matrix adjoint (Phase 4 follow-up; docs/decisions/AD1-adjoint-gradients.md): f = tr(O rho_K),
 /// rho_k = Phi_k(rho_(k-1)); Lambda_K = O, Lambda_(k-1) = Phi_k^dagger(Lambda_k); df/dp = tr(Lambda_k dPhi_k/dp
 /// (rho_(k-1))): for a gate 2 Re tr(G^dagger Lambda (dG/dp) rho), for loss the derivative of its Kraus weights.
@@ -499,7 +518,8 @@ pub fn adjoint_dm(b: &Basis, x0: &[C64], chans: &[Channel], terms: &[Term]) -> R
         kept.push(if ch.kept() { Some(rho.clone()) } else { None });
         match ch {
             Channel::Gate(g) => {
-                dm::unitary_like(b, &mut rho, |v| apply(b, v, g, m.as_ref()))?;
+                let (fwd, _) = plans(b, g, m.as_ref())?;
+                dm::unitary_like(b, &mut rho, |v| { fwd.apply(v); Ok(()) })?;
             }
             Channel::Loss { eta, mode } => rho = dm::loss(b, &rho, *eta, *mode),
             Channel::Thermal { eta, nth, mode } => rho = dm::thermal_loss(b, &rho, *eta, *nth, *mode).0,
@@ -526,8 +546,9 @@ pub fn adjoint_dm(b: &Basis, x0: &[C64], chans: &[Channel], terms: &[Term]) -> R
             Some(x) => x,
             None => {
                 let Channel::Gate(g) = &chans[k] else { unreachable!() };
+                let (_, back) = plans(b, g, m)?;
                 let mut x = rho.clone();
-                dm::unitary_like(b, &mut x, |v| apply_adjoint(b, v, g, m))?;
+                dm::unitary_like(b, &mut x, |v| { back.apply(v); Ok(()) })?;
                 x
             }
         };
@@ -535,8 +556,9 @@ pub fn adjoint_dm(b: &Basis, x0: &[C64], chans: &[Channel], terms: &[Term]) -> R
             Channel::Gate(g) => {
                 if g.arity() > 0 {
                     // W = G^dagger Lambda; grad_j = 2 Re tr(W (dG/dp_j) x)
+                    let (_, back) = plans(b, g, m)?;
                     let mut w = lam.clone();
-                    on_columns(&mut w, d, |v| apply_adjoint(b, v, g, m))?;
+                    on_columns(&mut w, d, |v| { back.apply(v); Ok(()) })?;
                     for j in 0..g.arity() {
                         let mut dx = x.clone();
                         on_columns(&mut dx, d, |v| {
@@ -548,7 +570,8 @@ pub fn adjoint_dm(b: &Basis, x0: &[C64], chans: &[Channel], terms: &[Term]) -> R
                     }
                 }
                 // Lambda <- G^dagger Lambda G
-                dm::unitary_like(b, &mut lam, |v| apply_adjoint(b, v, g, m))?;
+                let (_, back) = plans(b, g, m)?;
+                dm::unitary_like(b, &mut lam, |v| { back.apply(v); Ok(()) })?;
             }
             Channel::Loss { eta, mode } => {
                 grads[k].push(loss_gradient(b, &x, &lam, *eta, *mode));

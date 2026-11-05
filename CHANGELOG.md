@@ -22,6 +22,17 @@ the public API is additive.
   - `pqcf.linear`, a passive circuit's unitary.
 - `pq_json:predicate_from_json/1` (internal).
 
+### Changed
+
+- **Faster density-matrix gates** (`B2`): each gate is prepared once (index groups, sector matrices, the Clements
+  mesh, the truncated matrices) instead of for every column and row. On photon-number blocks, number-conserving
+  gates touch only the stored sectors.
+  - Dense ρ: 5–23× per gate.
+  - Blocks: 25× per beamsplitter.
+  - Cutoff 20 on 4 modes, end to end: 12 s → 1.2 s.
+
+  Results are identical bit for bit.
+
 ## 1.1.0 (5 November 2026)
 
 The first release after 1.0.0-rc.1: Phase 4 of the specification's roadmap (FS 15). Everything is additive. Code

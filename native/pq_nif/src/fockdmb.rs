@@ -209,6 +209,73 @@ impl Blocks {
         Ok(before - self.trace())
     }
 
+    /// rho <- G rho G^dagger with a prepared plan (fockplan.rs): as unitary_like, and for a number-conserving
+    /// gate each column (row) is transformed on the sectors where it has stored blocks only -- a block-diagonal
+    /// column costs d_n instead of D
+    pub fn unitary_plan(&mut self, b: &Basis, plan: &crate::fockplan::Plan) -> Result<f64, Error> {
+        let k = self.k();
+        let d = b.patterns.len();
+        let before = self.trace();
+        let mut col = vec![C64::ZERO; d];
+        let mut mask = vec![false; k];
+        for c in 0..k {
+            if (0..k).all(|a| self.blocks[a * k + c].is_none()) {
+                continue;
+            }
+            for (a, m) in mask.iter_mut().enumerate() {
+                *m = self.blocks[a * k + c].is_some();
+            }
+            for j in self.offsets[c]..self.offsets[c] + self.sizes[c] {
+                for a in 0..k {
+                    let (o, da, dc, jj) = (self.offsets[a], self.sizes[a], self.sizes[c], j - self.offsets[c]);
+                    match &self.blocks[a * k + c] {
+                        Some(v) => (0..da).for_each(|x| col[o + x] = v[x * dc + jj]),
+                        None => col[o..o + da].fill(C64::ZERO),
+                    }
+                }
+                if plan.conserving { plan.apply_sectors(&mut col, &mask) } else { plan.apply(&mut col) }
+                for a in 0..k {
+                    if plan.conserving && !mask[a] {
+                        continue;
+                    }
+                    let o = self.offsets[a];
+                    for (x, &z) in col[o..o + self.sizes[a]].iter().enumerate() {
+                        self.set(a, c, o + x, j, z);
+                    }
+                }
+            }
+        }
+        for a in 0..k {
+            if (0..k).all(|c| self.blocks[a * k + c].is_none()) {
+                continue;
+            }
+            for (c, m) in mask.iter_mut().enumerate() {
+                *m = self.blocks[a * k + c].is_some();
+            }
+            for i in self.offsets[a]..self.offsets[a] + self.sizes[a] {
+                for c in 0..k {
+                    let (o, dc, ii) = (self.offsets[c], self.sizes[c], i - self.offsets[a]);
+                    match &self.blocks[a * k + c] {
+                        Some(v) => (0..dc).for_each(|x| col[o + x] = conj(v[ii * dc + x])),
+                        None => col[o..o + dc].fill(C64::ZERO),
+                    }
+                }
+                if plan.conserving { plan.apply_sectors(&mut col, &mask) } else { plan.apply(&mut col) }
+                for c in 0..k {
+                    if plan.conserving && !mask[c] {
+                        continue;
+                    }
+                    let o = self.offsets[c];
+                    for (x, &z) in col[o..o + self.sizes[c]].iter().enumerate() {
+                        self.set(a, c, i, o + x, conj(z));
+                    }
+                }
+            }
+        }
+        self.prune();
+        Ok(before - self.trace())
+    }
+
     /// a Kraus-type map entry by entry, in the dense kernels' order (rows i, columns j, then the branch l): each
     /// stored entry (i, j) sends weight(np, nq, l) times itself to the patterns `target(p, l)`, `target(q, l)`
     fn map_entries(&self, b: &Basis, mode: usize, branches: impl Fn(u32, u32) -> Vec<(i64, f64)>) -> Blocks {
@@ -370,6 +437,21 @@ mod tests {
             dm::unitary_like(&b, &mut dense, f).unwrap();
             blk.unitary_like(&b, f).unwrap();
             assert_eq!(blk.to_dense(d), dense);
+        }
+        // the same with prepared plans, sector by sector (fockplan.rs): equal to the dense kernel entry for entry
+        let mut viaplan = Blocks::from_pure(&b, &psi);
+        let mut dense2 = dm::from_pure(&psi);
+        let plans = vec![
+            crate::fockplan::Plan::beamsplitter(&b, 0.7, 0.3, 0, 1).unwrap(),
+            crate::fockplan::Plan::kerr(&b, 0.4, 1),
+            crate::fockplan::Plan::beamsplitter(&b, 1.1, -0.2, 1, 2).unwrap(),
+            crate::fockplan::Plan::displacement(&b, 0.3, 0.5, 1),
+        ];
+        for pl in &plans {
+            dm::unitary_like(&b, &mut dense2, |v| { pl.apply(v); Ok(()) }).unwrap();
+            viaplan.unitary_plan(&b, pl).unwrap();
+            let got = viaplan.to_dense(d);
+            assert!(got.iter().zip(&dense2).all(|(x, y)| x.re == y.re && x.im == y.im));
         }
         dense = dm::loss(&b, &dense, 0.6, 0);
         blk = blk.loss(&b, 0.6, 0);
