@@ -108,3 +108,51 @@ the polynomial fragment. Its results equal `pq_symbolic`'s exactly. It is an add
 **The standing comparison.** `comparison/form/` holds the reference tasks, the latest results and their history.
 It runs weekly on GitHub Actions until the end of the project.
 
+
+## The literature's benchmarks (5 November 2026)
+
+The project owner asked for a comparison on the problems that recent papers use to test FORM. Three sources:
+
+- **FORM 5's own paper** (arXiv:2601.19982, section 3.3, table 1):
+  - Its tests are `minceex` (three-loop moments), `forcer` (four-loop integration by parts) and `mbox1l` (a
+    one-loop massive box), 24 TFORM workers on a Ryzen 9 7900X, with and without FLINT.
+  - They run through FORM's own Mincer and Forcer packages, thousands of lines of FORM code. Their arithmetic is in
+    rational functions: polynomial GCDs, which are outside `pq_symbolic`'s scope fence (SY 1.2).
+  - They cannot be run here, and a reimplementation of the packages would compare our reimplementation, not the
+    engine.
+- **polybench** (T. Ueda, one of FORM's authors; github.com/tueda/polybench): multivariate GCD and factorisation in
+  FORM, FLINT, Mathematica, Singular, Symbolica and others. Again outside the scope fence: PQCF has no
+  polynomial GCD.
+- **The classic multiplication benchmarks** used for FORM and other systems in the computer-algebra literature are
+  within scope, and are now standing tasks of the comparison:
+  - **T5,** Fateman's dense f (f + 1), with f = (1 + x + y + z + t)^n;
+  - **T6,** Monagan and Pearce's sparse f g, with f = (1 + x + y + 2z² + 3t³ + 5u⁵)^n and g its mirror.
+
+  The sizes are reduced from the classic n = 20 and n = 12, so that our engine's run stays within minutes.
+
+**Results** (run of 5 Nov 2026, core 8 of the provisional reference, single-threaded, every check `ok`):
+
+| Task | Terms | FORM 5 | native | ratio | bridge |
+| --- | --- | --- | --- | --- | --- |
+| T5 Fateman n = 10 | 10,626 | 0.14 s | 1.34 s | 9.7 | 0.24 s |
+| T5 Fateman n = 15 | 46,376 | 2.17 s | 33.1 s | 15 | 3.1 s |
+| T6 sparse n = 6 | 114,000 | 0.051 s | 1.28 s | 25 | 2.6 s |
+| T6 sparse n = 8 | 591,235 | 0.38 s | 12.0 s | 32 | 20 s |
+
+The bulk products sit where T2 already showed: 10 to 32 times FORM's time natively. That is the cost of a sparse
+product in a map, without FORM's sorted streams. The bridge brings the dense ones within 1.1 to 1.7 times FORM
+alone.
+
+**Found and fixed on the way:**
+
+- **The bridge timed out on T6** (600 s, where FORM alone takes 0.05 s): `pq_form:expand` wrote a product of
+  powers as one expression, `Local F = (...)^n*(...)^n`, and FORM expands such a product inside every term before
+  any sort. It now writes each factor as its own expression, sorts, then multiplies, as FORM practice does.
+  - T6 n = 6: timeout → 2.6 s;
+  - T2: 0.60 → 0.31 s;
+  - T5 n = 15: 10.6 → 3.1 s.
+- **Reading FORM's output back** spent most of its time on monomial powers such as u¹⁷, computed by
+  square-and-multiply. `pq_sym_poly:pow_int` now raises a plain monomial directly (exponents times n, coefficient
+  to the n), which halved the read-back at n = 4.
+
+Results are unchanged: the bridge's 15 tests and the symbolic test suite pass.

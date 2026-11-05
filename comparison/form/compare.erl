@@ -31,6 +31,22 @@ tasks() ->
       fun() -> {ok, P} = pq_symbolic:canonicalise(P10, ?LIMITS), pq_symbolic:canonicalise({mul, [P, P]}, ?LIMITS) end,
       fun() -> pq_form:expand({mul, [P10, P10]}, ?LIMITS) end,
       "* final: F\nSymbols x,y,z,w;\nLocal P = (1+x+y+z+w)^10;\n.sort\nLocal F = P*P;\n.sort\nDrop P;\n.end\n"}] ++
+    %% the classic multiplication benchmarks of the computer-algebra literature, used for FORM among others:
+    %% Fateman's dense f (f + 1), f = (1 + x + y + z + t)^n, and Monagan and Pearce's sparse f g,
+    %% f = (1 + x + y + 2 z^2 + 3 t^3 + 5 u^5)^n, g = (1 + u + t + 2 z^2 + 3 y^3 + 5 x^5)^n
+    [{io_lib:format("T5 Fateman n=~b", [N]), io_lib:format("f (f + 1), f = (1 + x + y + z + t)^~b (Fateman)", [N]),
+      fun() -> {ok, F} = pq_symbolic:canonicalise(fateman(N), ?LIMITS),
+               pq_symbolic:canonicalise({mul, [F, {add, [F, 1]}]}, ?LIMITS) end,
+      fun() -> pq_form:expand({mul, [fateman(N), {add, [fateman(N), 1]}]}, ?LIMITS) end,
+      lists:flatten(io_lib:format("* final: F\nSymbols x,y,z,t;\nLocal P = (1+x+y+z+t)^~b;\n.sort\n"
+                                  "Local F = P*(P+1);\n.sort\nDrop P;\n.end\n", [N]))} || N <- [10, 15]] ++
+    [{io_lib:format("T6 sparse n=~b", [N]), io_lib:format("f g, f = (1 + x + y + 2z^2 + 3t^3 + 5u^5)^~b, g its mirror (Monagan and Pearce)", [N]),
+      fun() -> {ok, F} = pq_symbolic:canonicalise(mp_f(N), ?LIMITS), {ok, G} = pq_symbolic:canonicalise(mp_g(N), ?LIMITS),
+               pq_symbolic:canonicalise({mul, [F, G]}, ?LIMITS) end,
+      fun() -> pq_form:expand({mul, [mp_f(N), mp_g(N)]}, ?LIMITS) end,
+      lists:flatten(io_lib:format("* final: F\nSymbols x,y,z,t,u;\nLocal P = (1+x+y+2*z^2+3*t^3+5*u^5)^~b;\n"
+                                  "Local Q = (1+u+t+2*z^2+3*y^3+5*x^5)^~b;\n.sort\nLocal F = P*Q;\n.sort\n"
+                                  "Drop P,Q;\n.end\n", [N, N]))} || N <- [6, 8]] ++
     [{io_lib:format("T3 permanent n=~b", [N]), io_lib:format("permanent of a ~b x ~b matrix of symbols", [N, N]),
       fun() -> pq_symbolic:permanent(Mat(N)) end,
       fun() -> pq_form:permanent(Mat(N), ?LIMITS) end,
@@ -116,6 +132,16 @@ form_permanent(N) ->
      [["Multiply (", lists:join("+", [[A(I, J), "*", X(J)] || J <- Js]), ");\n",
        [["id ", X(J), "^2 = 0;\n"] || J <- Js], ".sort\n"] || I <- Js],
      "id ", lists:join("*", [X(J) || J <- Js]), " = 1;\n.end\n"].
+
+fateman(N) -> {pow, {add, [1, {sym, x}, {sym, y}, {sym, z}, {sym, t}]}, N}.
+
+mp_f(N) ->
+    {pow, {add, [1, {sym, x}, {sym, y}, {mul, [2, {pow, {sym, z}, 2}]}, {mul, [3, {pow, {sym, t}, 3}]},
+                 {mul, [5, {pow, {sym, u}, 5}]}]}, N}.
+
+mp_g(N) ->
+    {pow, {add, [1, {sym, u}, {sym, t}, {mul, [2, {pow, {sym, z}, 2}]}, {mul, [3, {pow, {sym, y}, 3}]},
+                 {mul, [5, {pow, {sym, x}, 5}]}]}, N}.
 
 %% the beamsplitters of mesh/1 in FORM: cos t = (z + 1/z)/2, sin t = -i/2 (z - 1/z) with z = e^(i t), p = e^(i phi)
 form_mesh(K) ->

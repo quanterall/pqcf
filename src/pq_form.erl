@@ -42,7 +42,24 @@ version() ->
 expand(E) -> expand(E, #{}).
 
 -spec expand(pq_symbolic:sym_expr(), map()) -> {ok, pq_symbolic:sym_expr()} | {error, pq_core:reason()}.
-expand(E, Opts) ->
+expand({mul, Fs} = E, Opts) when length(Fs) > 1 ->
+    %% a product of sums or powers: each factor its own expression, sorted, then the product -- FORM expands a
+    %% product of powers inside every term before any sort otherwise (f g with f, g = (6 terms)^5: 22 s against
+    %% 0.05 s; found by the comparison with the literature's sparse benchmark, 5 Nov 2026)
+    case [X || X <- Fs, element(1, X) =:= add orelse element(1, X) =:= pow] of
+        [_, _ | _] ->
+            with_form(Opts, fun(Names) ->
+                                    Ks = lists:seq(1, length(Fs)),
+                                    Ls = ["E" ++ integer_to_list(K) || K <- Ks],
+                                    [["Local ", L, " = ", to_form(X, Names), ";\n"] || {L, X} <- lists:zip(Ls, Fs)] ++
+                                        [".sort\nLocal F = ", lists:join("*", Ls), ";\n.sort\nDrop ",
+                                         lists:join(",", Ls), ";\n"]
+                            end, [E]);
+        _ -> expand_one(E, Opts)
+    end;
+expand(E, Opts) -> expand_one(E, Opts).
+
+expand_one(E, Opts) ->
     with_form(Opts, fun(Names) -> "Local F = " ++ to_form(E, Names) ++ ";\n" end, [E]).
 
 %% the permanent of a square matrix ({matrix, Rows}) by FORM, row by row with the terms that use a column twice

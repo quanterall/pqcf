@@ -213,6 +213,19 @@ pow_int(P, N, Ctx) when N < 0 ->
         false -> base_power(P, {N, 1}, Ctx)
     end;
 pow_int(P, N, Ctx) ->
+    case single(P) of
+        %% a plain monomial (symbols, conj, pi): its exponents times N and its coefficient to the N, directly --
+        %% square-and-multiply did log2 N products of it (found by the comparison with FORM's published
+        %% benchmarks, 5 Nov 2026: every term of FORM's output is a product of such powers)
+        {ok, {A, []}, C} when A =/= [] ->
+            case plain(A) of
+                true -> #{{[{X, rmul(E, {N, 1})} || {X, E} <- A], []} => cpow(C, N)};
+                false -> pow_int_sum(P, N, Ctx)
+            end;
+        _ -> pow_int_sum(P, N, Ctx)
+    end.
+
+pow_int_sum(P, N, Ctx) ->
     Max = maps:get(max_expand_power, Ctx, 8),
     case maps:size(P) > 1 andalso N > Max of
         true -> base_power(P, {N, 1}, Ctx);
