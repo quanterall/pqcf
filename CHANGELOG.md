@@ -16,6 +16,10 @@ the public API is additive.
   - `pq_recon:polynomial/3`: a polynomial reconstructed from its program's values (Zippel over the first prime,
     the support reused in the next, Chinese remaindering and rational reconstruction, a final check); the resultants
     res(7,4) and res(7,5) exactly, in 12.6 s and 248 s on one core;
+  - the store and the executors (phase 3): `pq_rstore` (content-addressed blobs, fetched once by key, programs
+    kept prepared) and `pq_rexec` (`local`, the default, or `{nodes, Nodes}` over erpc, a failed node's tasks run
+    elsewhere); a reconstruction's columns run in parallel with the same result for any executor (res(7,4) in
+    2.5 s, res(7,5) in 42 s on 16 local workers);
   - the design for what follows: rational functions; three executors
     behind one task interface (this node, Erlang nodes, FVLLMP federation peers), from a single node to 100+.
 

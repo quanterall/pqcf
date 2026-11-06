@@ -36,7 +36,7 @@ mod atoms {
         max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold,
         phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix, stream_ref, metropolis, burn_in, thin, chains, acceptance_rate,
         probability, photons, shared, thermal_loss, extra, device, cpu, gpu, auto, reason,
-        overflow, packing, q, add, mul, pow, rat, complex, expi, sym, exp, bad_prime, sub, singular, const_ = "const"
+        overflow, packing, q, add, mul, pow, rat, complex, expi, sym, exp, bad_prime, sub, singular, bad, const_ = "const"
     }
 }
 
@@ -1742,6 +1742,23 @@ fn ff_tvandermonde<'a>(env: Env<'a>, p: u64, nodes: Vec<u64>, values: Vec<u64>) 
     Ok(match ffslp::tvandermonde(p, &nodes, &values) {
         Some(c) => (atoms::ok(), c).encode(env),
         None => atoms::singular().encode(env),
+    })
+}
+
+/// ff_column(Resource, P, R, N, Support, Suffix) -> {ok, Coefficients} | bad | singular | bad_prime: one column of
+/// Zippel's interpolation (ffslp.rs; R1): the coefficients of the N monomials of Support (exponent rows of
+/// length(R), flat) in the program's first output at the points (R^i, Suffix), i = 1 .. N
+#[rustler::nif(schedule = "DirtyCpu")]
+fn ff_column<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, p: u64, r: Vec<u64>, n: usize, support: Vec<u32>, suffix: Vec<u64>) -> NifResult<Term<'a>> {
+    if !(3..(1u64 << 63)).contains(&p) {
+        return Err(rustler::Error::BadArg);
+    }
+    Ok(match prog.0.column(p, &r, n, &support, &suffix) {
+        Ok(c) => (atoms::ok(), c).encode(env),
+        Err(ffslp::ColumnError::Bad) => atoms::bad().encode(env),
+        Err(ffslp::ColumnError::Singular) => atoms::singular().encode(env),
+        Err(ffslp::ColumnError::BadPrime) => atoms::bad_prime().encode(env),
+        Err(ffslp::ColumnError::Shape) => bad_shape(env, "ff column"),
     })
 }
 

@@ -1,79 +1,83 @@
-%% Reconstruction of a polynomial from its values over prime fields (decision record R1, phase 2): Zippel's sparse
-%% interpolation, then the rationals by Chinese remaindering and rational reconstruction.
+%% Reconstruction of a polynomial from its values over prime fields (decision record R1, phases 2 and 3): Zippel's
+%% sparse interpolation, then the rationals by Chinese remaindering and rational reconstruction; the work as tasks
+%% for an executor (pq_rexec: this node, or Erlang nodes), the program and supports in the store (pq_rstore).
 %%
-%% The black box is an evaluator Eval(P, Points) -> [Value | bad] (Points: lists of residues, one per variable, in
-%% Vars' order): pq_ff over a compiled program on this node, or any executor that distributes the points (phase 3).
-%% Every random choice comes from {Seed, prime, stage, attempt}, so the result is the same however the points are
-%% evaluated (D1). Probabilistic as every sparse interpolation is: degrees are found by early termination (Terminate
-%% further points that add nothing), and the result is checked at a point no stage used, in a prime no stage used.
+%% The black box is a compiled program (pq_symbolic:compile/3, exact_constants), evaluated over prime fields by the
+%% tasks. Every random choice comes from {Seed, prime, stage, attempt}, and the columns are taken in order however
+%% many run at once, so the result is the same for every executor, node count and batch (D1). Probabilistic as every
+%% sparse interpolation is: degrees are found by early termination (Terminate further points that add nothing), and
+%% the result is checked at a point no stage used, in a prime no stage used.
 -module(pq_recon).
--export([polynomial/3, polynomial/4]).
+-export([polynomial/3]).
 
 -define(TERMINATE, 2).
 -define(MAX_DEGREE, 1000).
 
-%% The polynomial in Vars (atoms) that the program computes (its first output), as pq_sym_poly's map.
+%% The polynomial in Vars (the program's inputs, atoms) that the program computes (its first output), as
+%% pq_sym_poly's map. Opts: seed (1); executor => local (the default) | {nodes, Nodes} (pq_rexec), and its workers,
+%% per_node, task_timeout; batch, the columns computed ahead at a time (default: the executor's slots).
 -spec polynomial(tuple(), [atom()], map()) -> {ok, map()} | {error, term()}.
 polynomial({slp, 1, Inputs, _, _}, Vars, _Opts) when Inputs =/= Vars -> {error, {bad_shape, {variables, Inputs}}};
 polynomial(Program, Vars, Opts) ->
     case pq_ff:prepare(Program) of
-        {ok, FF} ->
-            Eval = fun(P, Points) ->
-                           case pq_ff:eval(FF, P, Points) of
-                               {ok, Rows} -> [case R of bad -> bad; [V | _] -> V end || R <- Rows];
-                               bad_prime -> [bad || _ <- Points]
-                           end
-                   end,
-            polynomial(Eval, Vars, Opts, ok);
+        {ok, _} ->
+            Seed = maps:get(seed, Opts, 1),
+            Exec = maps:get(executor, Opts, local),
+            Run = fun(Tasks) -> pq_rexec:map(Tasks, Exec, Opts) end,
+            Batch = maps:get(batch, Opts, batch(Exec, Opts)),
+            Job = #{key => pq_rstore:put(Program), run => Run, batch => Batch, seed => Seed, n => length(Vars)},
+            try
+                P1 = pq_ff:prime(1),
+                {Support, C1} = zippel(Job, P1),
+                Rat = rationals(Job, Support, [{P1, C1}], 2, none),
+                ok = check(Job, Support, Rat),
+                {ok, to_poly(Vars, Support, Rat)}
+            catch
+                throw:{recon, Why} -> {error, {reconstruction, Why}}
+            end;
         Error -> Error
     end.
 
--spec polynomial(fun(), [atom()], map(), ok) -> {ok, map()} | {error, term()}.
-polynomial(Eval, Vars, Opts, ok) ->
-    Seed = maps:get(seed, Opts, 1),
-    try
-        P1 = pq_ff:prime(1),
-        {Support, C1} = zippel(Eval, P1, length(Vars), Seed),
-        Rat = rationals(Eval, Support, [{P1, C1}], 2, none, Seed),
-        %% the check: a point no stage used, in a prime no stage used
-        ok = check(Eval, Support, Rat, Seed),
-        {ok, to_poly(Vars, Support, Rat)}
-    catch
-        throw:{recon, Why} -> {error, {reconstruction, Why}}
-    end.
+batch(local, Opts) -> maps:get(workers, Opts, erlang:system_info(dirty_cpu_schedulers_online));
+batch({nodes, Nodes}, Opts) -> max(1, length(Nodes)) * maps:get(per_node, Opts, erlang:system_info(dirty_cpu_schedulers_online)).
 
 %%% Zippel over one prime: {Support, Coefficients}, the support a list of exponent lists (one per variable)
 
-zippel(Eval, P, N, Seed) ->
+zippel(#{n := N, seed := Seed} = Job, P) ->
     Anchors = rnd_list(P, N, {Seed, P, anchors}),
     %% stage 0: no variable interpolated yet, the support is the empty monomial
-    lists:foldl(fun(K, {S, _C}) -> stage(Eval, P, N, K, S, Anchors, Seed) end, {[[]], [none]}, lists:seq(1, N)).
+    lists:foldl(fun(K, {S, _C}) -> stage(Job, P, K, S, Anchors) end, {[[]], [none]}, lists:seq(1, N)).
 
 %% Stage K: from the support S in x_1 .. x_{K-1}, the support in x_1 .. x_K. For x_K = b_0, b_1, ...: the
-%% coefficients of S at that b (a transposed Vandermonde system over the points r^0, r^1, ... in x_1 .. x_{K-1}),
-%% then each coefficient interpolated in x_K by Newton until Terminate further b add nothing to any of them.
-stage(Eval, P, _N, K, S, Anchors, Seed) ->
+%% coefficients of S at that b (one column: a transposed Vandermonde system over the points r^1, r^2, ... in
+%% x_1 .. x_{K-1}), then each coefficient interpolated in x_K by Newton until Terminate further b add nothing to
+%% any of them. The columns are computed Batch at a time, in parallel, and taken in order.
+stage(#{seed := Seed} = Job, P, K, S, Anchors) ->
     Rest = lists:nthtail(K, Anchors),
-    {R, Nodes} = nodes(P, K - 1, S, {Seed, P, K}),
+    {R, _Nodes} = nodes(P, K - 1, S, {Seed, P, K}),
+    SKey = pq_rstore:put(lists:append(S)),
     Newton0 = [{[], []} || _ <- S],                    % per monomial: {Xs, Newton coefficients}
-    grow(Eval, P, K, S, R, Nodes, Rest, Newton0, 0, 0, Seed).
+    columns(Job, P, K, S, {R, SKey}, Rest, Newton0, 0, 0).
 
-grow(_Eval, P, K, S, _R, _Nodes, _Rest, Newton, _J, Quiet, _Seed) when Quiet >= ?TERMINATE ->
-    support(P, S, Newton, K);
-grow(_Eval, _P, _K, _S, _R, _Nodes, _Rest, _Newton, J, _Quiet, _Seed) when J > ?MAX_DEGREE + ?TERMINATE ->
-    throw({recon, degree_bound});
-grow(Eval, P, K, S, R, Nodes, Rest, Newton, J, Quiet, Seed) ->
-    B = point_value(P, {Seed, P, K, b, J}),
-    Points = [Ri ++ [B | Rest] || Ri <- powers(R, length(S), P)],
-    Values = Eval(P, Points),
-    case lists:member(bad, Values) of
-        true -> grow(Eval, P, K, S, R, Nodes, Rest, Newton, J + 1, Quiet, Seed);   % another b
-        false ->
-            Coeffs = solve(P, Nodes, Values),
-            Newton2 = [newton_add(P, Nw, B, C) || {Nw, C} <- lists:zip(Newton, Coeffs)],
-            AllZero = lists:all(fun({_, Cs}) -> lists:last(Cs) =:= 0 end, Newton2),
-            grow(Eval, P, K, S, R, Nodes, Rest, Newton2, J + 1, case AllZero of true -> Quiet + 1; false -> 0 end, Seed)
+columns(#{key := Key, run := Run, batch := Batch, seed := Seed} = Job, P, K, S, {R, SKey}, Rest, Newton, J, Quiet) ->
+    J > ?MAX_DEGREE andalso throw({recon, degree_bound}),
+    Bs = [point_value(P, {Seed, P, K, b, I}) || I <- lists:seq(J, J + Batch - 1)],
+    Results = Run([{column, Key, P, R, length(S), SKey, [B | Rest]} || B <- Bs]),
+    case take(P, lists:zip(Bs, Results), Newton, Quiet) of
+        {done, Newton2} -> support(P, S, Newton2);
+        {more, Newton2, Quiet2} -> columns(Job, P, K, S, {R, SKey}, Rest, Newton2, J + Batch, Quiet2)
     end.
+
+%% the columns in order: each adds a point to every Newton interpolant, until Terminate in a row add nothing
+take(_P, _, Newton, Quiet) when Quiet >= ?TERMINATE -> {done, Newton};
+take(_P, [], Newton, Quiet) -> {more, Newton, Quiet};
+take(P, [{_B, bad} | Rest], Newton, Quiet) -> take(P, Rest, Newton, Quiet);    % a b where the program divides by 0
+take(_P, [{_B, singular} | _], _Newton, _Quiet) -> throw({recon, singular});
+take(_P, [{_B, bad_prime} | _], _Newton, _Quiet) -> throw({recon, bad_prime});
+take(P, [{B, {ok, Coeffs}} | Rest], Newton, Quiet) ->
+    Newton2 = [newton_add(P, Nw, B, C) || {Nw, C} <- lists:zip(Newton, Coeffs)],
+    AllZero = lists:all(fun({_, Cs}) -> lists:last(Cs) =:= 0 end, Newton2),
+    take(P, Rest, Newton2, case AllZero of true -> Quiet + 1; false -> 0 end).
 
 %% random r in x_1 .. x_{K-1} whose monomial values on the support are distinct and non-zero (nodes of the system)
 nodes(P, K1, S, Key) -> nodes(P, K1, S, Key, 0).
@@ -89,7 +93,7 @@ nodes(P, K1, S, Key, Try) ->
 mono_value(P, R, M) -> lists:foldl(fun({Ri, E}, A) -> A * powm(Ri, E, P) rem P end, 1, lists:zip(R, M)).
 
 %% the new support: each monomial of S times x_K^e for every non-zero coefficient of its interpolant
-support(P, S, Newton, _K) ->
+support(P, S, Newton) ->
     Pairs = lists:append([[{M ++ [E], C} || {E, C} <- lists:enumerate(0, monomial_form(P, Nw)), C =/= 0]
                           || {M, Nw} <- lists:zip(S, Newton)]),
     case Pairs of
@@ -119,30 +123,29 @@ monomial_form(P, {Xs, Cs}) ->
 
 %%% The rationals: the same support in further primes, until the reconstruction is stable
 
-rationals(_Eval, _Support, _Residues, K, _Prev, _Seed) when K > 64 ->
-    throw({recon, too_many_primes});
-rationals(Eval, Support, Residues, K, Prev, Seed) ->
+rationals(_Job, _Support, _Residues, K, _Prev) when K > 64 -> throw({recon, too_many_primes});
+rationals(Job, Support, Residues, K, Prev) ->
     Rat = reconstruct(Residues),
     case Rat =/= false andalso Rat =:= Prev of
         true -> Rat;
         false ->
             P = pq_ff:prime(K),
-            C = with_support(Eval, P, Support, Seed),
-            rationals(Eval, Support, [{P, C} | Residues], K + 1, Rat, Seed)
+            C = with_support(Job, P, Support),
+            rationals(Job, Support, [{P, C} | Residues], K + 1, Rat)
     end.
 
-%% the coefficients of a known support in the prime P: one transposed Vandermonde system
-with_support(_Eval, _P, [], _Seed) -> [];
-with_support(Eval, P, Support, Seed) -> with_support(Eval, P, Support, Seed, 0).
-with_support(_Eval, _P, _Support, _Seed, 20) -> throw({recon, bad_points});
-with_support(Eval, P, Support, Seed, Try) ->
-    N = length(hd(Support)),
-    {R, Nodes} = nodes(P, N, Support, {Seed, P, support, Try}),
-    Values = Eval(P, powers(R, length(Support), P)),
-    case lists:member(bad, Values) of
-        true -> with_support(Eval, P, Support, Seed, Try + 1);
-        false ->
-            solve(P, Nodes, Values)
+%% the coefficients of a known support in the prime P: one column, over every variable
+with_support(_Job, _P, []) -> [];
+with_support(Job, P, Support) -> with_support(Job, P, Support, 0).
+with_support(_Job, _P, _Support, 20) -> throw({recon, bad_points});
+with_support(#{key := Key, run := Run, seed := Seed, n := N} = Job, P, Support, Try) ->
+    {R, _} = nodes(P, N, Support, {Seed, P, support, Try}),
+    SKey = pq_rstore:put(lists:append(Support)),
+    case Run([{column, Key, P, R, length(Support), SKey, []}]) of
+        [{ok, Cs}] -> Cs;
+        [bad] -> with_support(Job, P, Support, Try + 1);
+        [singular] -> with_support(Job, P, Support, Try + 1);
+        [Other] -> throw({recon, Other})
     end.
 
 %% every coefficient from its residues: CRT, then Wang; false while one of them has no reconstruction
@@ -156,35 +159,22 @@ reconstruct(Residues) ->
     case lists:member(false, Rats) of true -> false; false -> Rats end.
 
 %% the reconstruction at a fresh point, in a fresh prime
-check(_Eval, [], _Rat, _Seed) -> ok;
-check(Eval, Support, Rat, Seed) ->
+check(_Job, [], _Rat) -> ok;
+check(#{key := Key, run := Run, seed := Seed, n := N}, Support, Rat) ->
     P = pq_ff:prime(65),
-    X = rnd_list(P, length(hd(Support)), {Seed, check}),
-    case Eval(P, [X]) of
-        [bad] -> ok;
-        [V] ->
+    X = rnd_list(P, N, {Seed, check}),
+    case Run([{values, Key, P, [X]}]) of
+        [{ok, [bad]}] -> ok;
+        [{ok, [[V | _]]}] ->
             Want = lists:foldl(fun({M, {Nu, De}}, A) -> (A + mod(Nu, P) * pq_ff:inv(De, P) rem P * mono_value(P, X, M)) rem P end,
                                0, lists:zip(Support, Rat)),
-            case V =:= Want of true -> ok; false -> throw({recon, check_failed}) end
+            case V =:= Want of true -> ok; false -> throw({recon, check_failed}) end;
+        Other -> throw({recon, {check, Other}})
     end.
 
 to_poly(Vars, Support, Rat) ->
     maps:from_list([{{[{{sym, X}, {E, 1}} || {X, E} <- lists:zip(Vars, M), E =/= 0], []}, {q, R, {0, 1}}}
                     || {M, R} <- lists:zip(Support, Rat)]).
-
-%% the points r^1, ..., r^Count (componentwise), each from the one before: not r^0 = (1, ..., 1), where a
-%% fraction such as 1 / (x - y) is never defined
-powers(R, Count, P) ->
-    {Pts, _} = lists:mapfoldl(fun(_, Cur) -> {Cur, [C * Ri rem P || {C, Ri} <- lists:zip(Cur, R)]} end,
-                              R, lists:seq(1, Count)),
-    Pts.
-
-%% the coefficients c from values_i = sum_j c_j v_j^i (i = 1 .. n): the system from i = 0 gives c_j v_j
-solve(P, Nodes, Values) ->
-    case pq_nif:ff_tvandermonde(P, Nodes, Values) of
-        {ok, Cv} -> [C * pq_ff:inv(V, P) rem P || {C, V} <- lists:zip(Cv, Nodes)];
-        singular -> throw({recon, singular})
-    end.
 
 %%% Deterministic randomness and residues
 

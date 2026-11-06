@@ -172,6 +172,55 @@ pub fn tvandermonde(p: u64, nodes: &[u64], values: &[u64]) -> Option<Vec<u64>> {
     Some(out)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum ColumnError {
+    /// a point where the program divides by zero
+    Bad,
+    /// two monomials take the same value at r (or one is 0): another r is needed
+    Singular,
+    BadPrime,
+    Shape,
+}
+
+impl Program {
+    /// One column of Zippel's interpolation, mod p: the coefficients c_m of the support's n monomials m (exponent
+    /// rows of r.len() each; with no variable yet, one empty monomial) in the program's first output at the points (r^i, suffix), i = 1 .. |support| --
+    /// sum_m c_m m(r)^i -- by a transposed Vandermonde system on the nodes m(r), divided by the nodes.
+    pub fn column(&self, p: u64, r: &[u64], n: usize, support: &[u32], suffix: &[u64]) -> Result<Vec<u64>, ColumnError> {
+        let k = r.len();
+        if k + suffix.len() != self.ninputs || support.len() != n * k {
+            return Err(ColumnError::Shape);
+        }
+        // the points r^1 .. r^n, each followed by the suffix
+        let mut points = Vec::with_capacity(n * self.ninputs);
+        let mut cur: Vec<u64> = r.iter().map(|&x| x % p).collect();
+        for _ in 0..n {
+            points.extend_from_slice(&cur);
+            points.extend(suffix.iter().map(|&x| x % p));
+            for (c, &x) in cur.iter_mut().zip(r) {
+                *c = mulmod(*c, x, p);
+            }
+        }
+        let vals = self.eval(p, &points).map_err(|e| match e {
+            FfError::BadPrime => ColumnError::BadPrime,
+            FfError::Shape => ColumnError::Shape,
+        })?;
+        let width = self.outputs.len().max(1);
+        let first: Vec<u64> = vals.iter().step_by(width).copied().collect();
+        if first.contains(&BAD) {
+            return Err(ColumnError::Bad);
+        }
+        let nodes: Vec<u64> = (0..n)
+            .map(|m| (0..k).fold(1u64, |a, l| mulmod(a, powmod(r[l], support[m * k + l] as u64, p), p)))
+            .collect();
+        if nodes.contains(&0) {
+            return Err(ColumnError::Singular);
+        }
+        let cv = tvandermonde(p, &nodes, &first).ok_or(ColumnError::Singular)?;
+        Ok(cv.iter().zip(&nodes).map(|(&c, &v)| mulmod(c, invmod(v, p).unwrap_or(0), p)).collect())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -235,5 +284,34 @@ mod tests {
             assert_eq!(tvandermonde(p, &nodes, &values), Some(c));
         }
         assert_eq!(tvandermonde(p, &[5, 5], &[1, 2]), None);
+    }
+
+    #[test]
+    fn computes_a_column() {
+        // f(x, y, z) = 3 x^2 y + 5 y z - 7 at z = 11: the coefficients of x^2 y and y in x, y are 3 and 5 * 11 (the
+        // constant -7 is the third monomial)
+        let p = P;
+        let prog = Program {
+            ops: vec![
+                Op::Input(0),
+                Op::Input(1),
+                Op::Input(2),
+                Op::Pow(0, 2),
+                Op::Const(1, vec![3], vec![1]),
+                Op::Mul(4, 3),
+                Op::Mul(5, 1),
+                Op::Const(1, vec![5], vec![1]),
+                Op::Mul(7, 1),
+                Op::Mul(8, 2),
+                Op::Add(6, 9),
+                Op::Const(1, vec![7], vec![1]),
+                Op::Sub(10, 11),
+            ],
+            outputs: vec![12],
+            ninputs: 3,
+        };
+        let support = [2u32, 1, 0, 1, 0, 0]; // x^2 y, y, 1
+        let c = prog.column(p, &[123_456_789, 987_654_321], 3, &support, &[11]).unwrap();
+        assert_eq!(c, vec![3, 55, p - 7]);
     }
 }

@@ -1,7 +1,7 @@
 # R1: reducing large results by finite-field reconstruction, distributed
 
 **Status: accepted, in progress (the project owner's decision, 7 Nov 2026: "go with B and the minimal store").
-Phases 1 and 2 done.**
+Phases 1, 2 and 3 done.**
 
 ## Why
 
@@ -134,3 +134,46 @@ Tests (`test/pq_recon_tests.erl`):
 - determinism, with another seed giving the same polynomial.
 
 A Newton step that forgets the interpolant's value is caught (5 of 6 tests fail).
+
+## Phase 3, measured (7 Nov 2026): the store and the executors
+
+- **The task is a Zippel column.** For one value of the new variable, one task evaluates the program at |S| points
+  and solves the O(|S|²) Vandermonde system, all in Rust (`pq_nif:ff_column/6`, with the points generated natively).
+  It returns |S| coefficients. The columns of a stage are independent, so they are what the executors spread.
+- **The coordinator works ahead, consumes in order.** `pq_recon` computes a batch of columns ahead (as many as the
+  executor has slots) and takes them in order for Newton's method and the termination check. So the result
+  doesn't depend on the batch, the executor or the number of nodes.
+- **`pq_rexec`** runs tasks with one interface:
+  - `local`, the default: a pool with one slot per dirty CPU scheduler;
+  - `{nodes, Nodes}`: `erpc` from this node, as many slots per node as it has dirty CPU schedulers, interleaved
+    across the nodes. A node that can't be reached, or fails, is dropped and its tasks are requeued; with every node
+    gone, the work comes back here. A task's own exception is raised with its remote stack trace, never retried.
+  - `slots => [Node]` gives the pool outright.
+- **`pq_rstore`:** blobs keyed by SHA-256 of their deterministic form, in ETS and also on disk with `store_dir`.
+  A worker fetches a program or support from the coordinator once, checks that it hashes to its key, and keeps the
+  program prepared. On a node without the `pq` application, the store starts on first use. Two tasks arriving
+  together on a fresh node raced on that start (a table read before `init` had created it); the start now waits for
+  `init`.
+
+| Reconstruction (local executor; the machine shared) | 1 worker | 16 workers | speed-up |
+| --- | --- | --- | --- |
+| res(7,4), 2,562 terms | 12.4 s | 2.48 s | 5.0× |
+| res(7,5), 11,380 terms | 246 s | 42.4 s | 5.8× |
+
+The same polynomials in every case. The speed-up is below 16 because the coordinator's share, Newton's steps in
+Erlang, doesn't spread, and because the machine was shared.
+
+Tests (`test/pq_rexec_tests.erl`, on three peer nodes):
+- the same polynomial on this node with 1, 3 or 7 workers and other batches, on two peers, and on this node plus a
+  peer;
+- with an unreachable node in the list;
+- with a peer stopped during the run;
+- with every node gone (the work comes back here);
+- the requeue made deterministic: unreachable nodes hold slots in the pool, and their tasks run on the others;
+- the store: a peer fetches a blob by key, keeps it, and gets `not_found` for an unknown key;
+- a failing task raises.
+
+Recording a failed node's task as a result instead of requeueing it is caught.
+
+**Not measured yet:** separate machines. Peer nodes on one host prove the protocol, not the network. The DGX Sparks
+are the next measurement.
