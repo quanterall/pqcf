@@ -32,10 +32,11 @@ the public API is additive.
   - a subtraction operation `{sub, Slot, A, B}` in Horner programs;
   - `order_search => #{strategy => mcts}`: a parallel, deterministic Monte Carlo tree search over order prefixes,
     with `exploration` and `direction`;
-  - the search scores an order by counting its Horner operations in Rust (`pq_nif:horner_count/3`), equal to the
-    built program's count;
-  - on the resultants: below FORM 5's `O2` at the occurrence order (3,771 / 15,875 / 52,423); with 5,000 trials of
-    the tree search 2,741 (res(7,4)) and 10,243 (res(7,5)), below FORM's `O4` (2,936 / 10,722).
+  - the search scores an order by counting its Horner operations in Rust (`pq_nif:horner_prepare/2`,
+    `horner_count/2`), equal to the built program's count;
+  - on the resultants: below FORM 5's `O2` at the occurrence order (3,771 / 15,875 / 52,423); with the tree search
+    2,741 / 10,243 / 34,799 (5,000 / 5,000 / 10,000 trials), below FORM's `O4` (2,936 / 10,722 / 35,419) on all
+    three.
 
 ### Changed
 

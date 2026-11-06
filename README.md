@@ -102,8 +102,8 @@ The symbolic engine against FORM 5 (`CHANGELOG.md`, `docs/decisions/` K1, K2, H1
   - Horner schemes with primitive nodes and subtraction (H1, H4);
   - common subexpressions across them (H2);
   - a parallel, deterministic search over variable orders, local or Monte Carlo tree search (H3, H4);
-  - on the resultant benchmarks: below FORM's `O2` at the default order, and below FORM's `O4` on two of the three
-    with the tree search.
+  - on the resultant benchmarks: below FORM's `O2` at the default order, and below FORM's `O4` on all three with
+    the tree search.
 
 ## Next
 

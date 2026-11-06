@@ -1642,11 +1642,16 @@ fn rpoly_to_ast<'a>(env: Env<'a>, a: ResourceArc<RPolyRes>, vars: Vec<Term<'a>>)
     })
 }
 
-/// horner_count(NVars, Polys, Order) -> {ok, Ops} | overflow: the operations of pq_sym_slp's Horner programs of
-/// the polynomials (each {Exps, Coef, Den} as for sym_poly_mul, over the same variables, all symbols) for the
-/// variable order Order (variable indices, first to last), counted without building them (hcount.rs; H4)
+/// Polynomials prepared for counting their Horner operations (hcount.rs; H4).
+pub struct HornerRes(hcount::Prepared);
+
+#[rustler::resource_impl]
+impl rustler::Resource for HornerRes {}
+
+/// horner_prepare(NVars, Polys) -> {ok, Resource} | packing | overflow: plain polynomials of symbols ({Exps, Coef,
+/// Den} each, as for sym_poly_mul, over the same variables), packed once for horner_count/2
 #[rustler::nif(schedule = "DirtyCpu")]
-fn horner_count<'a>(env: Env<'a>, nvars: usize, polys: Vec<(Vec<i64>, Vec<i128>, i128)>, order: Vec<usize>) -> NifResult<Term<'a>> {
+fn horner_prepare<'a>(env: Env<'a>, nvars: usize, polys: Vec<(Vec<i64>, Vec<i128>, i128)>) -> NifResult<Term<'a>> {
     let mut ps = Vec::with_capacity(polys.len());
     for (exps, coef, den) in polys {
         if !coef.len().is_multiple_of(2) || exps.len() != nvars * (coef.len() / 2) || den < 1 {
@@ -1654,10 +1659,20 @@ fn horner_count<'a>(env: Env<'a>, nvars: usize, polys: Vec<(Vec<i64>, Vec<i128>,
         }
         ps.push((polymul::Poly { exps, coef }, den));
     }
-    if order.iter().any(|&j| j >= nvars) {
+    Ok(match hcount::prepare(nvars, &ps) {
+        Ok(p) => (atoms::ok(), ResourceArc::new(HornerRes(p))).encode(env),
+        Err(e) => refused(env, e),
+    })
+}
+
+/// horner_count(Resource, Order) -> {ok, Ops} | overflow: the operations of pq_sym_slp's Horner programs of the
+/// prepared polynomials for the variable order Order (variable indices, first to last), without building them
+#[rustler::nif(schedule = "DirtyCpu")]
+fn horner_count<'a>(env: Env<'a>, prep: ResourceArc<HornerRes>, order: Vec<usize>) -> NifResult<Term<'a>> {
+    if order.iter().any(|&j| j >= prep.0.nvars_of()) {
         return Err(rustler::Error::BadArg);
     }
-    Ok(match hcount::count(nvars, &ps, &order) {
+    Ok(match hcount::count(&prep.0, &order) {
         Ok(n) => (atoms::ok(), n).encode(env),
         Err(e) => refused(env, e),
     })

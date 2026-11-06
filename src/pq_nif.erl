@@ -16,7 +16,7 @@
          fock_dmb_from/3, fock_dmb_to_dense/3, fock_dmb_apply/4, fock_dmb_pnr_probabilities/4, fock_dmb_measure_pnr/5,
          fock_dm_adjoint_gradient/5, sym_poly_mul/6, sym_poly_pow/5,
          rpoly_new/4, rpoly_mul/5, rpoly_add/5, rpoly_pow/2, rpoly_scale/4, rpoly_info/1, rpoly_to_map/2, rpoly_to_ast/2,
-         horner_count/3]).
+         horner_prepare/2, horner_count/2]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -351,7 +351,10 @@ rpoly_to_map(_A, _Vars) -> erlang:nif_error(nif_not_loaded).
 -spec rpoly_to_ast(reference(), [term()]) -> term().
 rpoly_to_ast(_A, _Vars) -> erlang:nif_error(nif_not_loaded).
 
-%% The operations of pq_sym_slp's Horner programs of plain polynomials in symbols ({Exps, Coef, Den} each, over
-%% NVars variables) for a variable order (indices, first to last), counted without building them (H4).
--spec horner_count(non_neg_integer(), [{[integer()], [integer()], pos_integer()}], [non_neg_integer()]) -> {ok, non_neg_integer()} | overflow | packing.
-horner_count(_NVars, _Polys, _Order) -> erlang:nif_error(nif_not_loaded).
+%% Plain polynomials of symbols ({Exps, Coef, Den} each, over NVars variables) prepared once, and the operations of
+%% pq_sym_slp's Horner programs of them for a variable order (indices, first to last), counted without building
+%% them (H4).
+-spec horner_prepare(non_neg_integer(), [{[integer()], [integer()], pos_integer()}]) -> {ok, reference()} | overflow | packing.
+horner_prepare(_NVars, _Polys) -> erlang:nif_error(nif_not_loaded).
+-spec horner_count(reference(), [non_neg_integer()]) -> {ok, non_neg_integer()} | overflow | packing.
+horner_count(_Prepared, _Order) -> erlang:nif_error(nif_not_loaded).

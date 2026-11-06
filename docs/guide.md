@@ -441,7 +441,7 @@ candidate, on this node or spread over `nodes => [...]`. The program is the same
 `seed` picks another search. `strategy => mcts` searches with a Monte Carlo tree over order prefixes instead of
 local moves (`exploration`, 0.25 did best on the resultants; `direction => backward` builds the order from its end).
 For plain polynomials of symbols, candidates are scored by counting their Horner operations in Rust, so thousands of
-trials are affordable: 5,000 beat FORM 5's `O4` on res(7,4) and res(7,5).
+trials are affordable: 5,000 to 10,000 beat FORM 5's `O4` on the three resultant benchmarks.
 
 ```erlang
 {ok, P} = pq_symbolic:compile([E], Syms, #{optimize => horner_cse,

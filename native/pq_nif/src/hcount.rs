@@ -8,6 +8,27 @@
 //! an overflow refuses the count.
 
 use crate::polymul::{gcd, Poly, Refused};
+
+/// Where each variable's exponent sits in a packed u128 (its bits from `shift`, offset by `lo`, the smallest).
+pub struct Packing {
+    shift: Vec<u32>,
+    bits: Vec<u32>,
+    lo: Vec<i64>,
+}
+
+impl Packing {
+    fn get(&self, k: u128, j: usize) -> i64 {
+        let mask = if self.bits[j] == 0 { 0 } else { (1u128 << self.bits[j]) - 1 };
+        ((k >> self.shift[j]) & mask) as i64 + self.lo[j]
+    }
+    fn pack(&self, e: &[i64]) -> u128 {
+        e.iter().enumerate().fold(0u128, |k, (j, &x)| k | (((x - self.lo[j]) as u128) << self.shift[j]))
+    }
+    /// the key with variable j's exponent lowered by d (the result must stay in range)
+    fn lower(&self, k: u128, j: usize, d: i64) -> u128 {
+        k - ((d as u128) << self.shift[j])
+    }
+}
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
@@ -18,19 +39,33 @@ enum Key {
     Mul(u32, u32),
     Add(u32, u32),
     Sub(u32, u32),
-    Mono(Vec<i64>),
-    HPoly(Vec<i64>, Vec<i128>),
+    Mono(u128),
+    HPoly(Vec<u128>, Vec<i128>),
 }
 
-/// A polynomial with Gaussian-integer numerators over `den` (> 0): terms (exponents, (re, im)).
+/// A polynomial with Gaussian-integer numerators over `den` (> 0): terms (packed exponents, (re, im)).
 #[derive(Clone)]
-struct Pol {
-    terms: Vec<(Vec<i64>, (i128, i128))>,
+pub struct Pol {
+    terms: Vec<(u128, (i128, i128))>,
     den: i128,
 }
 
-struct Counter {
+/// Polynomials ready to be counted for any order: packed once.
+pub struct Prepared {
     nvars: usize,
+    packing: Packing,
+    polys: Vec<Pol>,
+}
+
+impl Prepared {
+    pub fn nvars_of(&self) -> usize {
+        self.nvars
+    }
+}
+
+struct Counter<'a> {
+    nvars: usize,
+    pk: &'a Packing,
     /// the order's rank of every variable (lower first)
     rank: Vec<usize>,
     keys: HashMap<Key, u32>,
@@ -40,16 +75,19 @@ struct Counter {
 
 /// Erlang's term order of two monomials' atom lists [{{sym, X}, {E, 1}}, ...] (variables sorted as Erlang sorts
 /// them): element by element, the variable first, then the exponent; a prefix first
-fn mono_cmp(a: &[i64], b: &[i64]) -> Ordering {
-    let mut pa = (0..a.len()).filter(|&j| a[j] != 0);
-    let mut pb = (0..b.len()).filter(|&j| b[j] != 0);
+fn mono_cmp(pk: &Packing, n: usize, a: u128, b: u128) -> Ordering {
+    if a == b {
+        return Ordering::Equal;
+    }
+    let mut pa = (0..n).filter(|&j| pk.get(a, j) != 0);
+    let mut pb = (0..n).filter(|&j| pk.get(b, j) != 0);
     loop {
         match (pa.next(), pb.next()) {
             (None, None) => return Ordering::Equal,
             (None, Some(_)) => return Ordering::Less,
             (Some(_), None) => return Ordering::Greater,
             (Some(i), Some(j)) => {
-                let o = i.cmp(&j).then(a[i].cmp(&b[j]));
+                let o = i.cmp(&j).then(pk.get(a, i).cmp(&pk.get(b, j)));
                 if o.is_ne() {
                     return o;
                 }
@@ -62,7 +100,7 @@ fn ck(x: Option<i128>) -> Result<i128, Refused> {
     x.ok_or(Refused::Overflow)
 }
 
-impl Counter {
+impl Counter<'_> {
     fn slot(&mut self, k: Key, counted: bool) -> u32 {
         if let Some(&s) = self.keys.get(&k) {
             return s;
@@ -85,10 +123,10 @@ impl Counter {
     /// first non-zero part positive (the first term in Erlang's order of monomials)
     fn content(&self, p: &Pol) -> ((i128, i128), Pol) {
         let g = p.terms.iter().fold(0u128, |g, (_, (re, im))| gcd(gcd(g, re.unsigned_abs()), im.unsigned_abs())).max(1) as i128;
-        let first = p.terms.iter().min_by(|x, y| mono_cmp(&x.0, &y.0)).map(|t| t.1).unwrap_or((1, 0));
+        let first = p.terms.iter().min_by(|x, y| mono_cmp(self.pk, self.nvars, x.0, y.0)).map(|t| t.1).unwrap_or((1, 0));
         let neg = first.0 < 0 || (first.0 == 0 && first.1 < 0);
         let s = if neg { -g } else { g };
-        let terms = p.terms.iter().map(|(e, (re, im))| (e.clone(), (re / s, im / s))).collect();
+        let terms = p.terms.iter().map(|&(e, (re, im))| (e, (re / s, im / s))).collect();
         let d = gcd(g as u128, p.den as u128) as i128;
         ((s / d, p.den / d), Pol { terms, den: 1 })
     }
@@ -97,12 +135,13 @@ impl Counter {
         if k == 1 { x as u32 } else { self.slot(Key::Pow(x, k), true) }
     }
 
-    fn mono(&mut self, e: &[i64]) -> u32 {
-        if let Some(&s) = self.keys.get(&Key::Mono(e.to_vec())) {
+    fn mono(&mut self, e: u128) -> u32 {
+        if let Some(&s) = self.keys.get(&Key::Mono(e)) {
             return s;
         }
         let mut prev: Option<u32> = None;
-        for (j, &ej) in e.iter().enumerate() {
+        for j in 0..self.nvars {
+            let ej = self.pk.get(e, j);
             if ej != 0 {
                 let f = self.atom_pow(j, ej);
                 prev = Some(match prev {
@@ -112,13 +151,13 @@ impl Counter {
             }
         }
         let s = prev.expect("a monomial with an atom");
-        self.keys.insert(Key::Mono(e.to_vec()), s);
+        self.keys.insert(Key::Mono(e), s);
         s
     }
 
     /// term(M, C): a constant is free, a monomial times 1 is the monomial, otherwise one product
-    fn term(&mut self, e: &[i64], (re, im): (i128, i128), den: i128) -> u32 {
-        if e.iter().all(|&x| x == 0) {
+    fn term(&mut self, e: u128, (re, im): (i128, i128), den: i128) -> u32 {
+        if (0..self.nvars).all(|j| self.pk.get(e, j) == 0) {
             return self.konst(re, im, den);
         }
         let m = self.mono(e);
@@ -151,8 +190,8 @@ impl Counter {
         }
         let (g, prim) = self.content(p);
         let mut sorted = prim.terms.clone();
-        sorted.sort_unstable_by(|x, y| x.0.cmp(&y.0));
-        let key = Key::HPoly(sorted.iter().flat_map(|t| t.0.iter().copied()).collect(), sorted.iter().flat_map(|t| [t.1 .0, t.1 .1]).collect());
+        sorted.sort_unstable_by_key(|t| t.0);
+        let key = Key::HPoly(sorted.iter().map(|t| t.0).collect(), sorted.iter().flat_map(|t| [t.1 .0, t.1 .1]).collect());
         if let Some(&s) = self.keys.get(&key) {
             return Ok((s, g));
         }
@@ -163,23 +202,20 @@ impl Counter {
 
     fn hprim(&mut self, p: &Pol) -> Result<u32, Refused> {
         if p.terms.len() == 1 {
-            let (e, c) = &p.terms[0];
-            return Ok(self.term(e, *c, p.den));
+            let (e, c) = p.terms[0];
+            return Ok(self.term(e, c, p.den));
         }
         // the first variable of the order that at least two terms contain
         let mut best: Option<usize> = None;
         for j in 0..self.nvars {
-            if p.terms.iter().filter(|t| t.0[j] > 0).count() >= 2 && best.is_none_or(|b| self.rank[j] < self.rank[b]) {
+            if p.terms.iter().filter(|t| self.pk.get(t.0, j) > 0).count() >= 2 && best.is_none_or(|b| self.rank[j] < self.rank[b]) {
                 best = Some(j);
             }
         }
         let Some(x) = best else { return self.sum_terms(p) };
-        let (with, without): (Vec<_>, Vec<_>) = p.terms.iter().cloned().partition(|t| t.0[x] > 0);
-        let k = with.iter().map(|t| t.0[x]).min().unwrap_or(1);
-        let q = Pol {
-            terms: with.into_iter().map(|(mut e, c)| { e[x] -= k; (e, c) }).collect(),
-            den: p.den,
-        };
+        let (with, without): (Vec<_>, Vec<_>) = p.terms.iter().copied().partition(|t| self.pk.get(t.0, x) > 0);
+        let k = with.iter().map(|t| self.pk.get(t.0, x)).min().unwrap_or(1);
+        let q = Pol { terms: with.into_iter().map(|(e, c)| (self.pk.lower(e, x, k), c)).collect(), den: p.den };
         let sx = self.atom_pow(x, k);
         let (sq, gq) = self.hc(&q)?;
         let prod = self.slot(Key::Mul(sx, sq), true);
@@ -211,14 +247,14 @@ impl Counter {
     /// positive terms added in Erlang's order of monomials, then the negative real ones subtracted by magnitude
     fn sum_terms(&mut self, p: &Pol) -> Result<u32, Refused> {
         let mut terms = p.terms.clone();
-        terms.sort_unstable_by(|x, y| mono_cmp(&x.0, &y.0));
+        terms.sort_unstable_by(|x, y| mono_cmp(self.pk, self.nvars, x.0, y.0));
         let mut pos = Vec::new();
         let mut neg = Vec::new();
-        for (e, (re, im)) in &terms {
-            if im == &0 && *re < 0 {
+        for &(e, (re, im)) in &terms {
+            if im == 0 && re < 0 {
                 neg.push(self.term(e, (ck(re.checked_neg())?, 0), p.den));
             } else {
-                pos.push(self.term(e, (*re, *im), p.den));
+                pos.push(self.term(e, (re, im), p.den));
             }
         }
         let add = |c: &mut Counter, v: &[u32]| v[1..].iter().fold(v[0], |a, &b| c.slot(Key::Add(a, b), true));
@@ -232,27 +268,62 @@ impl Counter {
     }
 }
 
-/// The operations of the Horner programs of `polys` (one after the other, sharing every slot) for the order
-/// `order` (variable indices, first to last), each polynomial as Poly over `den`.
-pub fn count(nvars: usize, polys: &[(Poly, i128)], order: &[usize]) -> Result<u64, Refused> {
+/// The polynomials (each Poly over its denominator, all in `nvars` variables) packed for counting, or a refusal if
+/// their exponents don't fit in 128 bits.
+pub fn prepare(nvars: usize, polys: &[(Poly, i128)]) -> Result<Prepared, Refused> {
+    let mut lo = vec![0i64; nvars];
+    let mut hi = vec![0i64; nvars];
+    for (p, _) in polys {
+        for t in 0..p.len() {
+            for j in 0..nvars {
+                let e = p.exps[t * nvars + j];
+                lo[j] = lo[j].min(e);
+                hi[j] = hi[j].max(e);
+            }
+        }
+    }
+    let mut shift = Vec::with_capacity(nvars);
+    let mut bits = Vec::with_capacity(nvars);
+    let mut used = 0u32;
+    for j in 0..nvars {
+        let span = (hi[j] as i128 - lo[j] as i128) as u128;
+        let w = 128 - span.leading_zeros();
+        shift.push(used);
+        bits.push(w);
+        used += w;
+        if used > 127 {
+            return Err(Refused::Packing);
+        }
+    }
+    let packing = Packing { shift, bits, lo };
+    let polys = polys
+        .iter()
+        .map(|(p, den)| Pol {
+            terms: (0..p.len()).map(|t| (packing.pack(&p.exps[t * nvars..(t + 1) * nvars]), (p.coef[2 * t], p.coef[2 * t + 1]))).collect(),
+            den: *den,
+        })
+        .collect();
+    Ok(Prepared { nvars, packing, polys })
+}
+
+/// The operations of the Horner programs of the prepared polynomials (one after the other, sharing every slot)
+/// for the order `order` (variable indices, first to last).
+pub fn count(prep: &Prepared, order: &[usize]) -> Result<u64, Refused> {
+    let nvars = prep.nvars;
     let mut rank = vec![usize::MAX; nvars];
     for (r, &j) in order.iter().enumerate() {
         rank[j] = r;
     }
-    let mut c = Counter { nvars, rank, keys: HashMap::new(), next: nvars as u32, ops: 0 };
-    for (p, den) in polys {
-        let pol = Pol {
-            terms: (0..p.len()).map(|t| (p.exps[t * nvars..(t + 1) * nvars].to_vec(), (p.coef[2 * t], p.coef[2 * t + 1]))).collect(),
-            den: *den,
-        };
+    let mut c = Counter { nvars, pk: &prep.packing, rank, keys: HashMap::new(), next: nvars as u32, ops: 0 };
+    for pol in &prep.polys {
         match pol.terms.len() {
             0 => {}
             1 => {
-                let (e, co) = &pol.terms[0];
-                c.term(e, *co, pol.den);
+                let (e, co) = pol.terms[0];
+                c.term(e, co, pol.den);
             }
             _ => {
-                c.horner(&pol)?;
+                c.horner(pol)?;
             }
         }
     }

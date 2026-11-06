@@ -55,14 +55,23 @@ fast_score(Values) ->
         {Vars, Data} ->
             Index = maps:from_list([{V, I} || {I, V} <- lists:enumerate(0, Vars)]),
             N = length(Vars),
-            Score = fun(O) ->
-                            case pq_nif:horner_count(N, Data, [maps:get(X, Index) || X <- O, maps:is_key(X, Index)]) of
-                                {ok, Ops} -> Ops;
-                                _ -> error(horner_count)
-                            end
-                    end,
-            try Score(global_order(Values)) of
-                _ -> Score
+            %% prepared once on this node; a worker on another node prepares its own copy
+            Home = node(),
+            Prepare = fun() -> {ok, R} = pq_nif:horner_prepare(N, Data), R end,
+            try Prepare() of
+                Prep ->
+                    Score = fun(O) ->
+                                    R = case node() of Home -> Prep; _ -> Prepare() end,
+                                    case pq_nif:horner_count(R, [maps:get(X, Index) || X <- O, maps:is_key(X, Index)]) of
+                                        {ok, Ops} -> Ops;
+                                        _ -> error(horner_count)
+                                    end
+                            end,
+                    try Score(global_order(Values)) of
+                        _ -> Score
+                    catch
+                        error:_ -> false
+                    end
             catch
                 error:_ -> false
             end

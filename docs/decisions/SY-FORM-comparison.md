@@ -207,7 +207,7 @@ expressions (HEP processes) are not published; the resultants are fully specifie
 | PQCF Horner + common subexpressions (`optimize => horner_cse`, after this study: H2) | 4,285 | 18,166 | 61,404 |
 | PQCF + order search, 160 trials (`order_search`, after this study: H3) | 4,273 | 16,408 | 54,643 |
 | PQCF primitive Horner nodes + subtraction, `horner_cse` (H4) | 3,823 | 15,974 | 52,700 |
-| PQCF + tree search, 5,000 trials scored in Rust (`strategy => mcts`, H4) | 2,741 | 10,243 | 40,842 (2,000) |
+| PQCF + tree search scored in Rust, 5,000 / 5,000 / 10,000 trials (`strategy => mcts`, H4) | 2,741 | 10,243 | 34,799 |
 | FORM 5 `O1` | 4,968 | 20,210 | 71,262 |
 | FORM 5 `O2` | 3,969 | 16,398 | 55,685 |
 | FORM 5 `O3` | 3,458 | 11,006 | 35,945 |

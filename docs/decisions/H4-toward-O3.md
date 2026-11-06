@@ -72,7 +72,7 @@ take 200–330 s and reach 13,334–13,678. FORM's 1,000 iterations take 16 s, b
 
 ## The score in Rust (7 Nov 2026)
 
-`pq_nif:horner_count/3` (`native/pq_nif/src/hcount.rs`) counts the operations of the Horner program for an order
+`pq_nif:horner_count` (`native/pq_nif/src/hcount.rs`) counts the operations of the Horner program for an order
 without building it. It follows `pq_sym_slp`'s Horner step for step: primitive nodes and their content's sign,
 add / sub folding, leaf sums, and every atom power, monomial, product and sum keyed by structure. It applies to
 plain polynomials of symbols, and a test requires it to equal the built program's count on 180 random polynomials
@@ -84,14 +84,18 @@ step). The final program is then built with the best order, and is kept only if 
 | 1,000 trials, scored by building (before) | 3,140–3,277 (29 s) | 13,617 (196 s) | — |
 | 1,000 trials, scored in Rust | — | 11,815 (27 s) | — |
 | **5,000 trials, scored in Rust** | **2,741** (22 s) | **10,243** (97 s) | — |
-| 2,000 trials, scored in Rust | — | — | 40,842 (176 s) |
+| 2,000 trials, scored in Rust | — | — | 40,842 (176 s; 85 s packed) |
+| **10,000 trials, scored in Rust, packed** | — | — | **34,799** (335 s) |
 | FORM 5 `O3` | 3,458 | 11,006 | 35,945 |
 | FORM 5 `O4` | 2,936 | 10,722 | 35,419 |
 | FORM `O4` time (wall) | 2.6 s | 9.8 s | 57 s |
 
-- **Below FORM's `O4` on res(7,4) and res(7,5)**, by 7 % and 4 %.
-- **res(7,6) not yet:** 40,842 after 2,000 trials, 15 % above `O4`. It has the most variables and needs a larger
-  budget.
+- **Below FORM's `O4` on all three**, by 7 %, 4 % and 2 %. res(7,6), the largest (15 variables), needed 10,000
+  trials.
+- **The packed score.** The polynomials are prepared once as a resource (`pq_nif:horner_prepare/2`), with the
+  exponents of a term packed into one u128, and every trial passes only the order (`horner_count/2`). That is 1.7–2×
+  faster than decoding the terms in every trial, with the same counts and so the same search. A worker on another
+  node prepares its own copy.
 - **Backward** did worse on res(7,5) at 5,000 trials (13,065), so forward stays the default.
 - **FORM is still faster** for a given quality: its `O4` takes 2.6–57 s, ours 22–176 s on 20 cores.
 
@@ -109,5 +113,5 @@ step). The final program is then built with the best order, and is kept only if 
 
 ## Next
 
-res(7,6) at FORM's level: a larger budget, or a faster count (the Rust score still copies the polynomial's terms
-into every trial).
+Speed: FORM's `O4` reaches its level in 2.6 / 9.8 / 57 s, our search in 22 / 56 / 335 s on 20 cores. The count
+copies every Horner level's terms; sharing them would make it faster still.
