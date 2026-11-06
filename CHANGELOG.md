@@ -3,6 +3,19 @@
 PQCF follows semantic versioning from the API freeze (`docs/decisions/API-freeze.md`). Until 2.0, every change to
 the public API is additive.
 
+## Unreleased
+
+### Added
+
+- **Reducing results by finite-field reconstruction, phase 1** (`R1`; the project owner's decision, 7 Nov 2026):
+  - `pq_symbolic:compile/3` with `exact_constants => true`: constants known exactly stay exact in the program
+    (float evaluation unchanged);
+  - `pq_ff`: compiled programs evaluated modulo primes below 2^63 in Rust (`ffslp.rs`), a batch of points at a
+    time, a division by zero marking a point as bad; deterministic primes (Miller-Rabin); inverses, Chinese
+    remaindering and Wang's rational reconstruction;
+  - the design for what follows: Zippel reconstruction of polynomials, then rational functions; three executors
+    behind one task interface (this node, Erlang nodes, FVLLMP federation peers), from a single node to 100+.
+
 ## 1.3.0 (7 November 2026)
 
 The symbolic engine against FORM 5. Everything is additive; the default programs and canonical forms are the same as

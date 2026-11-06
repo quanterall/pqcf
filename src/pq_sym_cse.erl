@@ -17,7 +17,12 @@ run({slp, 1, Inputs, Ops, Outputs}) ->
     Uses = uses(Ops, OutSlots),
     Nodes = flatten(Ops, Uses),
     {Nodes2, _Next} = extract(Nodes, length(Ops)),
-    {NewOps, NewOuts} = emit(Ops, Nodes2, OutSlots),
+    %% the constant -1 a sum of only negative operands needs: exact if the program's constants are (R1)
+    MinusOne = case lists:any(fun({const, _, {q, _, _}}) -> true; (_) -> false end, Ops) of
+                   true -> {q, {-1, 1}, {0, 1}};
+                   false -> {-1.0, 0.0}
+               end,
+    {NewOps, NewOuts} = emit(Ops, Nodes2#{minus_one => MinusOne}, OutSlots),
     {slp, 1, Inputs, NewOps,
      case Outputs of {matrix, R, C, _} -> {matrix, R, C, NewOuts}; _ -> NewOuts end}.
 
@@ -179,7 +184,8 @@ build(S, {sum, L}, Nodes, St) ->
                                  {A, Neg, Acc};
                              [] ->
                                  [N0 | Ns] = Neg,
-                                 {M1, Acc0} = put_op(S, fun(T) -> {const, T, {-1.0, 0.0}} end, {const, {-1.0, 0.0}}, St2),
+                                 MinusOne = maps:get(minus_one, Nodes),
+                                 {M1, Acc0} = put_op(S, fun(T) -> {const, T, MinusOne} end, {const, MinusOne}, St2),
                                  {A, Acc} = put_op(S, fun(T) -> {mul, T, M1, N0} end, {mul, min(M1, N0), max(M1, N0)}, Acc0),
                                  {A, Ns, Acc}
                          end,

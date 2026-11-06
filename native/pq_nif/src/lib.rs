@@ -7,6 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 pub mod boson;
 pub mod fock;
 pub mod fockdmb;
+pub mod ffslp;
 pub mod fockgrad;
 pub mod fockplan;
 pub mod fockstate;
@@ -35,7 +36,7 @@ mod atoms {
         max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold,
         phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix, stream_ref, metropolis, burn_in, thin, chains, acceptance_rate,
         probability, photons, shared, thermal_loss, extra, device, cpu, gpu, auto, reason,
-        overflow, packing, q, add, mul, pow, rat, complex, expi, sym, exp
+        overflow, packing, q, add, mul, pow, rat, complex, expi, sym, exp, bad_prime, sub, const_ = "const"
     }
 }
 
@@ -1675,6 +1676,59 @@ fn horner_count<'a>(env: Env<'a>, prep: ResourceArc<HornerRes>, order: Vec<usize
     Ok(match hcount::count(&prep.0, &order) {
         Ok(n) => (atoms::ok(), n).encode(env),
         Err(e) => refused(env, e),
+    })
+}
+
+/// A straight-line program prepared for evaluation over prime fields (ffslp.rs; R1).
+pub struct FfRes(ffslp::Program);
+
+#[rustler::resource_impl]
+impl rustler::Resource for FfRes {}
+
+/// ff_prepare(NInputs, Ops, Outputs) -> {ok, Resource} | {error, bad_shape}: Ops in slot order, each {input, I} |
+/// {const, Num, Den} | {mul, A, B} | {add, A, B} | {sub, A, B} | {pow, A, E} (A, B earlier slots; E an integer)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn ff_prepare<'a>(env: Env<'a>, ninputs: usize, ops: Vec<Term<'a>>, outputs: Vec<usize>) -> NifResult<Term<'a>> {
+    let mut prog = Vec::with_capacity(ops.len());
+    for op in ops {
+        let t = rustler::types::tuple::get_tuple(op)?;
+        let tag: Atom = t.first().ok_or(rustler::Error::BadArg)?.decode()?;
+        let arg = |i: usize| -> NifResult<Term<'a>> { t.get(i).copied().ok_or(rustler::Error::BadArg) };
+        prog.push(if tag == atoms::input() {
+            ffslp::Op::Input(arg(1)?.decode()?)
+        } else if tag == atoms::const_() {
+            ffslp::Op::Const(arg(1)?.decode()?, arg(2)?.decode()?)
+        } else if tag == atoms::mul() {
+            ffslp::Op::Mul(arg(1)?.decode()?, arg(2)?.decode()?)
+        } else if tag == atoms::add() {
+            ffslp::Op::Add(arg(1)?.decode()?, arg(2)?.decode()?)
+        } else if tag == atoms::sub() {
+            ffslp::Op::Sub(arg(1)?.decode()?, arg(2)?.decode()?)
+        } else if tag == atoms::pow() {
+            ffslp::Op::Pow(arg(1)?.decode()?, arg(2)?.decode()?)
+        } else {
+            return Ok(bad_shape(env, "ff op"));
+        });
+    }
+    let p = ffslp::Program { ops: prog, outputs, ninputs };
+    Ok(match p.check() {
+        Ok(()) => (atoms::ok(), ResourceArc::new(FfRes(p))).encode(env),
+        Err(_) => bad_shape(env, "ff program"),
+    })
+}
+
+/// ff_eval(Resource, P, Points) -> {ok, Values} | bad_prime: the outputs mod the prime P (< 2^63) at every point
+/// (Points: NInputs residues per point, flat), output by output and point by point, flat; a point where the
+/// program divides by zero has every output 18446744073709551615
+#[rustler::nif(schedule = "DirtyCpu")]
+fn ff_eval<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, p: u64, points: Vec<u64>) -> NifResult<Term<'a>> {
+    if !(3..(1u64 << 63)).contains(&p) {
+        return Err(rustler::Error::BadArg);
+    }
+    Ok(match prog.0.eval(p, &points) {
+        Ok(v) => (atoms::ok(), v).encode(env),
+        Err(ffslp::FfError::BadPrime) => atoms::bad_prime().encode(env),
+        Err(ffslp::FfError::Shape) => bad_shape(env, "ff points"),
     })
 }
 

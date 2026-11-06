@@ -9,9 +9,9 @@
 -module(pq_sym_slp).
 -export([compile/2, compile/3, eval/2, eval_batch/2]).
 %% for the tests of the order search's score (pq_order_search_tests)
--export([build/4, ops/1, global_order/1, fast_score/1]).
+-export([build/4, build/5, ops/1, global_order/1, fast_score/1]).
 
--record(st, {ops = [], keys = #{}, next = 0, ctx, opt = none, order = []}).
+-record(st, {ops = [], keys = #{}, next = 0, ctx, opt = none, order = [], exact = false}).
 
 -spec compile([pq_sym_norm:value()], [atom()]) -> {slp, 1, [atom()], [tuple()], [non_neg_integer()] | {matrix, pos_integer(), pos_integer(), [non_neg_integer()]}}.
 compile(Values, Inputs) -> compile(Values, Inputs, #{}).
@@ -24,7 +24,9 @@ compile(Values, Inputs) -> compile(Values, Inputs, #{}).
 %% operation order: results equal within rounding, not bit for bit, to the default's. cse | horner_cse (1.3;
 %% docs/decisions/H2-cse.md): the default program or the Horner scheme, then common subexpressions across it
 %% (pq_sym_cse: sums and products as n-ary nodes, the operand pair most of them share made one operation, until
-%% none is shared) -- FORM's O2 step; also within rounding. order_search => #{trials => N, seed, batch, nodes} with
+%% none is shared) -- FORM's O2 step; also within rounding. exact_constants => true (R1): every constant that is
+%% known exactly is kept as its coefficient {q, Re, Im} instead of a float (eval/2 evaluates it as the float; the
+%% finite-field evaluation of pq_ff needs it exact). order_search => #{trials => N, seed, batch, nodes} with
 %% horner | horner_cse (1.3; docs/decisions/H3-order-search.md): N candidate variable orders, one for all the
 %% polynomials, searched in parallel batches (pq_sym_search), the order of the fewest operations kept -- the same
 %% program for any number of cores or nodes.
@@ -45,7 +47,7 @@ compile(Values0, Inputs, Opts) ->
                     case Build(Best) < Build([]) of true -> Best; false -> [] end;
                 false -> []
             end,
-    build(Values, Inputs, Opt, Order).
+    build(Values, Inputs, Opt, Order, maps:get(exact_constants, Opts, false)).
 
 %% a score counting the Horner operations in Rust, or false (not plain polynomials of symbols, no NIF)
 fast_score(Values) ->
@@ -87,9 +89,11 @@ global_order(Values) ->
                                                  Acc, counts(P)) end, #{}, Ps),
     [K || {_, K} <- lists:sort([{-N, K} || K := N <- Counts])].
 
-build(Values, Inputs, Opt, Order) ->
+build(Values, Inputs, Opt, Order) -> build(Values, Inputs, Opt, Order, false).
+
+build(Values, Inputs, Opt, Order, Exact) ->
     St0 = lists:foldl(fun(X, S) -> element(2, slot({input, X}, fun(Sl) -> {input, Sl, X} end, S)) end,
-                      #st{opt = Opt, order = Order}, Inputs),
+                      #st{opt = Opt, order = Order, exact = Exact}, Inputs),
     %% horner_cse: the Horner scheme, then the pair search over it
     {Outs, St} = lists:mapfoldl(fun out/2, St0, Values),
     Outputs = case {Values, Outs} of
@@ -121,8 +125,13 @@ slot(Key, Make, #st{keys = K} = S) ->
 
 const(Z, S) -> slot({const, Z}, fun(Sl) -> {const, Sl, Z} end, S).
 
+%% a constant known exactly (a coefficient {q, Re, Im}): with exact_constants the program keeps it exact (R1: the
+%% finite-field evaluation needs it), otherwise its float value Z
+xconst(C, _Z, #st{exact = true} = S) -> const(C, S);
+xconst(_C, Z, S) -> const(Z, S).
+
 %% a polynomial: the sum of coefficient times monomial, in canonical key order (or a Horner scheme)
-poly(P, S) when map_size(P) =:= 0 -> const({0.0, 0.0}, S);
+poly(P, S) when map_size(P) =:= 0 -> xconst({q, {0, 1}, {0, 1}}, {0.0, 0.0}, S);
 poly(P, #st{opt = Opt} = S) when map_size(P) > 1, Opt =:= horner orelse Opt =:= horner_cse -> horner(P, S#st.order ++ order(P), S);
 poly(P, S) ->
     case maps:find({poly, P}, S#st.keys) of
@@ -145,7 +154,7 @@ horner(P, Order, S) ->
     {Sl, G, S2} = hc(P, Order, S),
     scaled(G, Sl, S2).
 
-hc(P, _Order, S) when map_size(P) =:= 0 -> {Sl, S2} = const({0.0, 0.0}, S), {Sl, {1, 1}, S2};
+hc(P, _Order, S) when map_size(P) =:= 0 -> {Sl, S2} = xconst({q, {0, 1}, {0, 1}}, {0.0, 0.0}, S), {Sl, {1, 1}, S2};
 hc(P, Order, S) ->
     {G, Prim} = pq_sym_poly:content(P, true),
     case maps:find({hpoly, Prim}, S#st.keys) of
@@ -200,7 +209,7 @@ magnitude({N, D}, Sl, S) ->
 %% G times the slot (G a rational)
 scaled({1, 1}, Sl, S) -> {Sl, S};
 scaled({N, D}, Sl, S) ->
-    {Cs, S2} = const({N / D, 0.0}, S),
+    {Cs, S2} = xconst({q, {N, D}, {0, 1}}, {N / D, 0.0}, S),
     slot({mul, Cs, Sl}, fun(T) -> {mul, T, Cs, Sl} end, S2).
 
 %% the atoms with a positive integer exponent, by the number of terms they occur in (most first; ties by canonical order)
@@ -256,13 +265,13 @@ sum_terms(P, S) ->
 term(M, C, S) ->
     Z = pq_sym_exact:to_complex(C),
     case M =:= pq_sym_poly:one_mono() of
-        true -> const(Z, S);
+        true -> xconst(C, Z, S);
         false ->
             {Ms, S2} = mono(M, S),
             case Z of
                 {1.0, +0.0} -> {Ms, S2};
                 _ ->
-                    {Cs, S3} = const(Z, S2),
+                    {Cs, S3} = xconst(C, Z, S2),
                     slot({mul, Cs, Ms}, fun(Sl) -> {mul, Sl, Cs, Ms} end, S3)
             end
     end.
@@ -300,10 +309,10 @@ atom({base, B}, S) -> poly(B, S).
 
 exp_factor({B, C}, S) ->
     {Bs, S2} = case B =:= pq_sym_poly:one_mono() of
-                   true -> const({1.0, 0.0}, S);
+                   true -> xconst({q, {1, 1}, {0, 1}}, {1.0, 0.0}, S);
                    false -> mono(B, S)
                end,
-    {Cs, S3} = const(pq_sym_exact:to_complex(C), S2),
+    {Cs, S3} = xconst(C, pq_sym_exact:to_complex(C), S2),
     {Arg, S4} = slot({mul, Cs, Bs}, fun(Sl) -> {mul, Sl, Cs, Bs} end, S3),
     slot({exp, Arg}, fun(Sl) -> {exp, Sl, Arg} end, S4).
 
@@ -334,6 +343,7 @@ eval_batch(P, Bindings) ->
 run([], _B, V) -> V;
 run([Op | T], B, V) -> run(T, B, step(Op, B, V)).
 
+step({const, S, {q, _, _} = C}, _B, V) -> V#{S => pq_sym_exact:to_complex(C)};
 step({const, S, Z}, _B, V) -> V#{S => Z};
 step({input, S, X}, B, V) -> V#{S => pq_sym_eval:value(maps:get(X, B))};
 step({mul, S, A, C}, _B, V) -> {Ar, Ai} = maps:get(A, V), {Cr, Ci} = maps:get(C, V), V#{S => {Ar * Cr - Ai * Ci, Ar * Ci + Ai * Cr}};
