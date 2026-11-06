@@ -16,7 +16,7 @@
          fock_dmb_from/3, fock_dmb_to_dense/3, fock_dmb_apply/4, fock_dmb_pnr_probabilities/4, fock_dmb_measure_pnr/5,
          fock_dm_adjoint_gradient/5, sym_poly_mul/6, sym_poly_pow/5,
          rpoly_new/4, rpoly_mul/5, rpoly_add/5, rpoly_pow/2, rpoly_scale/4, rpoly_info/1, rpoly_to_map/2, rpoly_to_ast/2,
-         horner_prepare/2, horner_count/2, ff_prepare/3, ff_eval/3, ff_tvandermonde/3, ff_column/6]).
+         horner_prepare/2, horner_count/2, ff_prepare/3, ff_eval/3, ff_tvandermonde/3, ff_column/6, ff_line_column/10]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -374,3 +374,11 @@ ff_tvandermonde(_P, _Nodes, _Values) -> erlang:nif_error(nif_not_loaded).
 -spec ff_column(reference(), pos_integer(), [non_neg_integer()], non_neg_integer(), [non_neg_integer()], [non_neg_integer()]) ->
           {ok, [non_neg_integer()]} | bad | singular | bad_prime | {error, term()}.
 ff_column(_Program, _P, _R, _N, _Support, _Suffix) -> erlang:nif_error(nif_not_loaded).
+
+%% One column of the multi-output Zippel interpolation of a rational function's coefficients along the lines
+%% Shift + t (1, zz) (R1 phase 4; pq_recon): for zz = (R^i, Suffix), i = 1 .. N, the coefficients of the support's
+%% monomials in each of n_0 .. n_Dn, d_1 .. d_Dd (the line's n(t) / d(t) with d(0) = 1, from its values at Ts).
+-spec ff_line_column(reference(), pos_integer(), [non_neg_integer()], [non_neg_integer()], non_neg_integer(),
+                     [non_neg_integer()], [non_neg_integer()], [non_neg_integer()], non_neg_integer(), non_neg_integer()) ->
+          {ok, [[non_neg_integer()]]} | bad | singular | bad_prime | {error, term()}.
+ff_line_column(_Program, _P, _Shift, _R, _N, _Support, _Suffix, _Ts, _Dn, _Dd) -> erlang:nif_error(nif_not_loaded).

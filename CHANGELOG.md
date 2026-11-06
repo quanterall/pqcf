@@ -20,7 +20,10 @@ the public API is additive.
     kept prepared) and `pq_rexec` (`local`, the default, or `{nodes, Nodes}` over erpc, a failed node's tasks run
     elsewhere); a reconstruction's columns run in parallel with the same result for any executor (res(7,4) in
     2.5 s, res(7,5) in 42 s on 16 local workers);
-  - the design for what follows: rational functions; three executors
+  - `pq_recon:rational/3` (phase 4): a rational function N / D reconstructed from its program, along lines with a
+    shift, the coefficients by one multi-output Zippel, the shift taken out by a Taylor recursion; checked against
+    FORM 5's `PolyRatFun` on sums of fractions (`comparison/form/fractions.erl`): the same results exactly, FORM
+    300-12,000x faster on that task (an explicit sum, where adding fractions is the right tool); three executors
     behind one task interface (this node, Erlang nodes, FVLLMP federation peers), from a single node to 100+.
 
 ## 1.3.0 (7 November 2026)

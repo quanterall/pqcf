@@ -1,7 +1,7 @@
 # R1: reducing large results by finite-field reconstruction, distributed
 
 **Status: accepted, in progress (the project owner's decision, 7 Nov 2026: "go with B and the minimal store").
-Phases 1, 2 and 3 done.**
+Phases 1–4 done.**
 
 ## Why
 
@@ -177,3 +177,54 @@ Recording a failed node's task as a result instead of requeueing it is caught.
 
 **Not measured yet:** separate machines. Peer nodes on one host prove the protocol, not the network. The DGX Sparks
 are the next measurement.
+
+## Phase 4, measured (7 Nov 2026): rational functions, and the first benchmark against FORM
+
+`pq_recon:rational/3` returns {N, D}: coprime, with D's coefficient of its last monomial (in Erlang's order of
+exponent lists) equal to 1.
+- **Lines:** along x = s + t (1, z₂, …, zₙ), for a random shift s (integers, the same in every prime), the function
+  is n(t)/d(t) with d(0) = 1. Every coefficient of tʳ is homogeneous of degree r in z.
+- **Degrees:** found by Thiele's continued fraction along one line, which grows until two further points are
+  predicted.
+- **The coefficients:** one multi-output Zippel in z₂ … zₙ reconstructs them all from the same points. The engine is
+  shared with `polynomial/3`, with Newton interpolants per output and a union support. Each column is a Rust task
+  (`pq_nif:ff_line_column/10`): for every point, the function along t, a small linear system for n and d, then one
+  Vandermonde solve per output on the same nodes.
+- **The shift** is taken out degree by degree from the top: N_k = n_k − Σ_{j>k} (s·∇)^(j−k) N_j / (j−k)!, which
+  keeps the structure sparse instead of expanding N(x − s).
+
+Tests (`test/pq_rational_tests.erl`), each result cross-multiplied exactly against the input:
+- a fraction;
+- 1/(xy), where the denominator vanishes at the origin and the shift is needed;
+- 1/(x + y) + 1/(x − y) = 2x/(x² − y²);
+- (x² − y²)/(x − y) = (x + y)/1;
+- one variable;
+- 12 random N/D in three variables with rational coefficients;
+- determinism across seeds.
+
+Rust tests cover the line solve.
+
+**The benchmark: a sum of fractions** (`comparison/form/fractions.erl`). K terms, each a polynomial over a product of
+up to three linear factors from a small set, in V variables, the shape of a physics coefficient. FORM 5 sums them as
+`rat(n, d)` under `PolyRatFun`, adding with polynomial GCDs (FLINT). PQCF compiles the sum and reconstructs N/D.
+Both results agree exactly, checked by cross-multiplication:
+
+| | result | FORM 5 `PolyRatFun` | PQCF reconstruction (20 cores) |
+| --- | --- | --- | --- |
+| K = 20, V = 3 | numerator 787 terms, denominator 536 | 0.01 s | 5.5 s |
+| K = 100, V = 3 | 1,136 / 810 | 0.03 s | 10.0 s |
+| K = 100, V = 4 | 10,370 / 7,037 | 0.07 s (with a larger `MaxTermSize`) | 830 s |
+
+**FORM is 300–500 times faster here, and that is the right result for this task.** The input is the sum written out,
+with a modest common denominator. FORM sees every factor and adds fractions directly. Reconstruction samples a
+black box whose degree is that of the whole result (here 13 to 20 along a line), so it does far more work than
+needed. At V = 4, FORM first stopped with "output exceeds MaxTermSize" (under `PolyRatFun` the reduced sum is one term
+rat(N, D)) and finished in 0.07 s with larger buffers. There FORM itself checked PQCF's result: the sum minus
+rat(N, D) is 0. The smaller cases were checked by cross-multiplication in PQCF.
+
+**Where reconstruction is the right tool:** when the reduced result is far smaller than the way to it. The textbook
+case is solving a linear system whose entries are polynomials (integration-by-parts reductions, the bulk of
+multi-loop calculations). Symbolic elimination swells, while an elimination modulo a prime at each point is cheap
+and parallel, and only the solution is reconstructed. That is the method of FiniteFlow, FireFly and Kira. A
+black-box task that solves such a system mod p per point is the next step, with that as the benchmark against
+FORM.

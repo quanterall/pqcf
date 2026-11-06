@@ -221,6 +221,117 @@ impl Program {
     }
 }
 
+/// The solution x of the n x n system a x = b mod p (a row-major), or None if it is singular.
+pub fn solve_mod(p: u64, mut a: Vec<u64>, mut b: Vec<u64>, n: usize) -> Option<Vec<u64>> {
+    for col in 0..n {
+        let piv = (col..n).find(|&r| !a[r * n + col].is_multiple_of(p))?;
+        if piv != col {
+            for c in 0..n {
+                a.swap(piv * n + c, col * n + c);
+            }
+            b.swap(piv, col);
+        }
+        let inv = invmod(a[col * n + col], p)?;
+        for c in col..n {
+            a[col * n + c] = mulmod(a[col * n + c], inv, p);
+        }
+        b[col] = mulmod(b[col], inv, p);
+        for r in 0..n {
+            if r != col && a[r * n + col] != 0 {
+                let f = a[r * n + col];
+                for c in col..n {
+                    a[r * n + c] = (a[r * n + c] + p - mulmod(f, a[col * n + c], p)) % p;
+                }
+                b[r] = (b[r] + p - mulmod(f, b[col], p)) % p;
+            }
+        }
+    }
+    Some(b)
+}
+
+impl Program {
+    /// The coefficients of the univariate rational function g(t) = f(shift + t (1, zz)) = n(t) / d(t), with
+    /// deg n = dn, deg d = dd and d(0) = 1, from its values at the dn + dd + 1 points ts: [n_0 .. n_dn, d_1 .. d_dd].
+    /// Err(Bad) if f is undefined at one of the points, or the system is singular there.
+    pub fn line(&self, p: u64, shift: &[u64], zz: &[u64], ts: &[u64], dn: usize, dd: usize) -> Result<Vec<u64>, ColumnError> {
+        let n = shift.len();
+        if zz.len() + 1 != n || n != self.ninputs || ts.len() != dn + dd + 1 {
+            return Err(ColumnError::Shape);
+        }
+        let mut points = Vec::with_capacity(ts.len() * n);
+        for &t in ts {
+            points.push((shift[0] + t) % p);
+            for (i, &z) in zz.iter().enumerate() {
+                points.push((shift[i + 1] + mulmod(t, z, p)) % p);
+            }
+        }
+        let vals = self.eval(p, &points).map_err(|e| match e {
+            FfError::BadPrime => ColumnError::BadPrime,
+            FfError::Shape => ColumnError::Shape,
+        })?;
+        let width = self.outputs.len().max(1);
+        let g: Vec<u64> = vals.iter().step_by(width).copied().collect();
+        if g.contains(&BAD) {
+            return Err(ColumnError::Bad);
+        }
+        // sum_r n_r t^r - g sum_{r >= 1} d_r t^r = g
+        let m = dn + dd + 1;
+        let mut a = vec![0u64; m * m];
+        for (j, (&t, &gj)) in ts.iter().zip(&g).enumerate() {
+            let mut tp = 1u64;
+            for r in 0..=dn.max(dd) {
+                if r <= dn {
+                    a[j * m + r] = tp;
+                }
+                if r >= 1 && r <= dd {
+                    a[j * m + dn + r] = (p - mulmod(gj, tp, p)) % p;
+                }
+                tp = mulmod(tp, t, p);
+            }
+        }
+        solve_mod(p, a, g, m).ok_or(ColumnError::Bad)
+    }
+
+    /// One column of the multi-output Zippel interpolation of the coefficients of g (`line`) as polynomials in
+    /// z_2 .. z_n: for the points zz = (r^i, suffix), i = 1 .. n_mono, the coefficients of the support's monomials
+    /// in each of the dn + dd + 1 coefficient functions -- dn + dd + 1 rows of n_mono values.
+    #[allow(clippy::too_many_arguments)]
+    pub fn line_column(&self, p: u64, shift: &[u64], r: &[u64], n_mono: usize, support: &[u32], suffix: &[u64],
+                       ts: &[u64], dn: usize, dd: usize) -> Result<Vec<Vec<u64>>, ColumnError> {
+        let k = r.len();
+        if support.len() != n_mono * k {
+            return Err(ColumnError::Shape);
+        }
+        let outs = dn + dd + 1;
+        let mut values = vec![Vec::with_capacity(n_mono); outs];
+        let mut cur: Vec<u64> = r.iter().map(|&x| x % p).collect();
+        for _ in 0..n_mono {
+            let mut zz = cur.clone();
+            zz.extend(suffix.iter().map(|&x| x % p));
+            let c = self.line(p, shift, &zz, ts, dn, dd)?;
+            for (o, v) in c.into_iter().enumerate() {
+                values[o].push(v);
+            }
+            for (c, &x) in cur.iter_mut().zip(r) {
+                *c = mulmod(*c, x, p);
+            }
+        }
+        let nodes: Vec<u64> = (0..n_mono)
+            .map(|m| (0..k).fold(1u64, |a, l| mulmod(a, powmod(r[l], support[m * k + l] as u64, p), p)))
+            .collect();
+        if nodes.contains(&0) {
+            return Err(ColumnError::Singular);
+        }
+        values
+            .iter()
+            .map(|vals| {
+                let cv = tvandermonde(p, &nodes, vals).ok_or(ColumnError::Singular)?;
+                Ok(cv.iter().zip(&nodes).map(|(&c, &v)| mulmod(c, invmod(v, p).unwrap_or(0), p)).collect())
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,6 +395,32 @@ mod tests {
             assert_eq!(tvandermonde(p, &nodes, &values), Some(c));
         }
         assert_eq!(tvandermonde(p, &[5, 5], &[1, 2]), None);
+    }
+
+    #[test]
+    fn finds_a_rational_function_on_a_line() {
+        // f(x, y) = (x + 2 y) / (x - y + 3), shift (1, 2), direction (1, 5): g(t) = (5 + 11 t) / (2 - 4 t),
+        // normalised d(0) = 1: n = 5/2 + 11/2 t, d = 1 - 2 t
+        let p = 1_000_003u64;
+        let prog = Program {
+            ops: vec![
+                Op::Input(0),
+                Op::Input(1),
+                Op::Const(1, vec![2], vec![1]),
+                Op::Mul(2, 1),
+                Op::Add(0, 3),
+                Op::Sub(0, 1),
+                Op::Const(1, vec![3], vec![1]),
+                Op::Add(5, 6),
+                Op::Pow(7, -1),
+                Op::Mul(4, 8),
+            ],
+            outputs: vec![9],
+            ninputs: 2,
+        };
+        let c = prog.line(p, &[1, 2], &[5], &[7, 11, 13], 1, 1).unwrap();
+        let half = invmod(2, p).unwrap();
+        assert_eq!(c, vec![mulmod(5, half, p), mulmod(11, half, p), p - 2]);
     }
 
     #[test]

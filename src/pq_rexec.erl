@@ -101,12 +101,18 @@ attempt(Node, Task, Home, Timeout) ->
 
 %% {column, ProgramKey, P, R, N, SupportKey, Suffix}: one column of Zippel's interpolation (pq_nif:ff_column/6):
 %%   {ok, Coefficients} | bad | singular | bad_prime
+%% {line_column, ProgramKey, P, Shift, R, N, SupportKey, Suffix, Ts, Dn, Dd}: one column of the coefficients of a
+%%   rational function along lines (pq_nif:ff_line_column/10): {ok, [Coefficients per output]} | bad | singular
 %% {values, ProgramKey, P, Points}: the program's outputs at the points (pq_ff:eval/3)
 -spec run_task(tuple(), node()) -> term().
 run_task({column, ProgKey, P, R, N, SupportKey, Suffix}, Home) ->
     {ok, {ff, Ref, _, _}} = pq_rstore:prepared(ProgKey, Home),
     {ok, Support} = pq_rstore:fetch(SupportKey, Home),
     pq_nif:ff_column(Ref, P, R, N, Support, Suffix);
+run_task({line_column, ProgKey, P, Shift, R, N, SupportKey, Suffix, Ts, Dn, Dd}, Home) ->
+    {ok, {ff, Ref, _, _}} = pq_rstore:prepared(ProgKey, Home),
+    {ok, Support} = pq_rstore:fetch(SupportKey, Home),
+    pq_nif:ff_line_column(Ref, P, Shift, R, N, Support, Suffix, Ts, Dn, Dd);
 run_task({values, ProgKey, P, Points}, Home) ->
     {ok, FF} = pq_rstore:prepared(ProgKey, Home),
     pq_ff:eval(FF, P, Points).

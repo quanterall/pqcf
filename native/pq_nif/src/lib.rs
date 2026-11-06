@@ -1762,4 +1762,23 @@ fn ff_column<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, p: u64, r: Vec<u64>, n:
     })
 }
 
+/// ff_line_column(Resource, P, Shift, R, N, Support, Suffix, Ts, Dn, Dd) -> {ok, [Coefficients]} | bad | singular |
+/// bad_prime: one column of the multi-output Zippel interpolation of a rational function's coefficients along lines
+/// (ffslp.rs; R1 phase 4): Dn + Dd + 1 rows (n_0 .. n_Dn, d_1 .. d_Dd) of N values each
+#[rustler::nif(schedule = "DirtyCpu")]
+#[allow(clippy::too_many_arguments)]
+fn ff_line_column<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, p: u64, shift: Vec<u64>, r: Vec<u64>, n: usize, support: Vec<u32>,
+                      suffix: Vec<u64>, ts: Vec<u64>, dn: usize, dd: usize) -> NifResult<Term<'a>> {
+    if !(3..(1u64 << 63)).contains(&p) {
+        return Err(rustler::Error::BadArg);
+    }
+    Ok(match prog.0.line_column(p, &shift, &r, n, &support, &suffix, &ts, dn, dd) {
+        Ok(c) => (atoms::ok(), c).encode(env),
+        Err(ffslp::ColumnError::Bad) => atoms::bad().encode(env),
+        Err(ffslp::ColumnError::Singular) => atoms::singular().encode(env),
+        Err(ffslp::ColumnError::BadPrime) => atoms::bad_prime().encode(env),
+        Err(ffslp::ColumnError::Shape) => bad_shape(env, "ff line column"),
+    })
+}
+
 rustler::init!("pq_nif");
