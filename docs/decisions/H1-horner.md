@@ -49,8 +49,8 @@ values agree within rounding. That is why it is an option and not the default: e
 
 - Horner is 2.6–3.0 times smaller than the default program, below FORM's `O1`, and 1.6–1.9 times FORM's `O4`.
 - Evaluation is 3.4–3.6 times faster, so the operation count carries over to the time.
-- **Open:** common-subexpression elimination across different Horner branches (FORM's `O2`), and a search over
-  variable orders (`O3`, `O4`). Both have measured targets in the table.
+- **Open:** a search over variable orders (`O3`, `O4`), with a measured target in the table. Common
+  subexpressions across Horner branches (FORM's `O2`) are done: `optimize => horner_cse`, H2.
 
 ## Tests (`test/pq_horner_tests.erl`)
 

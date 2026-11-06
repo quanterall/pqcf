@@ -13,6 +13,12 @@ the public API is additive.
   - on the resultant benchmarks of FORM's expression-simplification papers: 2.6–3.0× fewer operations than the
     default program, 4–6 % fewer than FORM 5's `Format O1`, and evaluation 3.4–3.6× faster;
   - the default is unchanged, bit for bit.
+- **Common subexpressions across compiled programs** (`H2`):
+  - `optimize => horner_cse` (Horner, then the pass) and `optimize => cse` (the default program, then the pass);
+  - sums and products are treated as n-ary nodes, and the operand pair that most nodes share becomes one
+    operation, repeatedly (FORM's `O2` step);
+  - on the resultants: 4,285 / 18,166 / 61,404 operations, against Horner's 4,678 / 19,490 / 67,928 and FORM 5's
+    `O2` 3,969 / 16,398 / 55,685.
 
 ### Changed
 

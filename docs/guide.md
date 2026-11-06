@@ -431,6 +431,10 @@ differs from the default's, so values agree within rounding, not bit for bit. Th
 {ok, Fast} = pq_symbolic:compile([Dx], [x, y], #{optimize => horner}).
 ```
 
+`#{optimize => horner_cse}` (1.3) also shares common subexpressions across the Horner scheme. On the resultant
+benchmarks it needs 7–9 % fewer operations than `horner`, within 8–10 % of FORM 5's `Format O2`.
+`#{optimize => cse}` applies the same pass to the default program. Values again agree within rounding.
+
 ## 12. Interchange
 
 - **JSON:** `pq_circuit:to_json/1` and `pq_circuit:from_json/1,2`. Symbols survive the round trip, and

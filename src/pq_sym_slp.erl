@@ -19,18 +19,27 @@ compile(Values, Inputs) -> compile(Values, Inputs, #{}).
 %% several terms share, recursively, in one occurrence order fixed for the polynomial (most terms first, ties by
 %% canonical order, so the program is deterministic; it gave 4-6 % fewer operations than choosing greedily at every
 %% step on the resultant benchmarks), identical sub-polynomials computed once. Fewer operations, a different
-%% operation order: results equal within rounding, not bit for bit, to the default's.
+%% operation order: results equal within rounding, not bit for bit, to the default's. cse | horner_cse (1.3;
+%% docs/decisions/H2-cse.md): the default program or the Horner scheme, then common subexpressions across it
+%% (pq_sym_cse: sums and products as n-ary nodes, the operand pair most of them share made one operation, until
+%% none is shared) -- FORM's O2 step; also within rounding.
 -spec compile([pq_sym_norm:value()], [atom()], map()) -> tuple().
 compile(Values0, Inputs, Opts) ->
     Values = [expand_identity(V) || V <- Values0],
     St0 = lists:foldl(fun(X, S) -> element(2, slot({input, X}, fun(Sl) -> {input, Sl, X} end, S)) end,
                       #st{opt = maps:get(optimize, Opts, none)}, Inputs),
+    %% horner_cse: the Horner scheme, then the pair search over it
     {Outs, St} = lists:mapfoldl(fun out/2, St0, Values),
     Outputs = case {Values, Outs} of
                   {[{mat, R, C, _}], [Slots]} -> {matrix, R, C, Slots};
                   _ -> lists:append(Outs)
               end,
-    {slp, 1, Inputs, lists:reverse(St#st.ops), Outputs}.
+    Prog = {slp, 1, Inputs, lists:reverse(St#st.ops), Outputs},
+    case St#st.opt of
+        cse -> pq_sym_cse:run(Prog);
+        horner_cse -> pq_sym_cse:run(Prog);
+        _ -> Prog
+    end.
 
 expand_identity({identity, N}) ->
     {mat, N, N, [[case I =:= J of true -> pq_sym_poly:one(); false -> #{} end || J <- lists:seq(1, N)] || I <- lists:seq(1, N)]};
@@ -52,7 +61,7 @@ const(Z, S) -> slot({const, Z}, fun(Sl) -> {const, Sl, Z} end, S).
 
 %% a polynomial: the sum of coefficient times monomial, in canonical key order (or a Horner scheme)
 poly(P, S) when map_size(P) =:= 0 -> const({0.0, 0.0}, S);
-poly(P, #st{opt = horner} = S) when map_size(P) > 1 -> horner(P, order(P), S);
+poly(P, #st{opt = Opt} = S) when map_size(P) > 1, Opt =:= horner orelse Opt =:= horner_cse -> horner(P, order(P), S);
 poly(P, S) ->
     case maps:find({poly, P}, S#st.keys) of
         {ok, Sl} -> {Sl, S};
