@@ -49,7 +49,7 @@ operation order changes, and values agree within rounding (≤ 3e-13 relative on
 - A Python estimate with the same greedy rule, made before this work, gave 4,285 and 18,164: the same pass.
 
 **Open:** the rest of the way to `O2` is FORM's wider set of greedy steps. The way to `O3` and `O4` is the search
-over Horner orders (step 3 of the plan: parallel and deterministic, with Erlang processes and nodes).
+over Horner orders, now H3 (parallel and deterministic: below `O2` on res(7,5) and res(7,6)).
 
 ## Tests (`test/pq_cse_tests.erl`)
 

@@ -9,7 +9,7 @@
 -module(pq_sym_slp).
 -export([compile/2, compile/3, eval/2, eval_batch/2]).
 
--record(st, {ops = [], keys = #{}, next = 0, ctx, opt = none}).
+-record(st, {ops = [], keys = #{}, next = 0, ctx, opt = none, order = []}).
 
 -spec compile([pq_sym_norm:value()], [atom()]) -> {slp, 1, [atom()], [tuple()], [non_neg_integer()] | {matrix, pos_integer(), pos_integer(), [non_neg_integer()]}}.
 compile(Values, Inputs) -> compile(Values, Inputs, #{}).
@@ -22,12 +22,39 @@ compile(Values, Inputs) -> compile(Values, Inputs, #{}).
 %% operation order: results equal within rounding, not bit for bit, to the default's. cse | horner_cse (1.3;
 %% docs/decisions/H2-cse.md): the default program or the Horner scheme, then common subexpressions across it
 %% (pq_sym_cse: sums and products as n-ary nodes, the operand pair most of them share made one operation, until
-%% none is shared) -- FORM's O2 step; also within rounding.
+%% none is shared) -- FORM's O2 step; also within rounding. order_search => #{trials => N, seed, batch, nodes} with
+%% horner | horner_cse (1.3; docs/decisions/H3-order-search.md): N candidate variable orders, one for all the
+%% polynomials, searched in parallel batches (pq_sym_search), the order of the fewest operations kept -- the same
+%% program for any number of cores or nodes.
 -spec compile([pq_sym_norm:value()], [atom()], map()) -> tuple().
 compile(Values0, Inputs, Opts) ->
     Values = [expand_identity(V) || V <- Values0],
+    Opt = maps:get(optimize, Opts, none),
+    Search = maps:get(order_search, Opts, #{}),
+    Order = case (Opt =:= horner orelse Opt =:= horner_cse) andalso maps:get(trials, Search, 0) > 0 of
+                true ->
+                    %% one order for every polynomial, its tail each polynomial's own occurrence order
+                    Score = fun(O) -> ops(build(Values, Inputs, Opt, O)) end,
+                    {Best, Cost} = pq_sym_search:run(Score, global_order(Values), Search),
+                    %% never worse than each polynomial's own order
+                    case Cost < Score([]) of true -> Best; false -> [] end;
+                false -> []
+            end,
+    build(Values, Inputs, Opt, Order).
+
+%% the operations of a program (inputs and constants are not operations)
+ops({slp, 1, _, Ops, _}) -> length([x || Op <- Ops, element(1, Op) =/= input, element(1, Op) =/= const]).
+
+%% the atoms Horner splits on, over all the outputs, by the number of terms they occur in
+global_order(Values) ->
+    Ps = lists:append([case V of {scalar, P} -> [P]; {mat, _, _, Rows} -> lists:append(Rows) end || V <- Values]),
+    Counts = lists:foldl(fun(P, Acc) -> maps:fold(fun(K, N, A) -> maps:update_with(K, fun(M) -> M + N end, N, A) end,
+                                                 Acc, counts(P)) end, #{}, Ps),
+    [K || {_, K} <- lists:sort([{-N, K} || K := N <- Counts])].
+
+build(Values, Inputs, Opt, Order) ->
     St0 = lists:foldl(fun(X, S) -> element(2, slot({input, X}, fun(Sl) -> {input, Sl, X} end, S)) end,
-                      #st{opt = maps:get(optimize, Opts, none)}, Inputs),
+                      #st{opt = Opt, order = Order}, Inputs),
     %% horner_cse: the Horner scheme, then the pair search over it
     {Outs, St} = lists:mapfoldl(fun out/2, St0, Values),
     Outputs = case {Values, Outs} of
@@ -61,7 +88,7 @@ const(Z, S) -> slot({const, Z}, fun(Sl) -> {const, Sl, Z} end, S).
 
 %% a polynomial: the sum of coefficient times monomial, in canonical key order (or a Horner scheme)
 poly(P, S) when map_size(P) =:= 0 -> const({0.0, 0.0}, S);
-poly(P, #st{opt = Opt} = S) when map_size(P) > 1, Opt =:= horner orelse Opt =:= horner_cse -> horner(P, order(P), S);
+poly(P, #st{opt = Opt} = S) when map_size(P) > 1, Opt =:= horner orelse Opt =:= horner_cse -> horner(P, S#st.order ++ order(P), S);
 poly(P, S) ->
     case maps:find({poly, P}, S#st.keys) of
         {ok, Sl} -> {Sl, S};

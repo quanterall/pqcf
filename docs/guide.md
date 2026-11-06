@@ -435,6 +435,16 @@ differs from the default's, so values agree within rounding, not bit for bit. Th
 benchmarks it needs 7–9 % fewer operations than `horner`, within 8–10 % of FORM 5's `Format O2`.
 `#{optimize => cse}` applies the same pass to the default program. Values again agree within rounding.
 
+With Horner, `order_search => #{trials => N}` (1.3) also searches N variable orders and keeps the one with the
+fewest operations. Each batch of candidates (`batch`, 16 by default) is scored in parallel, one process per
+candidate, on this node or spread over `nodes => [...]`. The program is the same whatever the cores or nodes, and
+`seed` picks another search. On the larger resultants, 160 trials go below FORM 5's `O2`.
+
+```erlang
+{ok, P} = pq_symbolic:compile([E], Syms, #{optimize => horner_cse,
+                                          order_search => #{trials => 160, nodes => [node() | nodes()]}}).
+```
+
 ## 12. Interchange
 
 - **JSON:** `pq_circuit:to_json/1` and `pq_circuit:from_json/1,2`. Symbols survive the round trip, and

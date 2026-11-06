@@ -19,6 +19,12 @@ the public API is additive.
     operation, repeatedly (FORM's `O2` step);
   - on the resultants: 4,285 / 18,166 / 61,404 operations, against Horner's 4,678 / 19,490 / 67,928 and FORM 5's
     `O2` 3,969 / 16,398 / 55,685.
+- **A search over Horner variable orders** (`H3`):
+  - `order_search => #{trials, seed, batch, nodes}` with `optimize => horner | horner_cse`;
+  - batches of candidate orders are scored in parallel, one process each, on this node or spread over nodes, with
+    the same program for any number of cores or nodes;
+  - on the resultants, 160 trials give 4,273 / 16,408 / 54,643 operations, below FORM 5's `O2` on the two larger
+    ones; 16 cores are 6.3 times faster than one.
 
 ### Changed
 
