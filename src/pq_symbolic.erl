@@ -156,7 +156,9 @@ circuit_unitary(C, Opts) ->
     Max = pq_core:get(max_symbolic_modes, Opts),
     try
         N =< Max orelse throw({symbolic_limit, #{n_modes => N, max_symbolic_modes => Max}}),
-        Ctx = context(Opts#{domains => maps:merge(Domains, maps:get(domains, Opts, #{}))}),
+        Ctx0 = context(Opts#{domains => maps:merge(Domains, maps:get(domains, Opts, #{}))}),
+        %% the entries go straight to value_to_ast: large products may stay in Rust (K2)
+        Ctx = Ctx0#{rpoly => maps:get(poly_kernel, Ctx0)},
         Id = list_to_tuple([list_to_tuple([pq_sym_poly:const(pq_sym_exact:c(case I =:= J of true -> 1; false -> 0 end))
                                            || J <- lists:seq(1, N)]) || I <- lists:seq(1, N)]),
         U = lists:foldl(fun(I, Acc) -> unitary_step(I, Acc, Ctx) end, Id, Instrs),

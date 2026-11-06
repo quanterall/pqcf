@@ -193,18 +193,27 @@ nif_pow(Vars, E, C, N, D) ->
 ipow(_, 0) -> 1;
 ipow(B, K) -> B * ipow(B, K - 1).
 
-%% the atoms of a plain polynomial with integer exponents and exact coefficients, or false
+%% the atoms of a plain polynomial with integer exponents and exact coefficients, or false. An exponential factor
+%% exp(k i x) of a symbol x, k an integer, counts as the atom {expi, X} to the k: such factors only ever merge by
+%% adding k (normalize/3 drops a zero one), exactly as an atom's exponents do.
 kernel_vars(_P, false) -> false;
 kernel_vars(P, Acc0) ->
-    try maps:fold(fun({Alg, []}, {q, _, _}, Acc) ->
-                          lists:foldl(fun({K, {_, 1}}, A) when K =:= pi; element(1, K) =:= sym; element(1, K) =:= conj ->
+    try maps:fold(fun({Alg, Exp}, {q, _, _}, Acc) ->
+                          lists:foldl(fun({K, {_, 1}}, A) when K =:= pi; element(1, K) =:= sym; element(1, K) =:= conj;
+                                                                 element(1, K) =:= expi ->
                                               A#{K => []};
                                          (_, _) -> throw(not_plain)
-                                      end, Acc, Alg);
+                                      end, Acc, Alg ++ expi(Exp));
                      (_, _, _) -> throw(not_plain)
                   end, Acc0, P)
     catch throw:not_plain -> false
     end.
+
+expi(Exp) ->
+    [case F of
+         {{[{{sym, X}, {1, 1}}], []}, {q, {0, 1}, {K, 1}}} -> {{expi, X}, {K, 1}};
+         _ -> throw(not_plain)
+     end || F <- Exp].
 
 %% {Exponents, Coefficients, L}: the coefficients times L, their common denominator, as integers; false if one
 %% of them is outside i128
@@ -213,7 +222,9 @@ kernel_in(P, Vars) ->
     L = lists:foldl(fun({_, {q, {_, D1}, {_, D2}}}, A) -> lcm(lcm(A, D1), D2) end, 1, Terms),
     Coef = lists:append([[N1 * (L div D1), N2 * (L div D2)] || {_, {q, {N1, D1}, {N2, D2}}} <- Terms]),
     case lists:all(fun(X) -> X >= -(1 bsl 127) andalso X < 1 bsl 127 end, Coef) of
-        true -> {lists:append([exps(Vars, Alg) || {{Alg, []}, _} <- Terms]), Coef, L};
+        true ->
+            Keys = fun(Alg, []) -> Alg; (Alg, Exp) -> lists:sort(Alg ++ expi(Exp)) end,
+            {lists:append([exps(Vars, Keys(Alg, Exp)) || {{Alg, Exp}, _} <- Terms]), Coef, L};
         false -> false
     end.
 

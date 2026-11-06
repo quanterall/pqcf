@@ -100,3 +100,24 @@ memory_limit_test() ->
     F = {pow, {add, [1 | syms()]}, 10},
     ?assertMatch({error, {symbolic_limit, #{reason := heap}}},
                  pq_symbolic:canonicalise({mul, [F, {add, [F, 1]}]}, maps:put(sym_max_heap_words, 50000, ?LIMITS))).
+
+%% exponentials of symbols, exp(k i x), are kernel variables: sums of them to powers, and symbolic circuit
+%% unitaries (beamsplitter meshes and phase shifts), with and without the kernel
+exponentials_test_() ->
+    {timeout, 300, fun() ->
+                           [X, Y, _, _] = syms(),
+                           Ex = fun(K, S) -> {exp, {mul, [{complex, 0, K}, S]}} end,
+                           same({pow, {add, [Ex(1, X), Ex(-1, X), Ex(2, Y), {rat, 1, 2}, Y]}, 7}),
+                           same({mul, [{pow, {add, [Ex(1, X), Ex(-1, X), 1]}, 5}, {pow, {add, [Ex(3, X), Ex(1, Y), X]}, 4}]}),
+                           [begin
+                                C = mesh(K),
+                                ?assertEqual(pq_symbolic:circuit_unitary(C, #{poly_kernel => false}), pq_symbolic:circuit_unitary(C))
+                            end || K <- [3, 4, 5]]
+                   end}.
+
+mesh(K) ->
+    Modes = lists:sublist(lists:append([lists:seq(L rem 2, K - 2, 2) || L <- lists:seq(0, K - 1)]), K * (K - 1) div 2),
+    {ok, C0} = pq_circuit:new(K),
+    Bs = [{beamsplitter, M, M + 1, {sym, list_to_atom("t" ++ integer_to_list(J))}, {sym, list_to_atom("p" ++ integer_to_list(J))}}
+          || {J, M} <- lists:enumerate(0, Modes)],
+    lists:foldl(fun(I, A) -> pq_circuit:add(A, I) end, C0, Bs ++ [{phaseshift, 0, {sym, q0}}, {phaseshift, K - 1, {sym, t0}}]).

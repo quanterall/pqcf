@@ -172,7 +172,7 @@ value_to_ast({mat, _, _, Rows}) -> {matrix, [[to_ast(E) || E <- Row] || Row <- R
 %% is a number or {mul, [Coeff | Factors]}.
 to_ast({rpoly, Vars, R} = H) ->
     %% a polynomial kept in Rust (K2): its terms in print order straight from there, when every atom is a symbol
-    case lists:all(fun({sym, _}) -> true; (_) -> false end, Vars) of
+    case lists:all(fun({sym, _}) -> true; ({expi, _}) -> true; (_) -> false end, Vars) of
         true -> pq_nif:rpoly_to_ast(R, Vars);
         false -> to_ast(pq_sym_poly:m(H))
     end;

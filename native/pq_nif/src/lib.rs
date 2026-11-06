@@ -34,7 +34,7 @@ mod atoms {
         max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold,
         phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix, stream_ref, metropolis, burn_in, thin, chains, acceptance_rate,
         probability, photons, shared, thermal_loss, extra, device, cpu, gpu, auto, reason,
-        overflow, packing, q, add, mul, pow, rat, complex
+        overflow, packing, q, add, mul, pow, rat, complex, expi, sym, exp
     }
 }
 
@@ -1459,24 +1459,57 @@ fn rat_parts(n: i128, denom: i128) -> (i128, i128) {
     (n / g, denom / g)
 }
 
-/// terms as pq_sym_poly's map: atom keys from Vars, exponents {E, 1}, coefficients over Denom in lowest terms
+/// A variable of the kernel: an atom key of a monomial's atom list, or {expi, X}, the exponential factor
+/// exp(k i X) of the monomial's exponential list (Base the monomial X, Sym the term {sym, X}).
+enum VarKind<'a> {
+    Atom(Term<'a>),
+    Exp { base: Term<'a>, sym: Term<'a> },
+}
+
+fn var_kinds<'a>(env: Env<'a>, vars: &[Term<'a>]) -> NifResult<Vec<VarKind<'a>>> {
+    let nil: Term<'a> = Vec::<Term<'a>>::new().encode(env);
+    vars.iter()
+        .map(|&v| {
+            if let Ok(t) = rustler::types::tuple::get_tuple(v) {
+                if t.len() == 2 && t[0].decode::<Atom>().is_ok_and(|a| a == atoms::expi()) {
+                    let sym = (atoms::sym(), t[1]).encode(env);
+                    let base = rustler::types::tuple::make_tuple(env, &[vec![(sym, (1i64, 1i64)).encode(env)].encode(env), nil]);
+                    return Ok(VarKind::Exp { base, sym });
+                }
+            }
+            Ok(VarKind::Atom(v))
+        })
+        .collect()
+}
+
+/// terms as pq_sym_poly's map: monomials {Atoms, Exponentials} from Vars ({V, {E, 1}} for an atom key, {Base,
+/// {q, {0, 1}, {E, 1}}} for {expi, X}), coefficients over Denom in lowest terms
 fn poly_map<'a>(env: Env<'a>, vars: &[Term<'a>], p: &polymul::Poly, denom: i128) -> NifResult<Term<'a>> {
     let nvars = vars.len();
-    let nil: Term<'a> = Vec::<Term<'a>>::new().encode(env);
+    let kinds = var_kinds(env, vars)?;
     let q = atoms::q().encode(env);
-    let mut atom_terms: HashMap<(usize, i64), Term<'a>> = HashMap::new();
+    let zero = (0i64, 1i64).encode(env);
+    let mut factor_terms: HashMap<(usize, i64), Term<'a>> = HashMap::new();
     let n = p.coef.len() / 2;
     let mut keys = Vec::with_capacity(n);
     let mut values = Vec::with_capacity(n);
     for t in 0..n {
         let mut alg = Vec::with_capacity(nvars);
-        for (j, &v) in vars.iter().enumerate() {
+        let mut exp = Vec::new();
+        for (j, kind) in kinds.iter().enumerate() {
             let e = p.exps[t * nvars + j];
             if e != 0 {
-                alg.push(*atom_terms.entry((j, e)).or_insert_with(|| (v, (e, 1i64)).encode(env)));
+                let f = *factor_terms.entry((j, e)).or_insert_with(|| match kind {
+                    VarKind::Atom(v) => (*v, (e, 1i64)).encode(env),
+                    VarKind::Exp { base, .. } => (*base, rustler::types::tuple::make_tuple(env, &[q, zero, (e, 1i64).encode(env)])).encode(env),
+                });
+                match kind {
+                    VarKind::Atom(_) => alg.push(f),
+                    VarKind::Exp { .. } => exp.push(f),
+                }
             }
         }
-        keys.push(rustler::types::tuple::make_tuple(env, &[alg.encode(env), nil]));
+        keys.push(rustler::types::tuple::make_tuple(env, &[alg.encode(env), exp.encode(env)]));
         values.push(rustler::types::tuple::make_tuple(
             env,
             &[q, rat_parts(p.coef[2 * t], denom).encode(env), rat_parts(p.coef[2 * t + 1], denom).encode(env)],
@@ -1559,15 +1592,18 @@ fn rpoly_to_map<'a>(env: Env<'a>, a: ResourceArc<RPolyRes>, vars: Vec<Term<'a>>)
     poly_map(env, &vars, &a.0.p, a.0.denom)
 }
 
-/// rpoly_to_ast(A, Vars) -> pq_sym_norm:to_ast/1's result, for variables that are all {sym, X}: the terms in print
-/// order, a term {mul, [Coeff | Factors]} (a constant just its coefficient), a factor {sym, X} or {pow, {sym, X}, E},
-/// a coefficient N, {rat, N, D} or {complex, Re, Im}; no term 0, one term itself, more {add, Terms}
+/// rpoly_to_ast(A, Vars) -> pq_sym_norm:to_ast/1's result, for variables that are all {sym, X} or {expi, X}: the
+/// terms in print order, a term {mul, [Coeff | Factors]} (a constant just its coefficient), the factors {sym, X} or
+/// {pow, {sym, X}, E} and then {exp, {mul, [{complex, 0, K}, {sym, X}]}}, a coefficient N, {rat, N, D} or
+/// {complex, Re, Im}; no term 0, one term itself, more {add, Terms}
 #[rustler::nif(schedule = "DirtyCpu")]
 fn rpoly_to_ast<'a>(env: Env<'a>, a: ResourceArc<RPolyRes>, vars: Vec<Term<'a>>) -> NifResult<Term<'a>> {
     let r = &a.0;
     if vars.len() != r.nvars {
         return Err(rustler::Error::BadArg);
     }
+    let kinds = var_kinds(env, &vars)?;
+    let is_exp: Vec<bool> = kinds.iter().map(|k| matches!(k, VarKind::Exp { .. })).collect();
     let rat_ast = |x: i128| -> Term<'a> {
         let (n, d) = rat_parts(x, r.denom);
         if d == 1 { n.encode(env) } else { (atoms::rat(), n, d).encode(env) }
@@ -1575,15 +1611,24 @@ fn rpoly_to_ast<'a>(env: Env<'a>, a: ResourceArc<RPolyRes>, vars: Vec<Term<'a>>)
     let (mul, pow) = (atoms::mul().encode(env), atoms::pow().encode(env));
     let mut factor_terms: HashMap<(usize, i64), Term<'a>> = HashMap::new();
     let mut out = Vec::with_capacity(r.len());
-    for t in rpoly::print_order(r) {
+    for t in rpoly::print_order(r, &is_exp) {
         let (re, im) = (r.p.coef[2 * t], r.p.coef[2 * t + 1]);
         let c = if im == 0 { rat_ast(re) } else { (atoms::complex(), rat_ast(re), rat_ast(im)).encode(env) };
         let mut fs = vec![c];
-        for (j, &v) in vars.iter().enumerate() {
-            let e = r.p.exps[t * r.nvars + j];
-            if e != 0 {
-                fs.push(*factor_terms.entry((j, e)).or_insert_with(|| {
-                    if e == 1 { v } else { rustler::types::tuple::make_tuple(env, &[pow, v, e.encode(env)]) }
+        // the atoms first, then the exponentials, each in variable order
+        for pass_exp in [false, true] {
+            for (j, kind) in kinds.iter().enumerate() {
+                let e = r.p.exps[t * r.nvars + j];
+                if e == 0 || is_exp[j] != pass_exp {
+                    continue;
+                }
+                fs.push(*factor_terms.entry((j, e)).or_insert_with(|| match kind {
+                    VarKind::Atom(v) if e == 1 => *v,
+                    VarKind::Atom(v) => rustler::types::tuple::make_tuple(env, &[pow, *v, e.encode(env)]),
+                    VarKind::Exp { sym, .. } => {
+                        let arg = rustler::types::tuple::make_tuple(env, &[mul, vec![(atoms::complex(), 0i64, e).encode(env), *sym].encode(env)]);
+                        (atoms::exp(), arg).encode(env)
+                    }
                 }));
             }
         }

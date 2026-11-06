@@ -45,12 +45,33 @@ building, hashing, ordering and copying large results as Erlang terms was the fl
 | Fateman n = 10 | 0.137 s | 0.052 s | 0.035 s | 0.26× |
 | dense product | 0.136 s | 0.072 s | 0.037 s | 0.27× |
 | permanent 8 × 8 | 0.162 s | 0.31 s | 0.35 s | 2.2× (maps; no handles) |
-| mesh k = 8 | 0.45 s | 2.2 s | 2.4 s | 5× (exponentials; no handles) |
+| mesh k = 8 | 0.46 s | 2.2 s | **0.67 s** | 1.5× (with exponentials, below) |
 
 Since the 2 Nov comparison: dense products went from 10–25× slower than FORM to about 4× faster, and sparse
 products and powers from 25–32× and 10–25× slower to 2.4–4.3×. What remains on them is building the expression tree
 of the result and copying it out of the process that bounds the heap. The permanent and the mesh don't use handles:
-their products are monomial × polynomial, or involve exponentials.
+their products are monomial × polynomial (the mesh, with its exponentials, now uses handles: below).
+
+## Exponentials of symbols, and circuit unitaries (7 Nov 2026)
+
+An exponential factor exp(k i x) of a symbol x, with k an integer, only ever merges with another one by adding the k
+(`normalize/3` keeps such factors as they are, and drops a zero one). So the kernel takes it as a variable
+`{expi, X}` with exponent k. The Rust side builds the monomial's exponential list `[{{[{{sym, X}, {1, 1}}], []},
+{q, {0, 1}, {K, 1}}}, …]` and, in `to_ast`, the factor `{exp, {mul, [{complex, 0, K}, {sym, X}]}}` after the atoms.
+The print order compares the list of exponential factors (symbol, then k) after the atoms, as `print_key` does
+through the monomial.
+
+`pq_symbolic:circuit_unitary/1,2` now also sets the flag: its entries go straight to `value_to_ast`. A mesh's entries
+are sums of products of exp(±i θ) and exp(±i φ), so every product of a gate entry with a large entry stays in Rust.
+
+| mesh, `circuit_unitary` | FORM 5 | maps only | **kernel + handles** |
+| --- | --- | --- | --- |
+| k = 6 | 0.023 s | 0.061 s | **0.027–0.030 s** |
+| k = 8, 276,800 terms | 0.46 s | 1.6–2.8 s | **0.58–0.67 s** (1.3–1.5× FORM) |
+
+The same unitary, term for term, for meshes of 3–5 modes with phase shifts, for powers and products of sums of
+exponentials (`exponentials_test_`), and for the random expressions, which include exp(i x). The k order of the
+exponential list reversed is caught (9 failing tests).
 
 ## Tests (`test/pq_rpoly_tests.erl`)
 

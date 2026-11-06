@@ -112,7 +112,8 @@ product.
 
 **4. Polynomials that stay in Rust** (`K2`, 7 November 2026). Inside `canonicalise`, large products and powers stay
 in Rust and the final expression tree is built there. Powers are 4.3× FORM 5 (from 17×), sparse products 2.4× (from
-7–8×), and dense products about 4× faster than FORM.
+7–8×), and dense products about 4× faster than FORM. Exponentials of symbols count as kernel variables too, so the
+8-mode symbolic mesh unitary is 1.5× FORM (from 5×).
 
 **The standing comparison.** `comparison/form/` holds the reference tasks, the latest results and their history.
 It runs weekly on GitHub Actions until the end of the project.

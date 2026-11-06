@@ -90,32 +90,48 @@ pub fn scale(a: &RPoly, re: i128, im: i128, den: i128) -> Result<RPoly, Refused>
     Ok(RPoly::new(a.nvars, Poly { exps: a.p.exps.clone(), coef }, denom))
 }
 
-/// The terms in pq_sym_norm:print_key's order, for variables that are all symbols ({sym, X}, sorted as Erlang sorts
-/// them): the constant first, then by total degree, then by the list of names present (a list that is a prefix of
-/// another first), then by the exponents.
-pub fn print_order(a: &RPoly) -> Vec<usize> {
+/// The terms in pq_sym_norm:print_key's order, for variables that are all symbols ({sym, X}) or exponentials of
+/// symbols ({expi, X}: exp(k i X) to the k; `is_exp`), each kind sorted as Erlang sorts it: the constant first,
+/// then terms without exponentials, then by the symbols' total degree, by the list of symbols present (a list that
+/// is a prefix of another first), by their exponents, and by the list of exponential factors (symbol, then k).
+pub fn print_order(a: &RPoly, is_exp: &[bool]) -> Vec<usize> {
     let n = a.nvars;
     let row = |t: usize| &a.p.exps[t * n..(t + 1) * n];
-    let keys: Vec<(bool, i64)> = (0..a.len()).map(|t| (row(t).iter().any(|&e| e != 0), row(t).iter().sum())).collect();
+    let keys: Vec<(bool, bool, i64)> = (0..a.len())
+        .map(|t| {
+            let r = row(t);
+            let has_exp = (0..n).any(|j| is_exp[j] && r[j] != 0);
+            (r.iter().any(|&e| e != 0), has_exp, (0..n).filter(|&j| !is_exp[j]).map(|j| r[j]).sum())
+        })
+        .collect();
+    // a list of (position, exponent) pairs compared as Erlang compares lists: element by element, a prefix first
+    let list_cmp = |x: &mut dyn Iterator<Item = (usize, i64)>, y: &mut dyn Iterator<Item = (usize, i64)>, names_only: bool| loop {
+        match (x.next(), y.next()) {
+            (None, None) => return Ordering::Equal,
+            (None, Some(_)) => return Ordering::Less,
+            (Some(_), None) => return Ordering::Greater,
+            (Some((i, ei)), Some((j, ej))) => {
+                let o = if names_only { i.cmp(&j) } else { i.cmp(&j).then(ei.cmp(&ej)) };
+                if o.is_ne() {
+                    return o;
+                }
+            }
+        }
+    };
     let mut idx: Vec<usize> = (0..a.len()).collect();
     idx.sort_unstable_by(|&x, &y| {
         keys[x].cmp(&keys[y]).then_with(|| {
             let (rx, ry) = (row(x), row(y));
-            // the names: the positions of the nonzero exponents, compared as lists
-            let mut px = (0..n).filter(|&j| rx[j] != 0);
-            let mut py = (0..n).filter(|&j| ry[j] != 0);
-            loop {
-                match (px.next(), py.next()) {
-                    (None, None) => break,
-                    (None, Some(_)) => return Ordering::Less,
-                    (Some(_), None) => return Ordering::Greater,
-                    (Some(i), Some(j)) if i != j => return i.cmp(&j),
-                    _ => {}
-                }
-            }
-            // the same names: the exponents in place
-            (0..n).filter(|&j| rx[j] != 0).map(|j| rx[j].cmp(&ry[j])).find(|o| o.is_ne()).unwrap_or(Ordering::Equal)
+            // the names, then (the same names) the exponents in place, then the exponential factors
+            list_cmp(&mut picked(rx, is_exp, false), &mut picked(ry, is_exp, false), true)
+                .then_with(|| list_cmp(&mut picked(rx, is_exp, false), &mut picked(ry, is_exp, false), false))
+                .then_with(|| list_cmp(&mut picked(rx, is_exp, true), &mut picked(ry, is_exp, true), false))
         })
     });
     idx
+}
+
+/// the (position, exponent) pairs of a term's nonzero exponents, of exponentials (`exp`) or of the other variables
+fn picked<'a>(r: &'a [i64], is_exp: &'a [bool], exp: bool) -> impl Iterator<Item = (usize, i64)> + 'a {
+    (0..r.len()).filter(move |&j| is_exp[j] == exp && r[j] != 0).map(move |j| (j, r[j]))
 }
