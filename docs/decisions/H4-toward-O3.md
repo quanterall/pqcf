@@ -54,6 +54,22 @@ FORM's sources (`sources/optimize.cc`, read to understand the method, not copied
 - **Values** agree with the default program within 6.3e-15 (res(7,4)) to 5.5e-12 (res(7,5)): subtractions round
   differently from additions of negated products.
 
+## Signed sums in the subexpression pass, and FORM's own order (7 Nov 2026)
+
+`pq_sym_cse` now treats additions and subtractions as one signed n-ary sum. A pair records its relative sign, so
+a + b and −a − b match, as do a − b and b − a, and an occurrence keeps its sign. `horner_cse` at the occurrence order
+went to 3,771 / 15,875 / 52,423 (about −1 %).
+
+FORM's `stats=on` breakdown shows where the totals stand. On res(7,4), FORM's `O2` uses 21 powers, 2,130
+multiplications and 1,793 additions; our `horner_cse` uses 28 powers, 2,118 multiplications and 1,625 additions or
+subtractions. At the occurrence order our scheme and pass now match or beat FORM's Horner and greedy step.
+
+**The decisive test.** With `printscheme=on`, FORM 5 reports the order its `O3` chose for res(7,5):
+`b5, a7, b3, a6, b4, a5, a4, b2, a3, a2, b1, a1, b0, a0`. With that order, our `horner` gives 12,374 operations and
+`horner_cse` **10,565**, below FORM's own `O3` result (11,006). So what remains is the search, not the scheme. Our
+tree search scores a candidate by building its whole program in Erlang (about 0.7 s on res(7,5)), so 1,000 trials
+take 200–330 s and reach 13,334–13,678. FORM's 1,000 iterations take 16 s, because they only count.
+
 ## Tests
 
 - **`pq_horner_tests`:** a content-sharing case by hand (x(a − b) + y(b − a) + 2z(a − b): x − y + 2z once, two
@@ -66,5 +82,5 @@ FORM's sources (`sources/optimize.cc`, read to understand the method, not copied
 
 ## Next
 
-FORM's greedy step at the same order (the 7–9 points that our pair search lacks), and a cheaper score for the
-search: counting a Horner tree's operations without building its program.
+A cheaper score for the search: counting a Horner scheme's operations (with the same content extraction and
+sharing) in Rust, without building the program, so the tree search can afford FORM's budget and more.
