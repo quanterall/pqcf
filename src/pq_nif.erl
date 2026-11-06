@@ -14,7 +14,7 @@
          gaussian_measure_homodyne/6, stream_new/2, fock_measure_pnr/5, fock_apply_loss_trajectory/6,
          fock_adjoint_gradient/5, boson_partial_probability/4,
          fock_dmb_from/3, fock_dmb_to_dense/3, fock_dmb_apply/4, fock_dmb_pnr_probabilities/4, fock_dmb_measure_pnr/5,
-         fock_dm_adjoint_gradient/5, sym_poly_mul/6]).
+         fock_dm_adjoint_gradient/5, sym_poly_mul/6, sym_poly_pow/5]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -322,3 +322,8 @@ fock_dm_adjoint_gradient(_A, _Chans, _Terms, _N, _C) -> erlang:nif_error(nif_not
 -spec sym_poly_mul([term()], [integer()], [integer()], [integer()], [integer()], pos_integer()) ->
           {ok, map()} | overflow | packing.
 sym_poly_mul(_Vars, _ExpsA, _CoefA, _ExpsB, _CoefB, _L) -> erlang:nif_error(nif_not_loaded).
+
+%% A plain polynomial as for sym_poly_mul/6, its coefficients times L, to the power N; D = L^N, the denominator of
+%% the result's coefficients; overflow or packing as there.
+-spec sym_poly_pow([term()], [integer()], [integer()], non_neg_integer(), pos_integer()) -> {ok, map()} | overflow | packing.
+sym_poly_pow(_Vars, _Exps, _Coef, _N, _D) -> erlang:nif_error(nif_not_loaded).

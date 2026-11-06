@@ -134,6 +134,40 @@ kernel_mul(P, Q, Ctx) when map_size(P) >= 2, map_size(Q) >= 2, map_size(P) * map
     end;
 kernel_mul(_, _, _) -> false.
 
+%% P^N for a plain polynomial of at least two terms in Rust (pq_nif:sym_poly_pow, polymul.rs; K1), when the result
+%% may have at least ?KERNEL_MIN terms: repeated products in the packed layout of P^N's exponent ranges, exact in
+%% i128; the coefficients over L^N. Refused (overflow, packing, L^N beyond i128, no NIF): false, and the
+%% multinomial enumeration below -- the same polynomial.
+kernel_pow(P, N, Ctx) ->
+    Bound = binom(N + map_size(P) - 1, map_size(P) - 1),
+    check_terms(Bound, Ctx),
+    case Bound >= ?KERNEL_MIN andalso maps:get(poly_kernel, Ctx, true) andalso kernel_vars(P, #{}) of
+        false -> false;
+        VarSet ->
+            Vars = lists:sort(maps:keys(VarSet)),
+            case kernel_in(P, Vars) of
+                {E, C, L} ->
+                    D = ipow(L, N),
+                    case D < 1 bsl 127 of
+                        true -> nif_pow(Vars, E, C, N, D);
+                        false -> false
+                    end;
+                false -> false
+            end
+    end.
+
+nif_pow(Vars, E, C, N, D) ->
+    try pq_nif:sym_poly_pow(Vars, E, C, N, D) of
+        {ok, R} -> {ok, R};
+        _ -> false
+    catch
+        error:nif_not_loaded -> false;
+        error:undef -> false
+    end.
+
+ipow(_, 0) -> 1;
+ipow(B, K) -> B * ipow(B, K - 1).
+
 %% the atoms of a plain polynomial with integer exponents and exact coefficients, or false
 kernel_vars(_P, false) -> false;
 kernel_vars(P, Acc0) ->
@@ -295,7 +329,11 @@ pow_int_sum(P, N, Ctx) ->
         true -> base_power(P, {N, 1}, Ctx);
         false ->
             case maps:size(P) > 1 andalso lists:all(fun({A, E}) -> E =:= [] andalso plain(A) end, maps:keys(P)) of
-                true -> multinomial(P, N, Ctx);
+                true ->
+                    case kernel_pow(P, N, Ctx) of
+                        {ok, R} -> R;
+                        false -> multinomial(P, N, Ctx)
+                    end;
                 false -> square_and_multiply(P, N, Ctx)
             end
     end.

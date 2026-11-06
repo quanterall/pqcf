@@ -76,6 +76,20 @@ caught.
 After it, sparse n = 8 spends about 0.5 s multiplying, 1.3 s ordering, and 0.3–0.4 s copying the result out of
 the process that bounds the heap (by design).
 
+**Powers in Rust** (7 Nov 2026, the project owner's choice). `pq_sym_poly:pow_int` sends P^N for a plain P of
+at least two terms to `pq_nif:sym_poly_pow/5`: repeated products in the packed layout of P^N's exponent ranges, exact
+in i128, with the coefficients over L^N. Overflow, exponents that don't pack, L^N beyond i128, or no NIF: the
+multinomial enumeration in Erlang, the same polynomial. On (1 + x1 + … + x6)^20 (230,230 terms) the expansion went
+from 0.49 to 0.40 s, and `canonicalise` from about 1.7 to 1.2–1.4 s (load average near 30). The arithmetic takes a
+few hundredths of a second. The rest is building the Erlang map of 230k terms, and the print order and expression
+tree (`to_ast`, about 1 s).
+
+**The floor of this design.** The polynomials are Erlang maps and results are Erlang expression trees, so every
+large result pays for building, hashing, sorting and copying its terms as Erlang terms. That is now most of the time
+left on the bulk tasks: FORM's 0.11 s for the power against about 1.2 s here. Going further means polynomials that
+stay in Rust (resource handles) between operations, with only the final expression tree built in Erlang. That is a
+redesign of `pq_sym_poly`, not a kernel.
+
 ## Open (measured targets)
 
 - **The print-order sort** of large results: now 1.3–1.5 s at 591k terms with binary keys. Sorting in Rust would

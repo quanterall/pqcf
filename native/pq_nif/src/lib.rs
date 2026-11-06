@@ -1422,12 +1422,30 @@ fn sym_poly_mul<'a>(env: Env<'a>, vars: Vec<Term<'a>>, exps_a: Vec<i64>, coef_a:
     }
     let a = polymul::Poly { exps: exps_a, coef: coef_a };
     let b = polymul::Poly { exps: exps_b, coef: coef_b };
-    let p = match polymul::mul(nvars, &a, &b) {
+    sym_poly_term(env, &vars, polymul::mul(nvars, &a, &b), denom)
+}
+
+/// sym_poly_pow(Vars, Exps, Coef, N, D) -> {ok, Poly} | overflow | packing: a polynomial as for sym_poly_mul, its
+/// coefficients times L, to the power N; D = L^N, the coefficients of the result over D in lowest terms
+#[rustler::nif(schedule = "DirtyCpu")]
+fn sym_poly_pow<'a>(env: Env<'a>, vars: Vec<Term<'a>>, exps: Vec<i64>, coef: Vec<i128>, n: u32, denom: i128) -> NifResult<Term<'a>> {
+    let nvars = vars.len();
+    if !coef.len().is_multiple_of(2) || exps.len() != nvars * (coef.len() / 2) || denom < 1 {
+        return Err(rustler::Error::BadArg);
+    }
+    let a = polymul::Poly { exps, coef };
+    sym_poly_term(env, &vars, polymul::pow(nvars, &a, n), denom)
+}
+
+/// a kernel result as pq_sym_poly's map: atom keys from Vars, exponents {E, 1}, coefficients over Denom in lowest
+/// terms with a positive denominator, as pq_sym_exact:rat/2 makes them
+fn sym_poly_term<'a>(env: Env<'a>, vars: &[Term<'a>], r: Result<polymul::Poly, polymul::Refused>, denom: i128) -> NifResult<Term<'a>> {
+    let p = match r {
         Ok(p) => p,
         Err(polymul::Refused::Overflow) => return Ok(atoms::overflow().encode(env)),
         Err(polymul::Refused::Packing) => return Ok(atoms::packing().encode(env)),
     };
-    // pq_sym_exact:rat/2: lowest terms, a positive denominator, 0 as {0, 1}
+    let nvars = vars.len();
     let rat = |n: i128| -> Term<'a> {
         let g = polymul::gcd(n.unsigned_abs(), denom as u128) as i128;
         (n / g, denom / g).encode(env)

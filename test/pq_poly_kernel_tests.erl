@@ -75,3 +75,27 @@ end_to_end_test() ->
          {ok, B} = pq_symbolic:canonicalise(E, #{max_poly_terms => 1000000, poly_kernel => false}),
          ?assertEqual(B, A)
      end || E <- [{mul, [F, {add, [F, 1]}]}, {mul, [G, F]}]].
+
+%% powers: the kernel (pq_nif:sym_poly_pow) against the multinomial enumeration, term for term
+powers_test() ->
+    rand:seed(exsss, {9, 8, 7}),
+    Ctx = fun(K) -> #{max_poly_terms => 10000000, max_expand_power => 64, poly_kernel => K} end,
+    lists:foreach(fun(K) ->
+                          {Lo, Hi} = case K rem 3 of 0 -> {-2, 2}; _ -> {0, 3} end,
+                          P = random_poly(2 + K rem 7, Lo, Hi),
+                          N = 2 + K rem 9,
+                          ?assertEqual(pq_sym_poly:pow_int(P, N, Ctx(false)), pq_sym_poly:pow_int(P, N, Ctx(true)))
+                  end, lists:seq(1, 60)).
+
+%% the power kernel is really used, and refuses what it can't hold: a coefficient or L^N beyond i128
+power_refusals_test() ->
+    X = {sym, x}, Y = {sym, y},
+    ?assertEqual({ok, #{{[{X, {2, 1}}], []} => {q, {1, 1}, {0, 1}}, {[{X, {1, 1}}, {Y, {1, 1}}], []} => {q, {1, 1}, {0, 1}},
+                        {[{Y, {2, 1}}], []} => {q, {1, 4}, {0, 1}}}},
+                 pq_nif:sym_poly_pow([X, Y], [1, 0, 0, 1], [2, 0, 1, 0], 2, 4)),
+    Ctx = fun(K) -> #{max_poly_terms => 10000000, max_expand_power => 64, poly_kernel => K} end,
+    Base = pq_sym_poly:add(pq_sym_poly:symbol(x, #{}), pq_sym_poly:add(pq_sym_poly:symbol(y, #{}), pq_sym_poly:one())),
+    Big = pq_sym_poly:scale(Base, pq_sym_exact:c(1 bsl 40)),
+    Thirds = pq_sym_poly:scale(Base, pq_sym_exact:c({1, 3})),
+    [?assertEqual(pq_sym_poly:pow_int(P, N, Ctx(false)), pq_sym_poly:pow_int(P, N, Ctx(true)))
+     || {P, N} <- [{Big, 5}, {Thirds, 60}, {Thirds, 12}]].
