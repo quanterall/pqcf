@@ -63,9 +63,23 @@ nothing. It is gone, and the output is identical. On 591k terms, `to_ast` went f
 The machine is shared, and times vary by up to 2× between runs on the small tasks. The rows above are from one run
 of the whole comparison.
 
+**The print order by binary keys** (7 Nov 2026). When every monomial is a product of symbols with integer
+exponents, `to_ast` sorts binary keys whose byte order is `print_key`'s order:
+`<<NotOne, Degree, Name, 1, ..., 0, Exponents>>`, with names as UTF-8 text and integers offset by 2^62 big-endian.
+Otherwise it takes the general path, so the output is identical either way. In one process, alternating, on the
+591k-term sparse product: 1.43 / 1.48 s against 3.35 / 3.65 s for the general path, 2.4 times faster. The machine
+had a load average near 38 then, so the absolute times are high. `test/pq_print_order_tests.erl` checks that the
+order equals the general path's, through a π term that forces it (80 random polynomials over names with prefixes,
+digits, capitals, underscores and a non-ASCII one, negative exponents, a constant). Exponents without the offset are
+caught.
+
+After it, sparse n = 8 spends about 0.5 s multiplying, 1.3 s ordering, and 0.3–0.4 s copying the result out of
+the process that bounds the heap (by design).
+
 ## Open (measured targets)
 
-- **The print-order sort** of large results: 2–3 s at 591k terms. It is the larger part of the sparse benchmark.
+- **The print-order sort** of large results: now 1.3–1.5 s at 591k terms with binary keys. Sorting in Rust would
+  have to return the terms, which costs about as much as it saves.
 - **Sums** of many monomial × polynomial products, the resultant's and permanent's inner loop: an n-ary sum in the
   kernel, or polynomials kept in Rust as handles between operations.
 - **Powers** of sums: the multinomial enumeration in Rust.

@@ -171,9 +171,13 @@ value_to_ast({mat, _, _, Rows}) -> {matrix, [[to_ast(E) || E <- Row] || Row <- R
 %% {add, Terms} in print order (constants first, then by total degree, then by symbol names), or one term; a term
 %% is a number or {mul, [Coeff | Factors]}.
 to_ast(P) ->
-    %% print_key ends with the monomial, so the order needs no presorting
-    Terms = lists:sort([{print_key(M), M, C} || {M, C} <- maps:to_list(P)]),
-    case [term_ast(M, C) || {_, M, C} <- Terms] of
+    L = maps:to_list(P),
+    Terms = case byte_keys(L) of
+                %% print_key ends with the monomial, so the order needs no presorting
+                false -> [{M, C} || {_, M, C} <- lists:sort([{print_key(M), M, C} || {M, C} <- L])];
+                Keyed -> [MC || {_, MC} <- lists:sort(Keyed)]
+            end,
+    case [term_ast(M, C) || {M, C} <- Terms] of
         [] -> 0;
         [T] -> T;
         Ts -> {add, Ts}
@@ -183,6 +187,47 @@ print_key({Alg, Exp} = M) ->
     Deg = lists:sum([pq_sym_exact:to_float(E) || {{sym, _}, E} <- Alg]),
     Names = [X || {{sym, X}, _} <- Alg],
     {M =/= pq_sym_poly:one_mono(), Exp =/= [], Deg, Names, M}.
+
+%% The same order as print_key's, as binaries compared byte by byte, when every monomial is a product of symbols
+%% with integer exponents (no exponential, pi, conj or radical): 591k terms sorted in 0.5 s instead of 2.4 s
+%% (decision record K1). [{Key, {M, C}}], or false for the general path.
+%%
+%%   <<NotOne:8, Degree + 2^62:64, Name_1, 1, ..., Name_k, 1, 0, E_1 + 2^62:64, ..., E_k + 2^62:64>>
+%%
+%% NotOne orders the constant first (false < true); no exponential, so print_key's second element is always false;
+%% the degree is an integer, which orders as print_key's float sum does; the names are atoms' UTF-8 text, which
+%% orders as the atoms do, each closed by byte 1 and the list by byte 0 (a shorter list of the same prefix is
+%% smaller), so a name may not contain bytes 0 or 1; with equal names the monomials differ only in exponents, in
+%% the same positions.
+-define(OFF, (1 bsl 62)).
+
+byte_keys(L) ->
+    try
+        {Keyed, _} = lists:mapfoldl(fun byte_key/2, #{}, L),
+        Keyed
+    catch throw:general -> false
+    end.
+
+byte_key({{Alg, []}, _} = MC, Names0) ->
+    {Ns, Es, Deg, Names} =
+        lists:foldr(fun({{sym, X}, {E, 1}}, {N, Ex, D, Cache}) when is_integer(E), abs(E) < ?OFF ->
+                            {B, Cache2} = name(X, Cache),
+                            {[B, 1 | N], [<<(E + ?OFF):64>> | Ex], D + E, Cache2};
+                       (_, _) -> throw(general)
+                    end, {[], [], 0, Names0}, Alg),
+    abs(Deg) < ?OFF orelse throw(general),
+    NotOne = case Alg of [] -> 0; _ -> 1 end,
+    {{iolist_to_binary([NotOne, <<(Deg + ?OFF):64>>, Ns, 0 | Es]), MC}, Names};
+byte_key(_, _) -> throw(general).
+
+name(X, Cache) ->
+    case Cache of
+        #{X := B} -> {B, Cache};
+        _ ->
+            B = atom_to_binary(X, utf8),
+            binary:match(B, [<<0>>, <<1>>]) =:= nomatch orelse throw(general),
+            {B, Cache#{X => B}}
+    end.
 
 term_ast(M, C) ->
     case M =:= pq_sym_poly:one_mono() of

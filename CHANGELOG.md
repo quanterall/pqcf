@@ -34,7 +34,8 @@ the public API is additive.
   - exponents are packed into 64 bits and coefficients are exact i128, with a fallback to the Erlang product on
     overflow, on exponents that don't pack, or when no NIF is loaded;
   - the result is the same polynomial, term for term (D1); `poly_kernel => false` turns the kernel off;
-  - the canonical print order now sorts once instead of twice, with the same output.
+  - the canonical print order sorts once instead of twice, and by binary keys when every monomial is a product of
+    symbols with integer exponents: 2.4 times faster on 591k terms, with the same output.
 
 ## 1.2.0 (5 November 2026)
 
