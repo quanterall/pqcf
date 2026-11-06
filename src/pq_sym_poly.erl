@@ -85,6 +85,12 @@ scale(P, C) ->
 
 mul(P, Q, Ctx) ->
     check_terms(maps:size(P) * maps:size(Q), Ctx),
+    case kernel_mul(P, Q, Ctx) of
+        {ok, R} -> R;
+        false -> mul_terms(P, Q, Ctx)
+    end.
+
+mul_terms(P, Q, Ctx) ->
     maps:fold(
       fun(M1, C1, Acc1) ->
               maps:fold(
@@ -99,6 +105,64 @@ mul(P, Q, Ctx) ->
                         end
                 end, Acc1, Q)
       end, #{}, P).
+
+%% Plain polynomials (symbols, conj and pi with integer exponents, exact coefficients) multiply in Rust when both
+%% have at least two terms and the product at least ?KERNEL_MIN term products (pq_nif:sym_poly_mul,
+%% native/pq_nif/src/polymul.rs; decision record K1): the denominators scaled away, the exponents per variable, the
+%% coefficients exact in i128. A monomial times a polynomial stays here: the conversion costs more than the product
+%% (1 x 4096 terms 0.8x, 2 x 4096 1.7x). An overflow, exponents that don't pack into 64 bits, or no NIF loaded:
+%% false, and the product is computed term by term here -- the same polynomial either way (D1). poly_kernel => false
+%% in the context turns the kernel off.
+-define(KERNEL_MIN, 64).
+
+kernel_mul(P, Q, Ctx) when map_size(P) >= 2, map_size(Q) >= 2, map_size(P) * map_size(Q) >= ?KERNEL_MIN ->
+    case maps:get(poly_kernel, Ctx, true) andalso kernel_vars(P, kernel_vars(Q, #{})) of
+        false -> false;
+        VarSet ->
+            Vars = lists:sort(maps:keys(VarSet)),
+            case {kernel_in(P, Vars), kernel_in(Q, Vars)} of
+                {{EP, CP, LP}, {EQ, CQ, LQ}} when LP * LQ < 1 bsl 127 ->
+                    try pq_nif:sym_poly_mul(Vars, EP, CP, EQ, CQ, LP * LQ) of
+                        {ok, R} -> {ok, R};
+                        _ -> false
+                    catch
+                        error:nif_not_loaded -> false;
+                        error:undef -> false
+                    end;
+                _ -> false
+            end
+    end;
+kernel_mul(_, _, _) -> false.
+
+%% the atoms of a plain polynomial with integer exponents and exact coefficients, or false
+kernel_vars(_P, false) -> false;
+kernel_vars(P, Acc0) ->
+    try maps:fold(fun({Alg, []}, {q, _, _}, Acc) ->
+                          lists:foldl(fun({K, {_, 1}}, A) when K =:= pi; element(1, K) =:= sym; element(1, K) =:= conj ->
+                                              A#{K => []};
+                                         (_, _) -> throw(not_plain)
+                                      end, Acc, Alg);
+                     (_, _, _) -> throw(not_plain)
+                  end, Acc0, P)
+    catch throw:not_plain -> false
+    end.
+
+%% {Exponents, Coefficients, L}: the coefficients times L, their common denominator, as integers; false if one
+%% of them is outside i128
+kernel_in(P, Vars) ->
+    Terms = maps:to_list(P),
+    L = lists:foldl(fun({_, {q, {_, D1}, {_, D2}}}, A) -> lcm(lcm(A, D1), D2) end, 1, Terms),
+    Coef = lists:append([[N1 * (L div D1), N2 * (L div D2)] || {_, {q, {N1, D1}, {N2, D2}}} <- Terms]),
+    case lists:all(fun(X) -> X >= -(1 bsl 127) andalso X < 1 bsl 127 end, Coef) of
+        true -> {lists:append([exps(Vars, Alg) || {{Alg, []}, _} <- Terms]), Coef, L};
+        false -> false
+    end.
+
+exps([], _) -> [];
+exps([V | Vs], [{V, {E, 1}} | Alg]) -> [E | exps(Vs, Alg)];
+exps([_ | Vs], Alg) -> [0 | exps(Vs, Alg)].
+
+lcm(A, B) -> A div pq_sym_exact:gcd(A, B) * B.
 
 check_terms(N, Ctx) ->
     Max = maps:get(max_poly_terms, Ctx, 100000),

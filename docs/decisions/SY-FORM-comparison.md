@@ -105,6 +105,11 @@ Before and after, single-threaded, against FORM 5:
 **2. The bridge.** `pq_form` covers expansion and the symbolic permanent through FORM as an external process, on
 the polynomial fragment. Its results equal `pq_symbolic`'s exactly. It is an addition under the freeze.
 
+**3. Products in Rust** (`K1`, 6 November 2026). Plain products go to a NIF with packed exponents and exact i128
+coefficients. Dense products are now faster than FORM 5 (Fateman n = 15: 0.51 s against 2.13 s, before 33 s).
+Sparse products are 7–8× FORM (before 25–32×), and most of that time is the canonical print order, not the
+product.
+
 **The standing comparison.** `comparison/form/` holds the reference tasks, the latest results and their history.
 It runs weekly on GitHub Actions until the end of the project.
 

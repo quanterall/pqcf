@@ -14,6 +14,16 @@ the public API is additive.
     default program, 4–6 % fewer than FORM 5's `Format O1`, and evaluation 3.4–3.6× faster;
   - the default is unchanged, bit for bit.
 
+### Changed
+
+- **Products of polynomials in Rust** (`K1`):
+  - `pq_sym_poly` multiplies plain polynomials in a NIF: symbols, conjugates and π with integer exponents, and
+    exact coefficients;
+  - exponents are packed into 64 bits and coefficients are exact i128, with a fallback to the Erlang product on
+    overflow, on exponents that don't pack, or when no NIF is loaded;
+  - the result is the same polynomial, term for term (D1); `poly_kernel => false` turns the kernel off;
+  - the canonical print order now sorts once instead of twice, with the same output.
+
 ## 1.2.0 (5 November 2026)
 
 Beyond the specification's roadmap: PQCF from Python, and faster density matrices. Everything is additive and

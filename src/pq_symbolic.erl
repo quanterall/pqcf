@@ -712,7 +712,7 @@ run(E, Opts, F) ->
 context(Opts) ->
     Keys = [max_poly_terms, max_expand_power, max_expr_nodes, sym_timeout_ms, sym_max_heap_words],
     maps:merge(maps:from_list([{K, pq_core:get(K, Opts)} || K <- Keys]),
-               #{domains => maps:get(domains, Opts, #{})}).
+               #{domains => maps:get(domains, Opts, #{}), poly_kernel => maps:get(poly_kernel, Opts, true)}).
 
 guarded(F, Ctx) ->
     try F(Ctx) of

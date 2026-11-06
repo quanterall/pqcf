@@ -171,7 +171,8 @@ value_to_ast({mat, _, _, Rows}) -> {matrix, [[to_ast(E) || E <- Row] || Row <- R
 %% {add, Terms} in print order (constants first, then by total degree, then by symbol names), or one term; a term
 %% is a number or {mul, [Coeff | Factors]}.
 to_ast(P) ->
-    Terms = lists:sort([{print_key(M), M, C} || {M, C} <- pq_sym_poly:sorted(P)]),
+    %% print_key ends with the monomial, so the order needs no presorting
+    Terms = lists:sort([{print_key(M), M, C} || {M, C} <- maps:to_list(P)]),
     case [term_ast(M, C) || {_, M, C} <- Terms] of
         [] -> 0;
         [T] -> T;

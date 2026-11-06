@@ -1,5 +1,6 @@
 //! pq_nif: the numerical kernels of the Photonic QC Framework (FS section 8).
 use rustler::{Atom, Binary, Encoder, Env, NifResult, ResourceArc, Term};
+use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -16,6 +17,7 @@ pub mod hafnian;
 pub mod mesh;
 pub mod num;
 pub mod perm;
+pub mod polymul;
 pub mod rng;
 pub mod toronto;
 
@@ -30,7 +32,8 @@ mod atoms {
         size, rvec, rmat, not_symplectic, homodyne, pnr, threshold, unsupported_input, pq_bug, beamsplitter,
         max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold,
         phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix, stream_ref, metropolis, burn_in, thin, chains, acceptance_rate,
-        probability, photons, shared, thermal_loss, extra, device, cpu, gpu, auto, reason
+        probability, photons, shared, thermal_loss, extra, device, cpu, gpu, auto, reason,
+        overflow, packing, q
     }
 }
 
@@ -1404,6 +1407,49 @@ fn fock_dm_adjoint_gradient<'a>(env: Env<'a>, amps: Term<'a>, chans: Vec<Term<'a
         Ok((values, grads)) => (atoms::ok(), (values, grads)).encode(env),
         Err(e) => fock_error(env, e),
     })
+}
+
+/// sym_poly_mul(Vars, ExpsA, CoefA, ExpsB, CoefB, L) -> {ok, Poly} | overflow | packing (the symbolic engine's plain
+/// products, polymul.rs): a polynomial as its terms' exponents, one per variable of Vars (sorted atom keys), and their
+/// coefficients times L, two integers (real, imaginary) per term; the product as pq_sym_poly's map, its
+/// coefficients over L * L in lowest terms
+#[rustler::nif(schedule = "DirtyCpu")]
+fn sym_poly_mul<'a>(env: Env<'a>, vars: Vec<Term<'a>>, exps_a: Vec<i64>, coef_a: Vec<i128>, exps_b: Vec<i64>, coef_b: Vec<i128>, denom: i128) -> NifResult<Term<'a>> {
+    let nvars = vars.len();
+    let shape = |e: &Vec<i64>, c: &Vec<i128>| c.len().is_multiple_of(2) && e.len() == nvars * (c.len() / 2);
+    if !shape(&exps_a, &coef_a) || !shape(&exps_b, &coef_b) || denom < 1 {
+        return Err(rustler::Error::BadArg);
+    }
+    let a = polymul::Poly { exps: exps_a, coef: coef_a };
+    let b = polymul::Poly { exps: exps_b, coef: coef_b };
+    let p = match polymul::mul(nvars, &a, &b) {
+        Ok(p) => p,
+        Err(polymul::Refused::Overflow) => return Ok(atoms::overflow().encode(env)),
+        Err(polymul::Refused::Packing) => return Ok(atoms::packing().encode(env)),
+    };
+    // pq_sym_exact:rat/2: lowest terms, a positive denominator, 0 as {0, 1}
+    let rat = |n: i128| -> Term<'a> {
+        let g = polymul::gcd(n.unsigned_abs(), denom as u128) as i128;
+        (n / g, denom / g).encode(env)
+    };
+    let nil: Term<'a> = Vec::<Term<'a>>::new().encode(env);
+    let q = atoms::q().encode(env);
+    let mut atom_terms: HashMap<(usize, i64), Term<'a>> = HashMap::new();
+    let n = p.coef.len() / 2;
+    let mut keys = Vec::with_capacity(n);
+    let mut values = Vec::with_capacity(n);
+    for t in 0..n {
+        let mut alg = Vec::with_capacity(nvars);
+        for (j, &v) in vars.iter().enumerate() {
+            let e = p.exps[t * nvars + j];
+            if e != 0 {
+                alg.push(*atom_terms.entry((j, e)).or_insert_with(|| (v, (e, 1i64)).encode(env)));
+            }
+        }
+        keys.push(rustler::types::tuple::make_tuple(env, &[alg.encode(env), nil]));
+        values.push(rustler::types::tuple::make_tuple(env, &[q, rat(p.coef[2 * t]), rat(p.coef[2 * t + 1])]));
+    }
+    Ok((atoms::ok(), Term::map_from_term_arrays(env, &keys, &values)?).encode(env))
 }
 
 rustler::init!("pq_nif");

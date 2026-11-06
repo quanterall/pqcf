@@ -14,7 +14,7 @@
          gaussian_measure_homodyne/6, stream_new/2, fock_measure_pnr/5, fock_apply_loss_trajectory/6,
          fock_adjoint_gradient/5, boson_partial_probability/4,
          fock_dmb_from/3, fock_dmb_to_dense/3, fock_dmb_apply/4, fock_dmb_pnr_probabilities/4, fock_dmb_measure_pnr/5,
-         fock_dm_adjoint_gradient/5]).
+         fock_dm_adjoint_gradient/5, sym_poly_mul/6]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -314,3 +314,11 @@ fock_dmb_measure_pnr(_Blocks, _Modes, _Outcome, _N, _C) -> erlang:nif_error(nif_
 -spec fock_dm_adjoint_gradient(amps(), [adjoint_gate() | {loss, float(), non_neg_integer()} | {thermal_loss, float(), float(), non_neg_integer()}],
                                [adjoint_term()], pos_integer(), non_neg_integer()) -> {ok, {[float()], [[float()]]}} | kernel_error().
 fock_dm_adjoint_gradient(_A, _Chans, _Terms, _N, _C) -> erlang:nif_error(nif_not_loaded).
+
+%% The product of two plain polynomials of the symbolic engine (pq_sym_poly): each as its terms' exponents, one per
+%% atom key of Vars (sorted), and its coefficients times L, integers, real and imaginary per term; the product as
+%% pq_sym_poly's map, or overflow (a coefficient outside i128) or packing (the exponent ranges need more than 64
+%% bits) for pq_sym_poly to multiply in Erlang.
+-spec sym_poly_mul([term()], [integer()], [integer()], [integer()], [integer()], pos_integer()) ->
+          {ok, map()} | overflow | packing.
+sym_poly_mul(_Vars, _ExpsA, _CoefA, _ExpsB, _CoefB, _L) -> erlang:nif_error(nif_not_loaded).
