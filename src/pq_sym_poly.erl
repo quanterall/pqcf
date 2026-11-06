@@ -16,7 +16,7 @@
 -module(pq_sym_poly).
 -export([zero/0, one/0, const/1, symbol/2, atom/2, pi/0, is_const/1, const_value/1, single/1, m/1,
          add/2, sum/1, neg/1, scale/2, mul/3, pow_int/3, pow_rat/3, exp/2, conj/2,
-         terms/1, pi_mono/0, one_mono/0, sorted/1, content/2, base_power/3]).
+         terms/1, pi_mono/0, one_mono/0, sorted/1, content/2, base_power/3, plain_terms/1]).
 
 -import(pq_sym_exact, [c/1, cadd/2, cmul/2, cneg/1, cinv/1, cconj/1, is_zero/1, rat/2, radd/2, rmul/2, rneg/1]).
 
@@ -634,3 +634,19 @@ union(VA, VB) ->
     Vars = lists:umerge(VA, VB),
     Pos = maps:from_list([{V, I} || {I, V} <- lists:enumerate(0, Vars)]),
     {Vars, [maps:get(V, Pos) || V <- VA], [maps:get(V, Pos) || V <- VB]}.
+
+%% Polynomials of symbols only (integer exponents, exact coefficients) as kernel data over their common variables:
+%% {Vars, [{Exps, Coef, L}]} (the coefficients times L), or false (pq_sym_slp's order search scores with it, H4)
+plain_terms(Ps0) ->
+    Ps = [m(P) || P <- Ps0],
+    case lists:foldl(fun(P, Acc) -> kernel_vars(P, Acc) end, #{}, Ps) of
+        false -> false;
+        VarSet ->
+            Vars = lists:sort(maps:keys(VarSet)),
+            Data = [kernel_in(P, Vars) || P <- Ps],
+            case lists:all(fun({sym, _}) -> true; (_) -> false end, Vars) andalso not lists:member(false, Data)
+                 andalso lists:all(fun({_, _, L}) -> L < 1 bsl 127 end, Data) of
+                true -> {Vars, Data};
+                false -> false
+            end
+    end.

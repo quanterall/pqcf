@@ -8,6 +8,8 @@
 %%         | {pow, Slot, A, {N, D}} | {exp, Slot, A} | {conj, Slot, A} | {sub, Slot, A, B} (A - B; Horner only)
 -module(pq_sym_slp).
 -export([compile/2, compile/3, eval/2, eval_batch/2]).
+%% for the tests of the order search's score (pq_order_search_tests)
+-export([build/4, ops/1, global_order/1, fast_score/1]).
 
 -record(st, {ops = [], keys = #{}, next = 0, ctx, opt = none, order = []}).
 
@@ -33,14 +35,38 @@ compile(Values0, Inputs, Opts) ->
     Search = maps:get(order_search, Opts, #{}),
     Order = case (Opt =:= horner orelse Opt =:= horner_cse) andalso maps:get(trials, Search, 0) > 0 of
                 true ->
-                    %% one order for every polynomial, its tail each polynomial's own occurrence order
-                    Score = fun(O) -> ops(build(Values, Inputs, Opt, O)) end,
-                    {Best, Cost} = pq_sym_search:run(Score, global_order(Values), Search),
+                    %% one order for every polynomial, its tail each polynomial's own occurrence order; scored by
+                    %% counting the Horner program's operations in Rust when the polynomials are plain ones of
+                    %% symbols (pq_nif:horner_count, H4), by building it otherwise
+                    Build = fun(O) -> ops(build(Values, Inputs, Opt, O)) end,
+                    Score = case fast_score(Values) of false -> Build; F -> F end,
+                    {Best, _} = pq_sym_search:run(Score, global_order(Values), Search),
                     %% never worse than each polynomial's own order
-                    case Cost < Score([]) of true -> Best; false -> [] end;
+                    case Build(Best) < Build([]) of true -> Best; false -> [] end;
                 false -> []
             end,
     build(Values, Inputs, Opt, Order).
+
+%% a score counting the Horner operations in Rust, or false (not plain polynomials of symbols, no NIF)
+fast_score(Values) ->
+    Ps = lists:append([case V of {scalar, P} -> [P]; {mat, _, _, Rows} -> lists:append(Rows) end || V <- Values]),
+    case pq_sym_poly:plain_terms(Ps) of
+        false -> false;
+        {Vars, Data} ->
+            Index = maps:from_list([{V, I} || {I, V} <- lists:enumerate(0, Vars)]),
+            N = length(Vars),
+            Score = fun(O) ->
+                            case pq_nif:horner_count(N, Data, [maps:get(X, Index) || X <- O, maps:is_key(X, Index)]) of
+                                {ok, Ops} -> Ops;
+                                _ -> error(horner_count)
+                            end
+                    end,
+            try Score(global_order(Values)) of
+                _ -> Score
+            catch
+                error:_ -> false
+            end
+    end.
 
 %% the operations of a program (inputs and constants are not operations)
 ops({slp, 1, _, Ops, _}) -> length([x || Op <- Ops, element(1, Op) =/= input, element(1, Op) =/= const]).

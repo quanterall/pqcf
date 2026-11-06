@@ -13,6 +13,7 @@ pub mod fockstate;
 pub mod gaussian;
 pub mod gbs;
 pub mod gpu;
+pub mod hcount;
 pub mod hafnian;
 pub mod mesh;
 pub mod num;
@@ -1638,6 +1639,27 @@ fn rpoly_to_ast<'a>(env: Env<'a>, a: ResourceArc<RPolyRes>, vars: Vec<Term<'a>>)
         0 => 0.encode(env),
         1 => out[0],
         _ => (atoms::add(), out).encode(env),
+    })
+}
+
+/// horner_count(NVars, Polys, Order) -> {ok, Ops} | overflow: the operations of pq_sym_slp's Horner programs of
+/// the polynomials (each {Exps, Coef, Den} as for sym_poly_mul, over the same variables, all symbols) for the
+/// variable order Order (variable indices, first to last), counted without building them (hcount.rs; H4)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn horner_count<'a>(env: Env<'a>, nvars: usize, polys: Vec<(Vec<i64>, Vec<i128>, i128)>, order: Vec<usize>) -> NifResult<Term<'a>> {
+    let mut ps = Vec::with_capacity(polys.len());
+    for (exps, coef, den) in polys {
+        if !coef.len().is_multiple_of(2) || exps.len() != nvars * (coef.len() / 2) || den < 1 {
+            return Err(rustler::Error::BadArg);
+        }
+        ps.push((polymul::Poly { exps, coef }, den));
+    }
+    if order.iter().any(|&j| j >= nvars) {
+        return Err(rustler::Error::BadArg);
+    }
+    Ok(match hcount::count(nvars, &ps, &order) {
+        Ok(n) => (atoms::ok(), n).encode(env),
+        Err(e) => refused(env, e),
     })
 }
 

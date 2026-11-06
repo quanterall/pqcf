@@ -101,3 +101,32 @@ mcts_test() ->
     {ok, [V1]} = pq_symbolic:eval_slp(Plain, B),
     {ok, [V2]} = pq_symbolic:eval_slp(S, B),
     ?assert(close(V1, V2)).
+
+%% the search's score in Rust (pq_nif:horner_count) is the Horner program's operation count, for random
+%% polynomials (sums, rationals, Gaussian coefficients, negative terms) and random orders, several outputs sharing
+fast_score_test_() ->
+    {timeout, 120, fun() ->
+                           rand:seed(exsss, {2, 7, 1}),
+                           Xs = [x, y, z, u, v],
+                           Ctx = #{max_poly_terms => 1000000, max_expand_power => 8},
+                           Rnd = fun() ->
+                                         {scalar, P} = pq_sym_norm:norm({add, [{mul, [case rand:uniform(4) of 1 -> {rat, rand:uniform(7) - 4, 1 + rand:uniform(3)};
+                                                                                                         2 -> {complex, rand:uniform(5) - 3, rand:uniform(3) - 2};
+                                                                                                         _ -> rand:uniform(9) - 5 end
+                                                                                                    | [{pow, {sym, lists:nth(rand:uniform(5), Xs)}, rand:uniform(3)} || _ <- [1, 2, 3]]]}
+                                                                              || _ <- lists:seq(1, 4 + rand:uniform(30))]}, Ctx),
+                                         P
+                                 end,
+                           [begin
+                                Values = [{scalar, Rnd()} || _ <- lists:seq(1, 1 + K rem 3)],
+                                Score = pq_sym_slp:fast_score(Values),
+                                ?assert(is_function(Score)),
+                                O0 = pq_sym_slp:global_order(Values),
+                                {Ks, _} = lists:mapfoldl(fun(_, S) -> rand:uniform_s(S) end, rand:seed_s(exsss, {K, 1, 1}), O0),
+                                Orders = [O0, lists:reverse(O0), [X || {_, X} <- lists:sort(lists:zip(Ks, O0))]],
+                                [?assertEqual(pq_sym_slp:ops(pq_sym_slp:build(Values, Xs, horner, O)), Score(O)) || O <- Orders]
+                            end || K <- lists:seq(1, 60)],
+                           %% not plain polynomials of symbols: no fast score
+                           {scalar, Pi} = pq_sym_norm:norm({add, [{const, pi}, {sym, x}]}, Ctx),
+                           ?assertEqual(false, pq_sym_slp:fast_score([{scalar, Pi}]))
+                   end}.

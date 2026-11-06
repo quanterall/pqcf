@@ -70,17 +70,44 @@ subtractions. At the occurrence order our scheme and pass now match or beat FORM
 tree search scores a candidate by building its whole program in Erlang (about 0.7 s on res(7,5)), so 1,000 trials
 take 200–330 s and reach 13,334–13,678. FORM's 1,000 iterations take 16 s, because they only count.
 
+## The score in Rust (7 Nov 2026)
+
+`pq_nif:horner_count/3` (`native/pq_nif/src/hcount.rs`) counts the operations of the Horner program for an order
+without building it. It follows `pq_sym_slp`'s Horner step for step: primitive nodes and their content's sign,
+add / sub folding, leaf sums, and every atom power, monomial, product and sum keyed by structure. It applies to
+plain polynomials of symbols, and a test requires it to equal the built program's count on 180 random polynomials
+and orders. When it applies, the search scores with it (Horner without the pass, as FORM scores without its greedy
+step). The final program is then built with the best order, and is kept only if it beats the occurrence order.
+
+| `horner_cse` + tree search (forward, exploration 0.25, batch 16; 20 cores) | res(7,4) | res(7,5) | res(7,6) |
+| --- | --- | --- | --- |
+| 1,000 trials, scored by building (before) | 3,140–3,277 (29 s) | 13,617 (196 s) | — |
+| 1,000 trials, scored in Rust | — | 11,815 (27 s) | — |
+| **5,000 trials, scored in Rust** | **2,741** (22 s) | **10,243** (97 s) | — |
+| 2,000 trials, scored in Rust | — | — | 40,842 (176 s) |
+| FORM 5 `O3` | 3,458 | 11,006 | 35,945 |
+| FORM 5 `O4` | 2,936 | 10,722 | 35,419 |
+| FORM `O4` time (wall) | 2.6 s | 9.8 s | 57 s |
+
+- **Below FORM's `O4` on res(7,4) and res(7,5)**, by 7 % and 4 %.
+- **res(7,6) not yet:** 40,842 after 2,000 trials, 15 % above `O4`. It has the most variables and needs a larger
+  budget.
+- **Backward** did worse on res(7,5) at 5,000 trials (13,065), so forward stays the default.
+- **FORM is still faster** for a given quality: its `O4` takes 2.6–57 s, ours 22–176 s on 20 cores.
+
 ## Tests
 
 - **`pq_horner_tests`:** a content-sharing case by hand (x(a − b) + y(b − a) + 2z(a − b): x − y + 2z once, two
   subtractions, 6 operations). The 60 random polynomials, a resultant, the other atoms and a matrix pass against the
   default program, with the operation counts now including `sub`.
-- **`pq_order_search_tests`:** the tree search, forward and backward, on a known optimum (better than a quarter of the
+- **`pq_order_search_tests`:** the Rust score equal to the built program's operation count (60 random sets of
+  polynomials, 3 orders each, several outputs; rationals, Gaussian coefficients, negative terms), and no fast score
+  for polynomials with π. The tree search, forward and backward, on a known optimum (better than a quarter of the
   start's inversions, deterministic); `compile/3` with it never worse than without; and the same program on this
   node and on a peer.
 - **`pq_cse_tests`** pass with `sub` in the programs.
 
 ## Next
 
-A cheaper score for the search: counting a Horner scheme's operations (with the same content extraction and
-sharing) in Rust, without building the program, so the tree search can afford FORM's budget and more.
+res(7,6) at FORM's level: a larger budget, or a faster count (the Rust score still copies the polynomial's terms
+into every trial).
