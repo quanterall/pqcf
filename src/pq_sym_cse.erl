@@ -28,6 +28,7 @@ uses(Ops, Outs) ->
 
 operands({mul, _, A, B}) -> [A, B];
 operands({add, _, A, B}) -> [A, B];
+operands({sub, _, A, B}) -> [A, B];
 operands({pow, _, A, _}) -> [A];
 operands({exp, _, A}) -> [A];
 operands({conj, _, A}) -> [A];
@@ -129,6 +130,7 @@ build(S, {op, Op}, Nodes, St) ->
         {{const, _, Z}, []} -> put_op(S, fun(T) -> {const, T, Z} end, {const, Z}, St2);
         {{input, _, X}, []} -> put_op(S, fun(T) -> {input, T, X} end, {input, X}, St2);
         {{pow, _, _, E}, [A]} -> put_op(S, fun(T) -> {pow, T, A, E} end, {pow, A, E}, St2);
+        {{sub, _, _, _}, [A, B]} -> put_op(S, fun(T) -> {sub, T, A, B} end, {sub, A, B}, St2);
         {{exp, _, _}, [A]} -> put_op(S, fun(T) -> {exp, T, A} end, {exp, A}, St2);
         {{conj, _, _}, [A]} -> put_op(S, fun(T) -> {conj, T, A} end, {conj, A}, St2)
     end;

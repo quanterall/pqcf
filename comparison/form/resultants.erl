@@ -115,6 +115,8 @@ degree({pow, {sym, _}, E}) when is_integer(E) -> E;
 degree({sym, _}) -> 1;
 degree(N) when is_number(N) -> 1.
 
-%% the operations of a straight-line program by kind (inputs and constants are not operations)
+%% the operations of a straight-line program by kind (inputs and constants are not operations; a subtraction counts
+%% as an addition, as FORM counts it)
 ops_slp({slp, 1, _, Ops, _}) ->
-    {length([x || {mul, _, _, _} <- Ops]), length([x || {add, _, _, _} <- Ops]), length([x || {pow, _, _, _} <- Ops])}.
+    {length([x || {mul, _, _, _} <- Ops]), length([x || {K, _, _, _} <- Ops, K =:= add orelse K =:= sub]),
+     length([x || {pow, _, _, _} <- Ops])}.

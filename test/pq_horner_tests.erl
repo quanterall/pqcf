@@ -5,7 +5,7 @@
 
 s(X) -> {sym, X}.
 
-ops({slp, 1, _, Ops, _}) -> length([x || Op <- Ops, lists:member(element(1, Op), [mul, add, pow, exp, conj])]).
+ops({slp, 1, _, Ops, _}) -> length([x || Op <- Ops, lists:member(element(1, Op), [mul, add, sub, pow, exp, conj])]).
 
 progs(Exprs, Syms) ->
     {ok, D} = pq_symbolic:compile(Exprs, Syms),
@@ -77,3 +77,18 @@ matrix_test() ->
 default_unchanged_test() ->
     {ok, E} = pq_symbolic:parse(<<"x^2*y + 2*x*y + y^2">>),
     ?assertEqual(pq_symbolic:compile([E], [x, y]), pq_symbolic:compile([E], [x, y], #{})).
+
+%% every Horner node is primitive (its content, sign included, taken out): in x (a - b) + y (b - a) + 2 z (a - b)
+%% the occurrence order splits on a, then b, whose coefficients are x - y + 2 z and its negative: one slot for it,
+%% used twice, the sign as a subtraction, and -y as a subtraction too -- 6 operations
+content_sharing_test() ->
+    {ok, E} = pq_symbolic:parse(<<"x*(a - b) + y*(b - a) + 2*z*(a - b)">>),
+    {ok, Ec} = pq_symbolic:canonicalise(E),
+    {ok, {slp, 1, _, Ops, _} = H} = pq_symbolic:compile([Ec], [a, b, x, y, z], #{optimize => horner}),
+    B = #{a => 1.5, b => -0.25, x => 0.75, y => 2.0, z => -1.25},
+    {ok, [V]} = pq_symbolic:eval_slp(H, B),
+    ?assert(abs(V - (1.75 * 0.75 - 1.75 * 2.0 + 2 * -1.25 * 1.75)) < 1.0e-12),
+    ?assertEqual(6, ops(H)),
+    ?assertEqual(2, length([x || {sub, _, _, _} <- Ops])),
+    {ok, D} = pq_symbolic:compile([Ec], [a, b, x, y, z]),
+    ?assert(ops(H) < ops(D)).

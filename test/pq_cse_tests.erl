@@ -6,7 +6,7 @@
 
 s(X) -> {sym, X}.
 
-ops({slp, 1, _, Ops, _}) -> length([x || Op <- Ops, lists:member(element(1, Op), [mul, add, pow, exp, conj])]).
+ops({slp, 1, _, Ops, _}) -> length([x || Op <- Ops, lists:member(element(1, Op), [mul, add, sub, pow, exp, conj])]).
 
 prog(Exprs, Syms, O) -> {ok, P} = pq_symbolic:compile(Exprs, Syms, #{optimize => O}), P.
 

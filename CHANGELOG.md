@@ -26,6 +26,15 @@ the public API is additive.
   - on the resultants, 160 trials give 4,273 / 16,408 / 54,643 operations, below FORM 5's `O2` on the two larger
     ones; 16 cores are 6.3 times faster than one.
 
+- **Toward FORM's `O3`** (`H4`):
+  - Horner nodes are computed as their primitive parts (content and sign taken out), so negated and scaled copies of a
+    sub-polynomial share one slot;
+  - a subtraction operation `{sub, Slot, A, B}` in Horner programs;
+  - `order_search => #{strategy => mcts}`: a parallel, deterministic Monte Carlo tree search over order prefixes,
+    with `exploration` and `direction`;
+  - on the resultants: below FORM 5's `O2` at the occurrence order (3,823 / 15,974 / 52,700), and with the tree
+    search 3,140–3,277 on res(7,4), below `O3` (3,458).
+
 ### Changed
 
 - **Polynomials that stay in Rust** (`K2`):

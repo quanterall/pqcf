@@ -438,7 +438,9 @@ benchmarks it needs 7–9 % fewer operations than `horner`, within 8–10 % of F
 With Horner, `order_search => #{trials => N}` (1.3) also searches N variable orders and keeps the one with the
 fewest operations. Each batch of candidates (`batch`, 16 by default) is scored in parallel, one process per
 candidate, on this node or spread over `nodes => [...]`. The program is the same whatever the cores or nodes, and
-`seed` picks another search. On the larger resultants, 160 trials go below FORM 5's `O2`.
+`seed` picks another search. `strategy => mcts` searches with a Monte Carlo tree over order prefixes instead of
+local moves (`exploration`, 0.25 did best on the resultants; `direction => backward` builds the order from its end).
+With it, 1,000 trials beat FORM 5's `O3` on res(7,4).
 
 ```erlang
 {ok, P} = pq_symbolic:compile([E], Syms, #{optimize => horner_cse,

@@ -72,6 +72,32 @@ nodes_test_() ->
                          {ok, Spread} = pq_symbolic:compile([E], Syms, Opts([Node, node()])),
                          {ok, Remote} = pq_symbolic:compile([E], Syms, Opts([Node])),
                          ?assertEqual(Local, Spread),
-                         ?assertEqual(Local, Remote)
+                         ?assertEqual(Local, Remote),
+                         %% the tree search too
+                         M = fun(Ns) -> #{optimize => horner_cse,
+                                          order_search => #{trials => 48, batch => 6, seed => 7, strategy => mcts, nodes => Ns}} end,
+                         ?assertEqual(pq_symbolic:compile([E], Syms, M([node()])), pq_symbolic:compile([E], Syms, M([Node, node()])))
                      end)]
      end}.
+
+%% the tree search (strategy mcts), both directions: better orders on the known optimum, deterministic
+mcts_test() ->
+    Start = lists:reverse(lists:seq(1, 8)),
+    [begin
+         Opts = #{trials => 400, batch => 8, seed => 5, strategy => mcts, exploration => 0.25, direction => D},
+         {Best, Cost} = pq_sym_search:run(fun inversions/1, Start, Opts),
+         ?assertEqual(Cost, inversions(Best)),
+         ?assertEqual(lists:seq(1, 8), lists:sort(Best)),
+         ?assert(Cost < inversions(Start) div 4),
+         ?assertEqual({Best, Cost}, pq_sym_search:run(fun inversions/1, Start, Opts))
+     end || D <- [forward, backward]],
+    %% compile/3 with it: never worse than without, the same values
+    E = resultant(),
+    Syms = pq_symbolic:free_symbols(E),
+    {ok, Plain} = pq_symbolic:compile([E], Syms, #{optimize => horner_cse}),
+    {ok, S} = pq_symbolic:compile([E], Syms, #{optimize => horner_cse, order_search => #{trials => 64, batch => 8, strategy => mcts}}),
+    ?assert(ops(S) =< ops(Plain)),
+    B = maps:from_list([{X, 0.1 * K + 0.3} || {K, X} <- lists:enumerate(Syms)]),
+    {ok, [V1]} = pq_symbolic:eval_slp(Plain, B),
+    {ok, [V2]} = pq_symbolic:eval_slp(S, B),
+    ?assert(close(V1, V2)).

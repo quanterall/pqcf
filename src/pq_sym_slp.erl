@@ -5,7 +5,7 @@
 %%
 %%   {slp, 1, Inputs, Ops, Outputs}
 %%   op() :: {const, Slot, {Re, Im}} | {input, Slot, Sym} | {mul, Slot, A, B} | {add, Slot, A, B}
-%%         | {pow, Slot, A, {N, D}} | {exp, Slot, A} | {conj, Slot, A}
+%%         | {pow, Slot, A, {N, D}} | {exp, Slot, A} | {conj, Slot, A} | {sub, Slot, A, B} (A - B; Horner only)
 -module(pq_sym_slp).
 -export([compile/2, compile/3, eval/2, eval_batch/2]).
 
@@ -102,35 +102,71 @@ poly(P, S) ->
 
 %%% Horner schemes
 
-horner(P, _Order, S) when map_size(P) =:= 0 -> const({0.0, 0.0}, S);
-horner(P, _Order, S) when map_size(P) =:= 1 -> [{M, C}] = maps:to_list(P), term(M, C, S);
+%% Every node of the scheme is a primitive polynomial: P = G Prim, G its content (pq_sym_poly:content/2, the sign
+%% included, so the first term of Prim is positive), and the slot computes Prim; -(a - b), 2 (a - b) and a - b share
+%% one slot (FORM extracts the same content at every level of its Horner trees). A parent folds the signs into add /
+%% sub and multiplies by a content only where it is not +-1.
 horner(P, Order, S) ->
-    case maps:find({hpoly, P}, S#st.keys) of
-        {ok, Sl} -> {Sl, S};
+    {Sl, G, S2} = hc(P, Order, S),
+    scaled(G, Sl, S2).
+
+hc(P, _Order, S) when map_size(P) =:= 0 -> {Sl, S2} = const({0.0, 0.0}, S), {Sl, {1, 1}, S2};
+hc(P, Order, S) ->
+    {G, Prim} = pq_sym_poly:content(P, true),
+    case maps:find({hpoly, Prim}, S#st.keys) of
+        {ok, Sl} -> {Sl, G, S};
         error ->
-            {Sl, S2} = case split_var(P, Order) of
-                           none -> sum_terms(P, S);
-                           X ->
-                               {With, Without} = maps:fold(fun({A, _} = M, C, {W, O}) ->
-                                                                   case int_exp(X, A) of
-                                                                       0 -> {W, O#{M => C}};
-                                                                       _ -> {W#{M => C}, O}
-                                                                   end
-                                                           end, {#{}, #{}}, P),
-                               K = lists:min([int_exp(X, A) || {A, _} <- maps:keys(With)]),
-                               Q = maps:fold(fun({A, E}, C, Acc) -> Acc#{{lower(X, K, A), E} => C} end, #{}, With),
-                               {Sx, S3} = atom_pow({X, {K, 1}}, S),
-                               {Sq, S4} = horner(Q, Order, S3),
-                               {Prod, S5} = slot({mul, Sx, Sq}, fun(Sl0) -> {mul, Sl0, Sx, Sq} end, S4),
-                               case map_size(Without) of
-                                   0 -> {Prod, S5};
-                                   _ ->
-                                       {Sr, S6} = horner(Without, Order, S5),
-                                       slot({add, Sr, Prod}, fun(Sl0) -> {add, Sl0, Sr, Prod} end, S6)
-                               end
-                       end,
-            {Sl, S2#st{keys = (S2#st.keys)#{{hpoly, P} => Sl}}}
+            {Sl, S2} = hprim(Prim, Order, S),
+            {Sl, G, S2#st{keys = (S2#st.keys)#{{hpoly, Prim} => Sl}}}
     end.
+
+hprim(P, _Order, S) when map_size(P) =:= 1 -> [{M, C}] = maps:to_list(P), term(M, C, S);
+hprim(P, Order, S) ->
+    case split_var(P, Order) of
+        none -> sum_terms(P, S);
+        X ->
+            {With, Without} = maps:fold(fun({A, _} = M, C, {W, O}) ->
+                                                case int_exp(X, A) of
+                                                    0 -> {W, O#{M => C}};
+                                                    _ -> {W#{M => C}, O}
+                                                end
+                                        end, {#{}, #{}}, P),
+            K = lists:min([int_exp(X, A) || {A, _} <- maps:keys(With)]),
+            Q = maps:fold(fun({A, E}, C, Acc) -> Acc#{{lower(X, K, A), E} => C} end, #{}, With),
+            {Sx, S3} = atom_pow({X, {K, 1}}, S),
+            {Sq, Gq, S4} = hc(Q, Order, S3),
+            {Prod, S5} = slot({mul, Sx, Sq}, fun(Sl0) -> {mul, Sl0, Sx, Sq} end, S4),
+            case map_size(Without) of
+                0 -> scaled(Gq, Prod, S5);
+                _ ->
+                    {Sr, Gr, S6} = hc(Without, Order, S5),
+                    combine(Gr, Sr, Gq, Prod, S6)
+            end
+    end.
+
+%% Gr Sr + Gq Sp as one slot: |G| multiplied in where it is not 1, the signs as add or sub
+combine(Gr, Sr, Gq, Sp, S) ->
+    {SignR, Ar, S1} = magnitude(Gr, Sr, S),
+    {SignQ, Aq, S2} = magnitude(Gq, Sp, S1),
+    case {SignR, SignQ} of
+        {1, 1} -> slot({add, Ar, Aq}, fun(Sl) -> {add, Sl, Ar, Aq} end, S2);
+        {1, -1} -> slot({sub, Ar, Aq}, fun(Sl) -> {sub, Sl, Ar, Aq} end, S2);
+        {-1, 1} -> slot({sub, Aq, Ar}, fun(Sl) -> {sub, Sl, Aq, Ar} end, S2);
+        {-1, -1} ->
+            {T, S3} = slot({add, Ar, Aq}, fun(Sl) -> {add, Sl, Ar, Aq} end, S2),
+            scaled({-1, 1}, T, S3)
+    end.
+
+magnitude({N, D}, Sl, S) ->
+    Sign = case N < 0 of true -> -1; false -> 1 end,
+    {Sl2, S2} = scaled({abs(N), D}, Sl, S),
+    {Sign, Sl2, S2}.
+
+%% G times the slot (G a rational)
+scaled({1, 1}, Sl, S) -> {Sl, S};
+scaled({N, D}, Sl, S) ->
+    {Cs, S2} = const({N / D, 0.0}, S),
+    slot({mul, Cs, Sl}, fun(T) -> {mul, T, Cs, Sl} end, S2).
 
 %% the atoms with a positive integer exponent, by the number of terms they occur in (most first; ties by canonical order)
 order(P) -> [K || {_, K} <- lists:sort([{-N, K} || K := N <- counts(P)])].
@@ -159,12 +195,28 @@ int_exp(X, A) ->
 lower(X, K, A) ->
     [Y || Y <- [case Y0 of {X, {N, 1}} -> {X, {N - K, 1}}; _ -> Y0 end || Y0 <- A], element(2, Y) =/= {0, 1}].
 
-%% the plain sum of the terms, as poly/2 makes it without Horner
+%% the sum of the terms of a Horner leaf (no atom left to split on), in canonical key order: the terms with a
+%% positive real coefficient added, then those with a negative one subtracted with its magnitude (a subtraction
+%% costs what an addition does; a coefficient -1 no longer costs a product)
 sum_terms(P, S) ->
-    {Terms, S2} = lists:mapfoldl(fun({M, C}, Acc) -> term(M, C, Acc) end, S, pq_sym_poly:sorted(P)),
-    lists:foldl(fun(T, {none, A}) -> {T, A};
-                   (T, {Prev, A}) -> slot({add, Prev, T}, fun(Sl) -> {add, Sl, Prev, T} end, A)
-                end, {none, S2}, Terms).
+    {Signed, S2} = lists:mapfoldl(fun({M, {q, {N, D}, {0, 1}}}, Acc) when N < 0 ->
+                                          {T, Acc2} = term(M, {q, {-N, D}, {0, 1}}, Acc),
+                                          {{-1, T}, Acc2};
+                                     ({M, C}, Acc) ->
+                                          {T, Acc2} = term(M, C, Acc),
+                                          {{1, T}, Acc2}
+                                  end, S, pq_sym_poly:sorted(P)),
+    Pos = [T || {1, T} <- Signed], Neg = [T || {-1, T} <- Signed],
+    Add = fun(T, {none, A}) -> {T, A};
+             (T, {Prev, A}) -> slot({add, Prev, T}, fun(Sl) -> {add, Sl, Prev, T} end, A)
+          end,
+    case lists:foldl(Add, {none, S2}, Pos) of
+        {none, S3} ->
+            {Sum, S4} = lists:foldl(Add, {none, S3}, Neg),
+            scaled({-1, 1}, Sum, S4);
+        Acc0 ->
+            lists:foldl(fun(T, {Prev, A}) -> slot({sub, Prev, T}, fun(Sl) -> {sub, Sl, Prev, T} end, A) end, Acc0, Neg)
+    end.
 
 term(M, C, S) ->
     Z = pq_sym_exact:to_complex(C),
@@ -251,6 +303,7 @@ step({const, S, Z}, _B, V) -> V#{S => Z};
 step({input, S, X}, B, V) -> V#{S => pq_sym_eval:value(maps:get(X, B))};
 step({mul, S, A, C}, _B, V) -> {Ar, Ai} = maps:get(A, V), {Cr, Ci} = maps:get(C, V), V#{S => {Ar * Cr - Ai * Ci, Ar * Ci + Ai * Cr}};
 step({add, S, A, C}, _B, V) -> {Ar, Ai} = maps:get(A, V), {Cr, Ci} = maps:get(C, V), V#{S => {Ar + Cr, Ai + Ci}};
+step({sub, S, A, C}, _B, V) -> {Ar, Ai} = maps:get(A, V), {Cr, Ci} = maps:get(C, V), V#{S => {Ar - Cr, Ai - Ci}};
 step({pow, S, A, E}, _B, V) -> V#{S => pq_sym_eval:rpow(maps:get(A, V), E)};
 step({exp, S, A}, _B, V) -> {R, I} = maps:get(A, V), M = math:exp(R), V#{S => {M * math:cos(I), M * math:sin(I)}};
 step({conj, S, A}, _B, V) -> {R, I} = maps:get(A, V), V#{S => {R, -I}}.
