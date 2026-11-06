@@ -14,7 +14,8 @@
          gaussian_measure_homodyne/6, stream_new/2, fock_measure_pnr/5, fock_apply_loss_trajectory/6,
          fock_adjoint_gradient/5, boson_partial_probability/4,
          fock_dmb_from/3, fock_dmb_to_dense/3, fock_dmb_apply/4, fock_dmb_pnr_probabilities/4, fock_dmb_measure_pnr/5,
-         fock_dm_adjoint_gradient/5, sym_poly_mul/6, sym_poly_pow/5]).
+         fock_dm_adjoint_gradient/5, sym_poly_mul/6, sym_poly_pow/5,
+         rpoly_new/4, rpoly_mul/5, rpoly_add/5, rpoly_pow/2, rpoly_scale/4, rpoly_info/1, rpoly_to_map/2, rpoly_to_ast/2]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -327,3 +328,24 @@ sym_poly_mul(_Vars, _ExpsA, _CoefA, _ExpsB, _CoefB, _L) -> erlang:nif_error(nif_
 %% the result's coefficients; overflow or packing as there.
 -spec sym_poly_pow([term()], [integer()], [integer()], non_neg_integer(), pos_integer()) -> {ok, map()} | overflow | packing.
 sym_poly_pow(_Vars, _Exps, _Coef, _N, _D) -> erlang:nif_error(nif_not_loaded).
+
+%% Polynomials kept in Rust (K2; pq_sym_poly holds them as {rpoly, Vars, Resource}): terms as for sym_poly_mul/6,
+%% their coefficients over Denom; products, sums, powers and scalings of them (a variable map sends each operand's
+%% variable j to the result's position), refused as overflow or packing; their size; back to pq_sym_poly's map;
+%% pq_sym_norm:to_ast/1's result for variables that are all symbols.
+-spec rpoly_new(non_neg_integer(), [integer()], [integer()], pos_integer()) -> reference().
+rpoly_new(_NVars, _Exps, _Coef, _Denom) -> erlang:nif_error(nif_not_loaded).
+-spec rpoly_mul(reference(), [non_neg_integer()], reference(), [non_neg_integer()], non_neg_integer()) -> {ok, reference()} | overflow | packing.
+rpoly_mul(_A, _MapA, _B, _MapB, _N) -> erlang:nif_error(nif_not_loaded).
+-spec rpoly_add(reference(), [non_neg_integer()], reference(), [non_neg_integer()], non_neg_integer()) -> {ok, reference()} | overflow | packing.
+rpoly_add(_A, _MapA, _B, _MapB, _N) -> erlang:nif_error(nif_not_loaded).
+-spec rpoly_pow(reference(), non_neg_integer()) -> {ok, reference()} | overflow | packing.
+rpoly_pow(_A, _K) -> erlang:nif_error(nif_not_loaded).
+-spec rpoly_scale(reference(), integer(), integer(), pos_integer()) -> {ok, reference()} | overflow.
+rpoly_scale(_A, _Re, _Im, _Den) -> erlang:nif_error(nif_not_loaded).
+-spec rpoly_info(reference()) -> {non_neg_integer(), non_neg_integer()}.
+rpoly_info(_A) -> erlang:nif_error(nif_not_loaded).
+-spec rpoly_to_map(reference(), [term()]) -> map().
+rpoly_to_map(_A, _Vars) -> erlang:nif_error(nif_not_loaded).
+-spec rpoly_to_ast(reference(), [term()]) -> term().
+rpoly_to_ast(_A, _Vars) -> erlang:nif_error(nif_not_loaded).

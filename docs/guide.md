@@ -416,8 +416,8 @@ C = pq_circuit:add(C0, {squeezing, 0, R, 0}),
 
 Every call is bounded by `max_expr_nodes`, `sym_timeout_ms` and `sym_max_heap_words`. When a limit is hit, the
 call returns `symbolic_limit` instead of running away. Large products of plain polynomials (symbols, `conj`
-and π with integer exponents, exact coefficients) are multiplied in Rust. The result is the same, and
-`poly_kernel => false` turns this off. The parser creates atoms only for allowed names
+and π with integer exponents, exact coefficients) are multiplied in Rust. Inside `canonicalise`, they also stay
+in Rust until the result is built. The result is the same, and `poly_kernel => false` turns all of this off. The parser creates atoms only for allowed names
 (`allowed_symbols`, or at most `max_symbols`).
 
 Use `compile/2` and `eval_slp/2` (or `eval_batch/2`) when one expression is evaluated many times. They share

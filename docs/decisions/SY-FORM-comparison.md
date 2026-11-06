@@ -110,6 +110,10 @@ coefficients. Dense products are now faster than FORM 5 (Fateman n = 15: 0.51 s 
 Sparse products are 7–8× FORM (before 25–32×), and most of that time is the canonical print order, not the
 product.
 
+**4. Polynomials that stay in Rust** (`K2`, 7 November 2026). Inside `canonicalise`, large products and powers stay
+in Rust and the final expression tree is built there. Powers are 4.3× FORM 5 (from 17×), sparse products 2.4× (from
+7–8×), and dense products about 4× faster than FORM.
+
 **The standing comparison.** `comparison/form/` holds the reference tasks, the latest results and their history.
 It runs weekly on GitHub Actions until the end of the project.
 

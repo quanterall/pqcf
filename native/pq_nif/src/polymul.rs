@@ -24,8 +24,12 @@ pub struct Poly {
 }
 
 impl Poly {
-    fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.coef.len() / 2
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.coef.is_empty()
     }
 }
 
@@ -137,7 +141,7 @@ fn is_real(p: &Poly) -> bool {
 
 /// a * b, its terms sorted by packed exponents, zero coefficients dropped
 pub fn mul(nvars: usize, a: &Poly, b: &Poly) -> Result<Poly, Refused> {
-    if a.len() == 0 || b.len() == 0 {
+    if a.is_empty() || b.is_empty() {
         return Ok(Poly { exps: vec![], coef: vec![] });
     }
     // per variable: the smallest exponent of each factor and the bits the product's range needs
@@ -151,13 +155,35 @@ pub fn mul(nvars: usize, a: &Poly, b: &Poly) -> Result<Poly, Refused> {
     Ok(unpack(&l, prod, &lo))
 }
 
+/// a + b, sorted, zero coefficients dropped
+pub fn add(nvars: usize, a: &Poly, b: &Poly) -> Result<Poly, Refused> {
+    if a.is_empty() && b.is_empty() {
+        return Ok(Poly { exps: vec![], coef: vec![] });
+    }
+    let both = |j: usize| {
+        let (la, ha) = if !a.is_empty() { range(a, nvars, j) } else { range(b, nvars, j) };
+        let (lb, hb) = if !b.is_empty() { range(b, nvars, j) } else { (la, ha) };
+        (la.min(lb), ha.max(hb))
+    };
+    let r: Vec<(i64, i64)> = (0..nvars).map(both).collect();
+    let l = layout(&r.iter().map(|&(lo, hi)| hi as i128 - lo as i128).collect::<Vec<_>>())?;
+    let lo: Vec<i64> = r.iter().map(|x| x.0).collect();
+    let mut acc: KeyMap<(i128, i128)> = KeyMap::with_capacity_and_hasher(a.len() + b.len(), Default::default());
+    for (k, (re, im)) in pack(&l, a, &lo).into_iter().chain(pack(&l, b, &lo)) {
+        let e = acc.entry(k).or_insert((0, 0));
+        e.0 = e.0.checked_add(re).ok_or(Refused::Overflow)?;
+        e.1 = e.1.checked_add(im).ok_or(Refused::Overflow)?;
+    }
+    Ok(unpack(&l, acc.into_iter().filter(|&(_, c)| c != (0, 0)).collect(), &lo))
+}
+
 /// a^n by repeated multiplication with a, in the layout of a^n's exponent ranges (n times a's), sorted, zero
 /// coefficients dropped; a^0 = 1
 pub fn pow(nvars: usize, a: &Poly, n: u32) -> Result<Poly, Refused> {
     if n == 0 {
         return Ok(Poly { exps: vec![0; nvars], coef: vec![1, 0] });
     }
-    if a.len() == 0 {
+    if a.is_empty() {
         return Ok(Poly { exps: vec![], coef: vec![] });
     }
     let ra: Vec<(i64, i64)> = (0..nvars).map(|j| range(a, nvars, j)).collect();

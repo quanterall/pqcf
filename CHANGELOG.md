@@ -28,6 +28,11 @@ the public API is additive.
 
 ### Changed
 
+- **Polynomials that stay in Rust** (`K2`):
+  - inside `canonicalise`, large plain products and powers stay in Rust between operations, and the result's
+    expression tree is built there in print order;
+  - the canonical form is the same, term for term; `poly_kernel => false` turns it off with the kernel;
+  - against FORM 5: powers 4.3×, sparse products 2.4× (from 25–32× on 2 Nov), dense products about 4× faster.
 - **Products of polynomials in Rust** (`K1`):
   - `pq_sym_poly` multiplies plain polynomials in a NIF: symbols, conjugates and π with integer exponents, and
     exact coefficients;

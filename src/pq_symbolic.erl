@@ -49,7 +49,8 @@ canonicalise(E) -> canonicalise(E, #{}).
 
 -spec canonicalise(sym_expr(), opts()) -> result(sym_expr()).
 canonicalise(E, Opts) ->
-    run(E, Opts, fun(Ctx) -> output(pq_sym_norm:norm(E, Ctx), Ctx) end).
+    %% rpoly: large plain products and powers stay in Rust until to_ast (K2)
+    run(E, Opts, fun(Ctx) -> output(pq_sym_norm:norm(E, Ctx#{rpoly => maps:get(poly_kernel, Ctx)}), Ctx) end).
 
 simplify(E) -> canonicalise(E, #{}).
 simplify(E, Opts) -> canonicalise(E, Opts).

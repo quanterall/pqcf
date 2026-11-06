@@ -14,7 +14,7 @@
 %% (-1, 1] times i pi and evaluate it exactly when 12 r is an integer, and expand Base(B)^k for small positive k.
 %% Every limit is checked before the work: a product needs terms(A) * terms(B) =< max_poly_terms.
 -module(pq_sym_poly).
--export([zero/0, one/0, const/1, symbol/2, atom/2, pi/0, is_const/1, const_value/1, single/1,
+-export([zero/0, one/0, const/1, symbol/2, atom/2, pi/0, is_const/1, const_value/1, single/1, m/1,
          add/2, sum/1, neg/1, scale/2, mul/3, pow_int/3, pow_rat/3, exp/2, conj/2,
          terms/1, pi_mono/0, one_mono/0, sorted/1, content/2, base_power/3]).
 
@@ -22,6 +22,8 @@
 
 -define(ONE, {[], []}).
 -define(PI, {[{pi, {1, 1}}], []}).
+-define(RP, {rpoly, _, _}).
+-define(IS_RP(X), (is_tuple(X) andalso element(1, X) =:= rpoly)).
 
 one_mono() -> ?ONE.
 pi_mono() -> ?PI.
@@ -41,18 +43,27 @@ pi() -> #{?PI => c(1)}.
 symbol(X, _Ctx) -> #{{[{{sym, X}, {1, 1}}], []} => c(1)}.
 atom(Key, E) -> #{{[{Key, E}], []} => c(1)}.
 
+is_const(?RP = H) -> case rp_terms(H) of 0 -> true; 1 -> is_const(m(H)); _ -> false end;
 is_const(P) -> maps:size(P) =:= 0 orelse (maps:size(P) =:= 1 andalso maps:is_key(?ONE, P)).
 
+const_value(?RP = H) -> const_value(m(H));
 const_value(P) -> maps:get(?ONE, P, c(0)).
 
+single(?RP = H) -> case rp_terms(H) of 1 -> single(m(H)); _ -> false end;
 single(P) when map_size(P) =:= 1 -> [{M, C}] = maps:to_list(P), {ok, M, C};
 single(_) -> false.
 
+terms(?RP = H) -> rp_terms(H);
 terms(P) -> maps:size(P).
 
 %% the terms in canonical key order
-sorted(P) -> lists:sort(maps:to_list(P)).
+sorted(P) -> lists:sort(maps:to_list(m(P))).
 
+add(P, Q) when ?IS_RP(P); ?IS_RP(Q) ->
+    case rp_add(P, Q) of
+        {ok, R} -> R;
+        false -> add(m(P), m(Q))
+    end;
 add(P, Q) when map_size(P) < map_size(Q) -> add(Q, P);
 add(P, Q) -> maps:fold(fun(M, C, Acc) -> add_term(Acc, M, C) end, P, Q).
 
@@ -73,8 +84,14 @@ add_term(Acc, M, C) ->
 
 sum(Ps) -> lists:foldl(fun add/2, #{}, Ps).
 
+neg(?RP = H) -> scale(H, c(-1));
 neg(P) -> maps:map(fun(_, C) -> cneg(C) end, P).
 
+scale(?RP = H, C) ->
+    case rp_scale(H, C) of
+        {ok, R} -> R;
+        false -> scale(m(H), C)
+    end;
 scale(P, C) ->
     case is_zero(C) of
         true -> #{};
@@ -84,6 +101,12 @@ scale(P, C) ->
 %%% Products
 
 mul(P, Q, Ctx) ->
+    case rp_mul(P, Q, Ctx) of
+        {ok, R} -> R;
+        false -> mul_maps(m(P), m(Q), Ctx)
+    end.
+
+mul_maps(P, Q, Ctx) ->
     check_terms(maps:size(P) * maps:size(Q), Ctx),
     case kernel_mul(P, Q, Ctx) of
         {ok, R} -> R;
@@ -141,6 +164,7 @@ kernel_mul(_, _, _) -> false.
 kernel_pow(P, N, Ctx) ->
     Bound = binom(N + map_size(P) - 1, map_size(P) - 1),
     check_terms(Bound, Ctx),
+    Flag = maps:get(rpoly, Ctx, false),
     case Bound >= ?KERNEL_MIN andalso maps:get(poly_kernel, Ctx, true) andalso kernel_vars(P, #{}) of
         false -> false;
         VarSet ->
@@ -149,6 +173,7 @@ kernel_pow(P, N, Ctx) ->
                 {E, C, L} ->
                     D = ipow(L, N),
                     case D < 1 bsl 127 of
+                        true when Flag -> rp_pow(rp_from(P), N, Ctx);
                         true -> nif_pow(Vars, E, C, N, D);
                         false -> false
                     end;
@@ -304,6 +329,11 @@ trig_poly(Parts, Unit) ->
 %%% Powers
 
 pow_int(_P, 0, _Ctx) -> one();
+pow_int(?RP = H, N, Ctx) ->
+    case N > 0 andalso rp_pow(H, N, Ctx) of
+        {ok, R} -> R;
+        _ -> pow_int(m(H), N, Ctx)
+    end;
 pow_int(P, N, Ctx) when N < 0 ->
     case single(P) of
         {ok, M, C} -> pow_int(inverse(M, C, Ctx), -N, Ctx);
@@ -384,6 +414,7 @@ inverse({Alg, Exp}, C, Ctx) ->
 %% an exponential of a real multiple of such a base, and a real rational coefficient with D = 2 or an exact
 %% D-th root); otherwise the whole of it becomes Base(B)^(N/D).
 pow_rat(P, {N, 1}, Ctx) -> pow_int(P, N, Ctx);
+pow_rat(?RP = H, E, Ctx) -> pow_rat(m(H), E, Ctx);
 pow_rat(P, {_, _} = E, _Ctx) when map_size(P) =:= 0 ->
     case pq_sym_exact:rcmp(E, {0, 1}) of
         1 -> #{};
@@ -439,6 +470,7 @@ coeff_root(C, D) ->
 
 %% G^E * Base(B')^E with P = G B' (SY 3.4): G is the positive numeric content, and also the sign for an integer E
 %% (moving a sign out of a fractional power would change the branch). G is taken out only when G^E is exact.
+base_power(?RP = H, E, Ctx) -> base_power(m(H), E, Ctx);
 base_power(P, E, Ctx) ->
     {G, Prim} = content(P, pq_sym_exact:is_int(E)),
     {N, D} = E,
@@ -450,6 +482,7 @@ base_power(P, E, Ctx) ->
 
 %% {G, P / G}: G the gcd of the numerators over the lcm of the denominators of every rational part; for Signed,
 %% also the sign that makes the first term's first non-zero part positive. Float coefficients: G = 1.
+content(?RP = H, Signed) -> content(m(H), Signed);
 content(P, Signed) ->
     Cs = [C || {_, C} <- sorted(P)],
     case lists:all(fun pq_sym_exact:is_exact/1, Cs) of
@@ -468,6 +501,7 @@ first_negative({q, {A, _}, {B, _}}) -> A < 0 orelse (A =:= 0 andalso B < 0).
 %%% exp and conj
 
 %% exp of a canonical polynomial: one factor exp(c b) per term
+exp(?RP = H, Ctx) -> exp(m(H), Ctx);
 exp(P, Ctx) ->
     lists:foldl(fun({M, C}, Acc) ->
                         {CF, M1, Extras} = normalize([], [{M, C}], Ctx),
@@ -476,6 +510,7 @@ exp(P, Ctx) ->
                 end, one(), sorted(P)).
 
 %% termwise conjugate: coefficients; z <-> z* for complex symbols; exponents and bases conjugated
+conj(?RP = H, Ctx) -> conj(m(H), Ctx);
 conj(P, Ctx) ->
     maps:fold(fun(M, C, Acc) -> add(Acc, conj_term(M, cconj(C), Ctx)) end, #{}, P).
 
@@ -500,3 +535,91 @@ conj_atom({{conj, X}, E}, _Ctx) -> {{sym, X}, E};
 conj_atom({{base, B}, E}, _Ctx) -> {{cbase, B}, E};
 conj_atom({{cbase, B}, E}, _Ctx) -> {{base, B}, E};
 conj_atom(A, _Ctx) -> A.
+
+%%% Polynomials kept in Rust (decision record K2)
+%%
+%% Under the context flag rpoly (set by pq_symbolic for the calls whose result goes straight to pq_sym_norm:to_ast:
+%% canonicalise, permanent), a product or power that the kernel computes stays in Rust as {rpoly, Vars, Resource}:
+%% Vars the sorted atom keys, the resource the terms (native/pq_nif/src/rpoly.rs). add, sum, neg, scale, mul,
+%% pow_int and terms work on it in Rust, converting a plain map operand; every other function of this module turns
+%% it back into the map first (m/1), so nothing outside sees one. A refusal (overflow, packing) also falls back to
+%% the maps: the same polynomial either way (D1). Its memory is outside the process heap, so each new one is
+%% checked against sym_max_heap_words (terms x (variables + 4) words).
+
+m({rpoly, Vars, R}) -> pq_nif:rpoly_to_map(R, Vars);
+m(P) -> P.
+
+rp_terms({rpoly, _, R}) -> element(1, pq_nif:rpoly_info(R)).
+
+%% a plain map as a handle (a handle as itself), or false
+rp_from(?RP = H) -> H;
+rp_from(P) ->
+    case kernel_vars(P, #{}) of
+        false -> false;
+        VarSet ->
+            Vars = lists:sort(maps:keys(VarSet)),
+            case kernel_in(P, Vars) of
+                {E, C, L} when L < 1 bsl 127 -> {rpoly, Vars, pq_nif:rpoly_new(length(Vars), E, C, L)};
+                _ -> false
+            end
+    end.
+
+size_of(?RP = H) -> rp_terms(H);
+size_of(P) -> map_size(P).
+
+rp_mul(P, Q, Ctx) ->
+    Use = ?IS_RP(P) orelse ?IS_RP(Q) orelse
+          (maps:get(rpoly, Ctx, false) andalso map_size(P) >= 2 andalso map_size(Q) >= 2
+           andalso map_size(P) * map_size(Q) >= ?KERNEL_MIN),
+    case Use andalso {rp_from(P), rp_from(Q)} of
+        {{rpoly, VA, A}, {rpoly, VB, B}} ->
+            check_terms(size_of(P) * size_of(Q), Ctx),
+            {Vars, MA, MB} = union(VA, VB),
+            rp_new(pq_nif:rpoly_mul(A, MA, B, MB, length(Vars)), Vars, Ctx);
+        _ -> false
+    end.
+
+rp_add(P, Q) ->
+    case {rp_from(P), rp_from(Q)} of
+        {{rpoly, VA, A}, {rpoly, VB, B}} ->
+            {Vars, MA, MB} = union(VA, VB),
+            rp_new(pq_nif:rpoly_add(A, MA, B, MB, length(Vars)), Vars, none);
+        _ -> false
+    end.
+
+%% P^N as pow_int would expand it: more than one term and N beyond max_expand_power stays a power (false here)
+rp_pow(false, _N, _Ctx) -> false;
+rp_pow({rpoly, Vars, R} = H, N, Ctx) ->
+    T = rp_terms(H),
+    case T > 1 andalso N =< maps:get(max_expand_power, Ctx, 8) of
+        true ->
+            check_terms(binom(N + T - 1, T - 1), Ctx),
+            rp_new(pq_nif:rpoly_pow(R, N), Vars, Ctx);
+        false -> false
+    end.
+
+%% times an exact coefficient (Re + i Im) / Den
+rp_scale({rpoly, Vars, R}, {q, {Rn, Rd}, {In, Id}}) ->
+    Den = lcm(Rd, Id),
+    Re = Rn * (Den div Rd), Im = In * (Den div Id),
+    case lists:all(fun(X) -> abs(X) < 1 bsl 126 end, [Re, Im, Den]) of
+        true -> rp_new(pq_nif:rpoly_scale(R, Re, Im, Den), Vars, none);
+        false -> false
+    end;
+rp_scale(_, _) -> false.
+
+rp_new({ok, R}, Vars, none) -> {ok, {rpoly, Vars, R}};
+rp_new({ok, R}, Vars, Ctx) ->
+    {T, NV} = pq_nif:rpoly_info(R),
+    check_terms(T, Ctx),
+    Words = T * (NV + 4),
+    Max = maps:get(sym_max_heap_words, Ctx, infinity),
+    Words > Max andalso throw({symbolic_limit, #{reason => heap}}),
+    {ok, {rpoly, Vars, R}};
+rp_new(_, _, _) -> false.
+
+%% the sorted union of two variable lists and where each list's variables go in it
+union(VA, VB) ->
+    Vars = lists:umerge(VA, VB),
+    Pos = maps:from_list([{V, I} || {I, V} <- lists:enumerate(0, Vars)]),
+    {Vars, [maps:get(V, Pos) || V <- VA], [maps:get(V, Pos) || V <- VB]}.

@@ -88,7 +88,7 @@ tree (`to_ast`, about 1 s).
 large result pays for building, hashing, sorting and copying its terms as Erlang terms. That is now most of the time
 left on the bulk tasks: FORM's 0.11 s for the power against about 1.2 s here. Going further means polynomials that
 stay in Rust (resource handles) between operations, with only the final expression tree built in Erlang. That is a
-redesign of `pq_sym_poly`, not a kernel.
+redesign of `pq_sym_poly`, not a kernel. Done in K2 (7 Nov 2026): the power 0.48 s, sparse n = 8 0.92 s.
 
 ## Open (measured targets)
 

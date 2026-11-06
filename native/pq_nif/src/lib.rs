@@ -18,6 +18,7 @@ pub mod mesh;
 pub mod num;
 pub mod perm;
 pub mod polymul;
+pub mod rpoly;
 pub mod rng;
 pub mod toronto;
 
@@ -33,7 +34,7 @@ mod atoms {
         max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold,
         phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix, stream_ref, metropolis, burn_in, thin, chains, acceptance_rate,
         probability, photons, shared, thermal_loss, extra, device, cpu, gpu, auto, reason,
-        overflow, packing, q
+        overflow, packing, q, add, mul, pow, rat, complex
     }
 }
 
@@ -1437,19 +1438,30 @@ fn sym_poly_pow<'a>(env: Env<'a>, vars: Vec<Term<'a>>, exps: Vec<i64>, coef: Vec
     sym_poly_term(env, &vars, polymul::pow(nvars, &a, n), denom)
 }
 
-/// a kernel result as pq_sym_poly's map: atom keys from Vars, exponents {E, 1}, coefficients over Denom in lowest
-/// terms with a positive denominator, as pq_sym_exact:rat/2 makes them
+/// a kernel result as pq_sym_poly's map, or the atom of its refusal
 fn sym_poly_term<'a>(env: Env<'a>, vars: &[Term<'a>], r: Result<polymul::Poly, polymul::Refused>, denom: i128) -> NifResult<Term<'a>> {
-    let p = match r {
-        Ok(p) => p,
-        Err(polymul::Refused::Overflow) => return Ok(atoms::overflow().encode(env)),
-        Err(polymul::Refused::Packing) => return Ok(atoms::packing().encode(env)),
-    };
+    match r {
+        Ok(p) => Ok((atoms::ok(), poly_map(env, vars, &p, denom)?).encode(env)),
+        Err(e) => Ok(refused(env, e)),
+    }
+}
+
+fn refused(env: Env, e: polymul::Refused) -> Term {
+    match e {
+        polymul::Refused::Overflow => atoms::overflow().encode(env),
+        polymul::Refused::Packing => atoms::packing().encode(env),
+    }
+}
+
+/// n / denom in lowest terms with a positive denominator, as pq_sym_exact:rat/2 makes it
+fn rat_parts(n: i128, denom: i128) -> (i128, i128) {
+    let g = polymul::gcd(n.unsigned_abs(), denom as u128) as i128;
+    (n / g, denom / g)
+}
+
+/// terms as pq_sym_poly's map: atom keys from Vars, exponents {E, 1}, coefficients over Denom in lowest terms
+fn poly_map<'a>(env: Env<'a>, vars: &[Term<'a>], p: &polymul::Poly, denom: i128) -> NifResult<Term<'a>> {
     let nvars = vars.len();
-    let rat = |n: i128| -> Term<'a> {
-        let g = polymul::gcd(n.unsigned_abs(), denom as u128) as i128;
-        (n / g, denom / g).encode(env)
-    };
     let nil: Term<'a> = Vec::<Term<'a>>::new().encode(env);
     let q = atoms::q().encode(env);
     let mut atom_terms: HashMap<(usize, i64), Term<'a>> = HashMap::new();
@@ -1465,9 +1477,123 @@ fn sym_poly_term<'a>(env: Env<'a>, vars: &[Term<'a>], r: Result<polymul::Poly, p
             }
         }
         keys.push(rustler::types::tuple::make_tuple(env, &[alg.encode(env), nil]));
-        values.push(rustler::types::tuple::make_tuple(env, &[q, rat(p.coef[2 * t]), rat(p.coef[2 * t + 1])]));
+        values.push(rustler::types::tuple::make_tuple(
+            env,
+            &[q, rat_parts(p.coef[2 * t], denom).encode(env), rat_parts(p.coef[2 * t + 1], denom).encode(env)],
+        ));
     }
-    Ok((atoms::ok(), Term::map_from_term_arrays(env, &keys, &values)?).encode(env))
+    Term::map_from_term_arrays(env, &keys, &values)
+}
+
+/// A polynomial kept in Rust (rpoly.rs; pq_sym_rpoly holds its variables).
+pub struct RPolyRes(rpoly::RPoly);
+
+#[rustler::resource_impl]
+impl rustler::Resource for RPolyRes {}
+
+fn rpoly_result<'a>(env: Env<'a>, r: Result<rpoly::RPoly, polymul::Refused>) -> Term<'a> {
+    match r {
+        Ok(p) => (atoms::ok(), ResourceArc::new(RPolyRes(p))).encode(env),
+        Err(e) => refused(env, e),
+    }
+}
+
+/// rpoly_new(NVars, Exps, Coef, Denom) -> Resource: terms as for sym_poly_mul, their coefficients over Denom
+#[rustler::nif(schedule = "DirtyCpu")]
+fn rpoly_new(nvars: usize, exps: Vec<i64>, coef: Vec<i128>, denom: i128) -> NifResult<ResourceArc<RPolyRes>> {
+    if !coef.len().is_multiple_of(2) || exps.len() != nvars * (coef.len() / 2) || denom < 1 {
+        return Err(rustler::Error::BadArg);
+    }
+    Ok(ResourceArc::new(RPolyRes(rpoly::RPoly::new(nvars, polymul::Poly { exps, coef }, denom))))
+}
+
+fn maps_ok(a: &rpoly::RPoly, ma: &[usize], b: &rpoly::RPoly, mb: &[usize], n: usize) -> bool {
+    ma.len() == a.nvars && mb.len() == b.nvars && ma.iter().chain(mb).all(|&j| j < n)
+}
+
+/// rpoly_mul(A, MapA, B, MapB, N) -> {ok, Resource} | overflow | packing: A's variable j is the result's MapA[j]
+#[rustler::nif(schedule = "DirtyCpu")]
+fn rpoly_mul<'a>(env: Env<'a>, a: ResourceArc<RPolyRes>, ma: Vec<usize>, b: ResourceArc<RPolyRes>, mb: Vec<usize>, n: usize) -> NifResult<Term<'a>> {
+    if !maps_ok(&a.0, &ma, &b.0, &mb, n) {
+        return Err(rustler::Error::BadArg);
+    }
+    Ok(rpoly_result(env, rpoly::mul(&a.0, &ma, &b.0, &mb, n)))
+}
+
+/// rpoly_add(A, MapA, B, MapB, N) -> {ok, Resource} | overflow | packing
+#[rustler::nif(schedule = "DirtyCpu")]
+fn rpoly_add<'a>(env: Env<'a>, a: ResourceArc<RPolyRes>, ma: Vec<usize>, b: ResourceArc<RPolyRes>, mb: Vec<usize>, n: usize) -> NifResult<Term<'a>> {
+    if !maps_ok(&a.0, &ma, &b.0, &mb, n) {
+        return Err(rustler::Error::BadArg);
+    }
+    Ok(rpoly_result(env, rpoly::add(&a.0, &ma, &b.0, &mb, n)))
+}
+
+/// rpoly_pow(A, K) -> {ok, Resource} | overflow | packing
+#[rustler::nif(schedule = "DirtyCpu")]
+fn rpoly_pow(env: Env, a: ResourceArc<RPolyRes>, k: u32) -> Term {
+    rpoly_result(env, rpoly::pow(&a.0, k))
+}
+
+/// rpoly_scale(A, Re, Im, Den) -> {ok, Resource} | overflow: A times (Re + i Im) / Den
+#[rustler::nif(schedule = "DirtyCpu")]
+fn rpoly_scale(env: Env, a: ResourceArc<RPolyRes>, re: i128, im: i128, den: i128) -> NifResult<Term> {
+    if den < 1 {
+        return Err(rustler::Error::BadArg);
+    }
+    Ok(rpoly_result(env, rpoly::scale(&a.0, re, im, den)))
+}
+
+/// rpoly_info(A) -> {Terms, NVars}
+#[rustler::nif]
+fn rpoly_info(a: ResourceArc<RPolyRes>) -> (usize, usize) {
+    (a.0.len(), a.0.nvars)
+}
+
+/// rpoly_to_map(A, Vars) -> pq_sym_poly's map
+#[rustler::nif(schedule = "DirtyCpu")]
+fn rpoly_to_map<'a>(env: Env<'a>, a: ResourceArc<RPolyRes>, vars: Vec<Term<'a>>) -> NifResult<Term<'a>> {
+    if vars.len() != a.0.nvars {
+        return Err(rustler::Error::BadArg);
+    }
+    poly_map(env, &vars, &a.0.p, a.0.denom)
+}
+
+/// rpoly_to_ast(A, Vars) -> pq_sym_norm:to_ast/1's result, for variables that are all {sym, X}: the terms in print
+/// order, a term {mul, [Coeff | Factors]} (a constant just its coefficient), a factor {sym, X} or {pow, {sym, X}, E},
+/// a coefficient N, {rat, N, D} or {complex, Re, Im}; no term 0, one term itself, more {add, Terms}
+#[rustler::nif(schedule = "DirtyCpu")]
+fn rpoly_to_ast<'a>(env: Env<'a>, a: ResourceArc<RPolyRes>, vars: Vec<Term<'a>>) -> NifResult<Term<'a>> {
+    let r = &a.0;
+    if vars.len() != r.nvars {
+        return Err(rustler::Error::BadArg);
+    }
+    let rat_ast = |x: i128| -> Term<'a> {
+        let (n, d) = rat_parts(x, r.denom);
+        if d == 1 { n.encode(env) } else { (atoms::rat(), n, d).encode(env) }
+    };
+    let (mul, pow) = (atoms::mul().encode(env), atoms::pow().encode(env));
+    let mut factor_terms: HashMap<(usize, i64), Term<'a>> = HashMap::new();
+    let mut out = Vec::with_capacity(r.len());
+    for t in rpoly::print_order(r) {
+        let (re, im) = (r.p.coef[2 * t], r.p.coef[2 * t + 1]);
+        let c = if im == 0 { rat_ast(re) } else { (atoms::complex(), rat_ast(re), rat_ast(im)).encode(env) };
+        let mut fs = vec![c];
+        for (j, &v) in vars.iter().enumerate() {
+            let e = r.p.exps[t * r.nvars + j];
+            if e != 0 {
+                fs.push(*factor_terms.entry((j, e)).or_insert_with(|| {
+                    if e == 1 { v } else { rustler::types::tuple::make_tuple(env, &[pow, v, e.encode(env)]) }
+                }));
+            }
+        }
+        out.push(if fs.len() == 1 { c } else { rustler::types::tuple::make_tuple(env, &[mul, fs.encode(env)]) });
+    }
+    Ok(match out.len() {
+        0 => 0.encode(env),
+        1 => out[0],
+        _ => (atoms::add(), out).encode(env),
+    })
 }
 
 rustler::init!("pq_nif");
