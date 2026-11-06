@@ -25,8 +25,16 @@ main(Dir, Cases) ->
          Syms = pq_symbolic:free_symbols(R),
          {Tc, {ok, Prog}} = timer:tc(pq_symbolic, compile, [[R], Syms, ?LIMITS]),
          {Mul, Add, Pow} = ops_slp(Prog),
-         io:format("res(~b,~b): ~b variables, ~b terms, built in ~.2f s; ops expanded ~b; SLP ~b (mul ~b, add ~b, pow ~b), compiled in ~.2f s~n",
-                   [M, N, length(Syms), Terms, T / 1.0e6, ops_expanded(R), Mul + Add + Pow, Mul, Add, Pow, Tc / 1.0e6])
+         {Th, {ok, Hp}} = timer:tc(pq_symbolic, compile, [[R], Syms, maps:put(optimize, horner, ?LIMITS)]),
+         {HM, HA, HP} = ops_slp(Hp),
+         %% the two programs at a random point: equal within rounding
+         Bind = maps:from_list([{X, 0.5 + rand:uniform()} || X <- Syms]),
+         {ok, [V1]} = pq_symbolic:eval_slp(Prog, Bind),
+         {ok, [V2]} = pq_symbolic:eval_slp(Hp, Bind),
+         io:format("res(~b,~b): ~b variables, ~b terms, built in ~.2f s; ops expanded ~b; SLP ~b (mul ~b, add ~b, pow ~b) in ~.2f s; "
+                   "Horner ~b (mul ~b, add ~b, pow ~b) in ~.2f s; values ~w / ~w, relative difference ~.2e~n",
+                   [M, N, length(Syms), Terms, T / 1.0e6, ops_expanded(R), Mul + Add + Pow, Mul, Add, Pow, Tc / 1.0e6,
+                    HM + HA + HP, HM, HA, HP, Th / 1.0e6, V1, V2, abs(V1 - V2) / max(abs(V1), 1.0e-300)])
      end || {M, N} <- Cases],
     ok.
 

@@ -3,6 +3,17 @@
 PQCF follows semantic versioning from the API freeze (`docs/decisions/API-freeze.md`). Until 2.0, every change to
 the public API is additive.
 
+## Unreleased (1.3.0)
+
+### Added
+
+- **Horner schemes for compiled expressions** (`H1`):
+  - `pq_symbolic:compile/3` with `#{optimize => horner}`: every polynomial is compiled as a multivariate Horner
+    scheme, in a fixed occurrence order, with identical sub-polynomials shared;
+  - on the resultant benchmarks of FORM's expression-simplification papers: 2.6–3.0× fewer operations than the
+    default program, 4–6 % fewer than FORM 5's `Format O1`, and evaluation 3.4–3.6× faster;
+  - the default is unchanged, bit for bit.
+
 ## 1.2.0 (5 November 2026)
 
 Beyond the specification's roadmap: PQCF from Python, and faster density matrices. Everything is additive and

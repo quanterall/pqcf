@@ -7,14 +7,24 @@
 %%   op() :: {const, Slot, {Re, Im}} | {input, Slot, Sym} | {mul, Slot, A, B} | {add, Slot, A, B}
 %%         | {pow, Slot, A, {N, D}} | {exp, Slot, A} | {conj, Slot, A}
 -module(pq_sym_slp).
--export([compile/2, eval/2, eval_batch/2]).
+-export([compile/2, compile/3, eval/2, eval_batch/2]).
 
--record(st, {ops = [], keys = #{}, next = 0, ctx}).
+-record(st, {ops = [], keys = #{}, next = 0, ctx, opt = none}).
 
 -spec compile([pq_sym_norm:value()], [atom()]) -> {slp, 1, [atom()], [tuple()], [non_neg_integer()] | {matrix, pos_integer(), pos_integer(), [non_neg_integer()]}}.
-compile(Values0, Inputs) ->
+compile(Values, Inputs) -> compile(Values, Inputs, #{}).
+
+%% Opts: optimize => none (the default: the program of compile/2, operation for operation) | horner (1.3;
+%% docs/decisions/H1-horner.md): every polynomial as a multivariate Horner scheme -- P = R + x^k Q on a variable that
+%% several terms share, recursively, in one occurrence order fixed for the polynomial (most terms first, ties by
+%% canonical order, so the program is deterministic; it gave 4-6 % fewer operations than choosing greedily at every
+%% step on the resultant benchmarks), identical sub-polynomials computed once. Fewer operations, a different
+%% operation order: results equal within rounding, not bit for bit, to the default's.
+-spec compile([pq_sym_norm:value()], [atom()], map()) -> tuple().
+compile(Values0, Inputs, Opts) ->
     Values = [expand_identity(V) || V <- Values0],
-    St0 = lists:foldl(fun(X, S) -> element(2, slot({input, X}, fun(Sl) -> {input, Sl, X} end, S)) end, #st{}, Inputs),
+    St0 = lists:foldl(fun(X, S) -> element(2, slot({input, X}, fun(Sl) -> {input, Sl, X} end, S)) end,
+                      #st{opt = maps:get(optimize, Opts, none)}, Inputs),
     {Outs, St} = lists:mapfoldl(fun out/2, St0, Values),
     Outputs = case {Values, Outs} of
                   {[{mat, R, C, _}], [Slots]} -> {matrix, R, C, Slots};
@@ -40,8 +50,9 @@ slot(Key, Make, #st{keys = K} = S) ->
 
 const(Z, S) -> slot({const, Z}, fun(Sl) -> {const, Sl, Z} end, S).
 
-%% a polynomial: the sum of coefficient times monomial, in canonical key order
+%% a polynomial: the sum of coefficient times monomial, in canonical key order (or a Horner scheme)
 poly(P, S) when map_size(P) =:= 0 -> const({0.0, 0.0}, S);
+poly(P, #st{opt = horner} = S) when map_size(P) > 1 -> horner(P, order(P), S);
 poly(P, S) ->
     case maps:find({poly, P}, S#st.keys) of
         {ok, Sl} -> {Sl, S};
@@ -52,6 +63,72 @@ poly(P, S) ->
                                     end, {none, S2}, Terms),
             {Sum, S3#st{keys = (S3#st.keys)#{{poly, P} => Sum}}}
     end.
+
+%%% Horner schemes
+
+horner(P, _Order, S) when map_size(P) =:= 0 -> const({0.0, 0.0}, S);
+horner(P, _Order, S) when map_size(P) =:= 1 -> [{M, C}] = maps:to_list(P), term(M, C, S);
+horner(P, Order, S) ->
+    case maps:find({hpoly, P}, S#st.keys) of
+        {ok, Sl} -> {Sl, S};
+        error ->
+            {Sl, S2} = case split_var(P, Order) of
+                           none -> sum_terms(P, S);
+                           X ->
+                               {With, Without} = maps:fold(fun({A, _} = M, C, {W, O}) ->
+                                                                   case int_exp(X, A) of
+                                                                       0 -> {W, O#{M => C}};
+                                                                       _ -> {W#{M => C}, O}
+                                                                   end
+                                                           end, {#{}, #{}}, P),
+                               K = lists:min([int_exp(X, A) || {A, _} <- maps:keys(With)]),
+                               Q = maps:fold(fun({A, E}, C, Acc) -> Acc#{{lower(X, K, A), E} => C} end, #{}, With),
+                               {Sx, S3} = atom_pow({X, {K, 1}}, S),
+                               {Sq, S4} = horner(Q, Order, S3),
+                               {Prod, S5} = slot({mul, Sx, Sq}, fun(Sl0) -> {mul, Sl0, Sx, Sq} end, S4),
+                               case map_size(Without) of
+                                   0 -> {Prod, S5};
+                                   _ ->
+                                       {Sr, S6} = horner(Without, Order, S5),
+                                       slot({add, Sr, Prod}, fun(Sl0) -> {add, Sl0, Sr, Prod} end, S6)
+                               end
+                       end,
+            {Sl, S2#st{keys = (S2#st.keys)#{{hpoly, P} => Sl}}}
+    end.
+
+%% the atoms with a positive integer exponent, by the number of terms they occur in (most first; ties by canonical order)
+order(P) -> [K || {_, K} <- lists:sort([{-N, K} || K := N <- counts(P)])].
+
+counts(P) ->
+    maps:fold(fun({A, _}, _, Acc) ->
+                      lists:foldl(fun({K, {N, 1}}, Ac) when is_integer(N), N > 0 -> maps:update_with(K, fun(V) -> V + 1 end, 1, Ac);
+                                     (_, Ac) -> Ac
+                                  end, Acc, A)
+              end, #{}, P).
+
+%% the first atom of the order that at least two terms of P have
+split_var(P, Order) ->
+    C = counts(P),
+    case [K || K <- Order, maps:get(K, C, 0) >= 2] of
+        [] -> none;
+        [K | _] -> K
+    end.
+
+int_exp(X, A) ->
+    case lists:keyfind(X, 1, A) of
+        {X, {N, 1}} when is_integer(N), N > 0 -> N;
+        _ -> 0
+    end.
+
+lower(X, K, A) ->
+    [Y || Y <- [case Y0 of {X, {N, 1}} -> {X, {N - K, 1}}; _ -> Y0 end || Y0 <- A], element(2, Y) =/= {0, 1}].
+
+%% the plain sum of the terms, as poly/2 makes it without Horner
+sum_terms(P, S) ->
+    {Terms, S2} = lists:mapfoldl(fun({M, C}, Acc) -> term(M, C, Acc) end, S, pq_sym_poly:sorted(P)),
+    lists:foldl(fun(T, {none, A}) -> {T, A};
+                   (T, {Prev, A}) -> slot({add, Prev, T}, fun(Sl) -> {add, Sl, Prev, T} end, A)
+                end, {none, S2}, Terms).
 
 term(M, C, S) ->
     Z = pq_sym_exact:to_complex(C),

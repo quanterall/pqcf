@@ -193,6 +193,7 @@ expressions (HEP processes) are not published; the resultants are fully specifie
 | operations as expanded, by FORM's counter | 29,163 | 142,711 | 587,880 |
 | the paper's "original" | 29,163 | 142,711 | 587,880 |
 | PQCF straight-line program | 12,375 | 54,288 | 203,775 |
+| PQCF Horner (`optimize => horner`, added after this study: H1) | 4,678 | 19,490 | 67,928 |
 | FORM 5 `O1` | 4,968 | 20,210 | 71,262 |
 | FORM 5 `O2` | 3,969 | 16,398 | 55,685 |
 | FORM 5 `O3` | 3,458 | 11,006 | 35,945 |

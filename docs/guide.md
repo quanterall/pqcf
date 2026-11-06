@@ -421,6 +421,14 @@ call returns `symbolic_limit` instead of running away. The parser creates atoms 
 Use `compile/2` and `eval_slp/2` (or `eval_batch/2`) when one expression is evaluated many times. They share
 common subexpressions and run about 20× faster than evaluating the expression tree.
 
+With `compile/3` and `#{optimize => horner}` (1.3), every polynomial becomes a multivariate Horner scheme. It needs
+2.6 to 3 times fewer operations on large polynomials, and evaluation is about 3.5 times faster. The operation order
+differs from the default's, so values agree within rounding, not bit for bit. The default stays as it was.
+
+```erlang
+{ok, Fast} = pq_symbolic:compile([Dx], [x, y], #{optimize => horner}).
+```
+
 ## 12. Interchange
 
 - **JSON:** `pq_circuit:to_json/1` and `pq_circuit:from_json/1,2`. Symbols survive the round trip, and

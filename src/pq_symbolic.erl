@@ -426,7 +426,7 @@ compile(Exprs, Symbols) -> compile(Exprs, Symbols, #{}).
 compile(Exprs, Symbols, Opts) ->
     run({add, [0 | [E || E <- Exprs, sh_ok(E)]]}, Opts, fun(Ctx) ->
                                                        Vs = [pq_sym_norm:norm(E, Ctx) || E <- Exprs],
-                                                       pq_sym_slp:compile(Vs, Symbols)
+                                                       pq_sym_slp:compile(Vs, Symbols, maps:with([optimize], Opts))
                                                end).
 
 sh_ok(E) -> shape(E) =:= {ok, scalar}.
