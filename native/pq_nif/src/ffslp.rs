@@ -9,8 +9,8 @@ pub const BAD: u64 = u64::MAX;
 pub enum Op {
     /// the point's coordinate i
     Input(usize),
-    /// num / den, den > 0
-    Const(i128, i128),
+    /// sign * num / den, num and den as 64-bit limbs, least significant first (den > 0)
+    Const(i8, Vec<u64>, Vec<u64>),
     Mul(usize, usize),
     Add(usize, usize),
     Sub(usize, usize),
@@ -55,8 +55,10 @@ pub fn invmod(a: u64, p: u64) -> Option<u64> {
     if a.is_multiple_of(p) { None } else { Some(powmod(a, p - 2, p)) }
 }
 
-fn residue(x: i128, p: u64) -> u64 {
-    x.rem_euclid(p as i128) as u64
+/// a number given as 64-bit limbs (least significant first) mod p, by Horner's rule from the top limb
+fn limbs_mod(limbs: &[u64], p: u64) -> u64 {
+    let base = ((1u128 << 64) % p as u128) as u64;
+    limbs.iter().rev().fold(0u64, |acc, &l| ((mulmod(acc, base, p) as u128 + (l % p) as u128) % p as u128) as u64)
 }
 
 impl Program {
@@ -64,7 +66,7 @@ impl Program {
         for (s, op) in self.ops.iter().enumerate() {
             let ok = match *op {
                 Op::Input(i) => i < self.ninputs,
-                Op::Const(_, d) => d > 0,
+                Op::Const(_, _, ref d) => d.iter().any(|&x| x != 0),
                 Op::Mul(a, b) | Op::Add(a, b) | Op::Sub(a, b) => a < s && b < s,
                 Op::Pow(a, _) => a < s,
             };
@@ -84,9 +86,10 @@ impl Program {
         // the constants once per prime
         let mut consts = vec![0u64; self.ops.len()];
         for (s, op) in self.ops.iter().enumerate() {
-            if let Op::Const(n, d) = *op {
-                let di = invmod(residue(d, p), p).ok_or(FfError::BadPrime)?;
-                consts[s] = mulmod(residue(n, p), di, p);
+            if let Op::Const(sign, ref n, ref d) = *op {
+                let di = invmod(limbs_mod(d, p), p).ok_or(FfError::BadPrime)?;
+                let v = mulmod(limbs_mod(n, p), di, p);
+                consts[s] = if sign < 0 { (p - v) % p } else { v };
             }
         }
         let npoints = if self.ninputs == 0 { 1 } else { points.len() / self.ninputs };
@@ -128,6 +131,47 @@ impl Program {
     }
 }
 
+/// The transposed Vandermonde system of Zippel's interpolation: the c with values[i] = sum_j c_j nodes_j^i
+/// (i = 0 .. n-1) mod p, for distinct nodes, in O(n^2): with P(z) = prod_k (z - v_k) and Q_j = P / (z - v_j),
+/// sum_i q_{j,i} values_i = c_j Q_j(v_j). None if two nodes are equal.
+pub fn tvandermonde(p: u64, nodes: &[u64], values: &[u64]) -> Option<Vec<u64>> {
+    let n = nodes.len();
+    if values.len() != n {
+        return None;
+    }
+    // P(z), coefficients from the constant term up, degree n
+    let mut master = vec![0u64; n + 1];
+    master[0] = 1;
+    for (k, &v) in nodes.iter().enumerate() {
+        let neg = (p - v % p) % p;
+        for t in (0..=k + 1).rev() {
+            let shifted = if t > 0 { master[t - 1] } else { 0 };
+            master[t] = (mulmod(master[t], neg, p) + shifted) % p;
+        }
+    }
+    let mut out = Vec::with_capacity(n);
+    let mut q = vec![0u64; n];
+    for &v in nodes {
+        // Q = P / (z - v) by synthetic division, from the top
+        let v = v % p;
+        let mut carry = master[n];
+        for t in (0..n).rev() {
+            q[t] = carry;
+            carry = (master[t] + mulmod(carry, v, p)) % p;
+        }
+        // Q(v), and sum_i q_i values_i
+        let (mut qv, mut num) = (0u64, 0u64);
+        for t in (0..n).rev() {
+            qv = (mulmod(qv, v, p) + q[t]) % p;
+        }
+        for (t, &w) in values.iter().enumerate() {
+            num = (num + mulmod(q[t], w % p, p)) % p;
+        }
+        out.push(mulmod(num, invmod(qv, p)?, p));
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,14 +185,14 @@ mod tests {
             ops: vec![
                 Op::Input(0),
                 Op::Input(1),
-                Op::Const(-2, 3),
+                Op::Const(-1, vec![2], vec![3]),
                 Op::Mul(2, 1),
                 Op::Add(0, 3),
                 Op::Pow(4, 2),
                 Op::Add(0, 1),
                 Op::Pow(6, -1),
                 Op::Mul(5, 7),
-                Op::Const(1, 1),
+                Op::Const(1, vec![1], vec![1]),
                 Op::Sub(8, 9),
             ],
             outputs: vec![10],
@@ -165,7 +209,31 @@ mod tests {
         assert_eq!(vals, vec![want, BAD]);
         // a large prime works, and a constant's denominator 0 mod p is refused
         assert!(prog.eval(P, &[1, 2]).is_ok());
+        // a constant of several limbs: 2^64 + 5 mod 101
+        let big = Program { ops: vec![Op::Const(1, vec![5, 1], vec![1])], outputs: vec![0], ninputs: 0 };
+        assert_eq!(big.eval(p, &[]).unwrap(), vec![(((1u128 << 64) + 5) % 101) as u64]);
         assert_eq!(prog.eval(3, &[1, 2]).err(), Some(FfError::BadPrime));
         assert_eq!(Program { ops: vec![Op::Mul(0, 1)], outputs: vec![0], ninputs: 0 }.check().err(), Some(FfError::Shape));
+    }
+
+    #[test]
+    fn solves_transposed_vandermonde_systems() {
+        let p = P;
+        let mut s = 0x1234_5678_9abc_def1u64;
+        let mut next = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            s % p
+        };
+        for n in [1usize, 2, 7, 40] {
+            let nodes: Vec<u64> = (0..n).map(|_| next()).collect();
+            let c: Vec<u64> = (0..n).map(|_| next()).collect();
+            let values: Vec<u64> = (0..n)
+                .map(|i| (0..n).fold(0u64, |a, j| (a + mulmod(c[j], powmod(nodes[j], i as u64, p), p)) % p))
+                .collect();
+            assert_eq!(tvandermonde(p, &nodes, &values), Some(c));
+        }
+        assert_eq!(tvandermonde(p, &[5, 5], &[1, 2]), None);
     }
 }

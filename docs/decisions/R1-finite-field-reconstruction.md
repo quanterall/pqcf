@@ -1,6 +1,7 @@
 # R1: reducing large results by finite-field reconstruction, distributed
 
-**Status: accepted, in progress (the project owner's decision, 7 Nov 2026: "go with B and the minimal store").**
+**Status: accepted, in progress (the project owner's decision, 7 Nov 2026: "go with B and the minimal store").
+Phases 1 and 2 done.**
 
 ## Why
 
@@ -100,3 +101,36 @@ The result is the same whichever executor runs the tasks, and however many nodes
 4. Rational functions (Thiele + Zippel), and a benchmark: reducing a sum of many fractions, against FORM's
    `PolyRatFun`.
 5. The federation executor, once FVLLMP provides the gate route.
+
+## Phase 2, measured (7 Nov 2026)
+
+`pq_recon:polynomial/3` reconstructs a polynomial from a compiled program (`exact_constants => true`):
+- **First prime:** Zippel's interpolation, one variable per stage. Each stage solves transposed Vandermonde systems
+  in Rust (`pq_nif:ff_tvandermonde/3`, O(n²)), then runs a Newton interpolation per coefficient, stopping when two
+  further points add nothing.
+- **Further primes:** one Vandermonde system each, on the known support.
+- **Back to ℚ:** Chinese remaindering plus Wang's reconstruction, until two prime counts agree. The result is then
+  checked at a fresh point in a fresh prime.
+- **Points r¹ … rⁿ,** never r⁰ = (1, …, 1): there a fraction such as 1/(x − y) is undefined, which the first version
+  hit (fixed by dividing the solution by the nodes).
+- **Big constants:** passed to Rust as 64-bit limbs, of any size.
+
+| From its `horner_cse` program (one core) | terms | variables | time | equal to the expansion |
+| --- | --- | --- | --- | --- |
+| res(7,4) | 2,562 | 13 | 12.6 s | yes |
+| res(7,5) | 11,380 | 14 | 248 s | yes |
+
+These are slow next to expanding them directly (0.65 s and 4.2 s): the resultants are polynomials, so expansion is
+the right tool for them, and they serve here as a correctness check at scale. Reconstruction pays where expansion
+swells, in rational functions, which is phase 4. The time goes into the Erlang side: the points, the Newton steps,
+and big-integer arithmetic. Moving those into Rust, and the evaluations onto the executors (phase 3), is next.
+
+Tests (`test/pq_recon_tests.erl`):
+- 25 random sparse polynomials with rational coefficients, from default and `horner_cse` programs;
+- a fraction that cancels to a polynomial, (x² − y²)/(x − y);
+- coefficients of 2²⁰⁰, which need several primes;
+- the zero polynomial, a constant, a power;
+- a resultant;
+- determinism, with another seed giving the same polynomial.
+
+A Newton step that forgets the interpolant's value is caught (5 of 6 tests fail).

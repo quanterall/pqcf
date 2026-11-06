@@ -13,7 +13,10 @@ the public API is additive.
   - `pq_ff`: compiled programs evaluated modulo primes below 2^63 in Rust (`ffslp.rs`), a batch of points at a
     time, a division by zero marking a point as bad; deterministic primes (Miller-Rabin); inverses, Chinese
     remaindering and Wang's rational reconstruction;
-  - the design for what follows: Zippel reconstruction of polynomials, then rational functions; three executors
+  - `pq_recon:polynomial/3`: a polynomial reconstructed from its program's values (Zippel over the first prime,
+    the support reused in the next, Chinese remaindering and rational reconstruction, a final check); the resultants
+    res(7,4) and res(7,5) exactly, in 12.6 s and 248 s on one core;
+  - the design for what follows: rational functions; three executors
     behind one task interface (this node, Erlang nodes, FVLLMP federation peers), from a single node to 100+.
 
 ## 1.3.0 (7 November 2026)

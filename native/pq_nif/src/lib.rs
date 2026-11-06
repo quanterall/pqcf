@@ -36,7 +36,7 @@ mod atoms {
         max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold,
         phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix, stream_ref, metropolis, burn_in, thin, chains, acceptance_rate,
         probability, photons, shared, thermal_loss, extra, device, cpu, gpu, auto, reason,
-        overflow, packing, q, add, mul, pow, rat, complex, expi, sym, exp, bad_prime, sub, const_ = "const"
+        overflow, packing, q, add, mul, pow, rat, complex, expi, sym, exp, bad_prime, sub, singular, const_ = "const"
     }
 }
 
@@ -1686,7 +1686,7 @@ pub struct FfRes(ffslp::Program);
 impl rustler::Resource for FfRes {}
 
 /// ff_prepare(NInputs, Ops, Outputs) -> {ok, Resource} | {error, bad_shape}: Ops in slot order, each {input, I} |
-/// {const, Num, Den} | {mul, A, B} | {add, A, B} | {sub, A, B} | {pow, A, E} (A, B earlier slots; E an integer)
+/// {const, Sign, NumLimbs, DenLimbs} (64-bit limbs, least significant first) | {mul, A, B} | {add, A, B} | {sub, A, B} | {pow, A, E} (A, B earlier slots; E an integer)
 #[rustler::nif(schedule = "DirtyCpu")]
 fn ff_prepare<'a>(env: Env<'a>, ninputs: usize, ops: Vec<Term<'a>>, outputs: Vec<usize>) -> NifResult<Term<'a>> {
     let mut prog = Vec::with_capacity(ops.len());
@@ -1697,7 +1697,7 @@ fn ff_prepare<'a>(env: Env<'a>, ninputs: usize, ops: Vec<Term<'a>>, outputs: Vec
         prog.push(if tag == atoms::input() {
             ffslp::Op::Input(arg(1)?.decode()?)
         } else if tag == atoms::const_() {
-            ffslp::Op::Const(arg(1)?.decode()?, arg(2)?.decode()?)
+            ffslp::Op::Const(arg(1)?.decode()?, arg(2)?.decode()?, arg(3)?.decode()?)
         } else if tag == atoms::mul() {
             ffslp::Op::Mul(arg(1)?.decode()?, arg(2)?.decode()?)
         } else if tag == atoms::add() {
@@ -1729,6 +1729,19 @@ fn ff_eval<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, p: u64, points: Vec<u64>)
         Ok(v) => (atoms::ok(), v).encode(env),
         Err(ffslp::FfError::BadPrime) => atoms::bad_prime().encode(env),
         Err(ffslp::FfError::Shape) => bad_shape(env, "ff points"),
+    })
+}
+
+/// ff_tvandermonde(P, Nodes, Values) -> {ok, Coefficients} | singular: the c with Values[i] = sum_j c_j Nodes_j^i
+/// (i from 0) mod the prime P, for distinct nodes (Zippel's interpolation, R1)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn ff_tvandermonde<'a>(env: Env<'a>, p: u64, nodes: Vec<u64>, values: Vec<u64>) -> NifResult<Term<'a>> {
+    if !(3..(1u64 << 63)).contains(&p) || nodes.len() != values.len() {
+        return Err(rustler::Error::BadArg);
+    }
+    Ok(match ffslp::tvandermonde(p, &nodes, &values) {
+        Some(c) => (atoms::ok(), c).encode(env),
+        None => atoms::singular().encode(env),
     })
 }
 

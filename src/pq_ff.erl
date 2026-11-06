@@ -83,13 +83,23 @@ prepare({slp, 1, Inputs, Ops, Outputs}) ->
     end.
 
 ff_op({input, _, X}, Index) -> {input, maps:get(X, Index)};
-ff_op({const, _, {q, {N, D}, {0, 1}}}, _) -> {const, N, D};
+ff_op({const, _, {q, {N, D}, {0, 1}}}, _) -> {const, sign(N), limbs(abs(N)), limbs(D)};
 ff_op({const, _, Z}, _) -> throw({unsupported, {constant, Z}});
 ff_op({mul, _, A, B}, _) -> {mul, A, B};
 ff_op({add, _, A, B}, _) -> {add, A, B};
 ff_op({sub, _, A, B}, _) -> {sub, A, B};
 ff_op({pow, _, A, {E, 1}}, _) -> {pow, A, E};
 ff_op(Op, _) -> throw({unsupported, element(1, Op)}).
+
+sign(N) when N < 0 -> -1;
+sign(_) -> 1.
+
+%% a non-negative integer as 64-bit limbs, least significant first (any size: the constants of a result can be
+%% far beyond 128 bits)
+limbs(0) -> [0];
+limbs(N) -> limbs1(N).
+limbs1(0) -> [];
+limbs1(N) -> [N band 16#FFFFFFFFFFFFFFFF | limbs1(N bsr 64)].
 
 %% The outputs at every point (a list of coordinate lists, one residue per input, in the program's input order),
 %% mod P: [Values | bad] per point, bad where the program divides by zero mod P.
