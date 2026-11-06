@@ -12,6 +12,6 @@ JSON service (pq_service) and converts to and from Perceval and Piquasso.
 from .circuit import Circuit, mean_photon_number, probability, weighted_sum
 from .client import Client, PqcfError, Result, connect, default_command
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 __all__ = ["Circuit", "Client", "PqcfError", "Result", "connect", "default_command", "probability",
            "mean_photon_number", "weighted_sum", "__version__"]

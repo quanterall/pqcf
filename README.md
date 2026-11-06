@@ -5,7 +5,7 @@ sampling, a symbolic engine for parameterised circuits, and parallel, reproducib
 top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust library loaded as a NIF
 (`pq_nif`, through [Rustler](https://github.com/rusterlium/rustler)).
 
-**Status: 1.2.0 (`CHANGELOG.md`).**
+**Status: 1.3.0 (`CHANGELOG.md`).**
 
 - The API is frozen (`docs/decisions/API-freeze.md`): changes to the public API are additive only until 2.0.
 - Every functional requirement of the specification is implemented and tested.
@@ -89,7 +89,7 @@ top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust 
   AddressSanitizer runs.
 - The user guide `docs/guide.md`, whose examples run as tests; the API review and freeze.
 
-## Unreleased (1.3.0)
+## 1.3.0: the symbolic engine against FORM
 
 The symbolic engine against FORM 5 (`CHANGELOG.md`, `docs/decisions/` K1, K2, H1–H4):
 

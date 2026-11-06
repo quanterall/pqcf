@@ -3,7 +3,12 @@
 PQCF follows semantic versioning from the API freeze (`docs/decisions/API-freeze.md`). Until 2.0, every change to
 the public API is additive.
 
-## Unreleased (1.3.0)
+## 1.3.0 (7 November 2026)
+
+The symbolic engine against FORM 5. Everything is additive; the default programs and canonical forms are the same as
+1.2.0's, term for term. Expansion: dense products about 4 times faster than FORM, sparse products, powers and the
+symbolic mesh 1.5–4.3 times FORM's time (from 1.3–32 times on 2 November). Compiled programs: on FORM's resultant
+benchmarks, fewer operations than FORM 5's `O4` on all three (decision records K1, K2, H1–H4).
 
 ### Added
 

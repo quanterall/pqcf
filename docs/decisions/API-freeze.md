@@ -87,6 +87,18 @@ Frozen by the same rule (decision records `C1`, `B2`):
   `pqcf.convert` (`from_perceval`, `to_perceval`, `to_piquasso`, `from_piquasso`) and `pqcf.linear.unitary`.
 - **Not frozen (internal):** `fockplan.rs` (behind the NIF contract), and `pq_json:predicate_from_json/1`.
 
+## Added in 1.3.0 (7 November 2026)
+
+Frozen by the same rule (decision records `K1`, `K2`, `H1`–`H4`):
+
+- **`pq_symbolic:compile/3` options:** `optimize => none | horner | cse | horner_cse`, and `order_search =>
+  #{trials, seed, batch, nodes, strategy => local | mcts, exploration, direction => forward | backward}`.
+- **The option `poly_kernel => boolean()`** of the symbolic calls (default `true`).
+- **The program operation `{sub, Slot, A, B}`** in programs compiled with Horner (format `{slp, 1, ...}` unchanged;
+  `eval_slp/2` evaluates it).
+- **Not frozen (internal):** `pq_sym_cse`, `pq_sym_search`, the Rust kernels (`polymul.rs`, `rpoly.rs`,
+  `hcount.rs`) and their NIFs, the `{rpoly, ...}` handles inside `pq_sym_poly`.
+
 ## Not frozen
 
 - **Internal modules:** the `pq_sym_*` modules, `pq_job`, `pq_worker`, the supervisors, `pq_node_registry`,
