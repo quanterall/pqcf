@@ -21,9 +21,93 @@ top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust 
   - density-matrix gates 5–25 times faster.
 - Benchmarks are from a provisional reference machine (`bench/HARDWARE.md`).
 
-| Done | Next |
-| --- | --- |
-| Project skeleton; NIF loading and version check; cancel tokens; the ChaCha8 random stream `rng_u64` (GT-R01); core types, configuration, error taxonomy and the packed binary codec (`pq_core`); the permanent family — `permanent`, `permanent_repeated`, `bs_probability` — with fixed-block determinism (GT-P01 against thewalrus); the core of the symbolic engine `pq_symbolic` — exact canonical form (Gaussian rationals, radicals, exponentials; trigonometric functions as exponentials), substitution with domains, differentiation (gradients, Jacobians, higher orders), evaluation (complex doubles, or exact), matrices, ASCII and LaTeX printing, a parser with atom safety, parameter resolution, bounded execution; circuits `pq_circuit` — construction and editing, validation (modes, parameters, numeric domains and unitarity, inputs, measured-mode reuse, custom instructions), effective bindings, composition with mode maps and renames, symbols, safe binary serialisation, the gate library; the Fock-space matrices of the beamsplitter, displacement and squeezing, checked against 80-digit closed forms (spikes S5, S8); exact boson sampling — `sample_boson` with `clifford_clifford` and `brute_force`, chi-square tested (S6), with the stream order pinned by an independent reference (S7); the hafnian, loop hafnian and torontonian kernels, equal to thewalrus within 1e-15 of their scale up to M = 40 and 20 clicks (S3, S4). Phase 1: states (`pq_state`: the Fock basis index of FS 3.4, Gaussian preparation, reduced states, physicality), lowering and capability checks, the Gaussian backend with terminal homodyne sampling (`pq_gaussian`, `pq_simulator`); the Clements mesh (`pq_circuit:mesh/1`); the pure-state Fock backend (`pq_fock`: beamsplitter sectors, phase, Kerr, passive unitaries, displacement and squeezing with the norm deficit, PNR, threshold and mixed sampling); `pq_stats:mean_photon_number`; boson sampling of passive circuits through the job server (`pq_sampling`, `pq_parallel`, `pq_job`, `pq_worker`: chunks, at most max_inflight in flight, retries, cancellation, timeout; identical samples for any number of workers and chunk size). Phase 2: Gaussian boson sampling (`gaussian_to_amat`, photon-counting and threshold probabilities, the chain-rule samplers with the truncated mass), equal to thewalrus within 1e-14; density matrices and loss (`pq_fock_dm`: the Kraus sum of A.11, `promote_dm`), photon statistics after loss equal to the Gaussian backend's (GT-N01); mid-circuit homodyne and PNR measurements (GT-G02) with post-selection (`docs/decisions/D1-midcircuit-streams.md`); noise insertion (`pq_noise`); statistics — g2, total variation distance, histograms, fidelity (GT-X01); lossy boson sampling (loss at the inputs or the outputs) and the Metropolis sampler; the symbolic unitary of passive circuits with a decisive unitarity check; Kan's repeated-index hafnian; distribution across nodes (`pq_node_registry`: pg scope pq, the handshake; `pq_spec_cache`; chunks on other nodes through erpc, retried elsewhere when a node is lost; the job memory pre-check; kernel isolation on peer nodes); the facade `pq_api` (backend choice, run, sample, evolve, exact probabilities, run_batch). Phase 3: JSON interchange of circuits (Appendix B); gradients (`pq_gradient`: central differences, and symbolic for passive circuits through the symbolic unitary and permanent); converters to and from Perceval and Piquasso (`pq_convert`, conventions asserted against the libraries in `test/oracle/converter_conventions.py`); the trajectory loss mode (pure states, the density matrix's distribution); faster Clifford-Clifford (O(n 2^n)) and GBS prefix caching; straight-line programs and `equiv` in the symbolic engine; the user guide `docs/guide.md`, its examples run as tests; the API review against the specification (terminal sampling through the job server, job handles, partial results, auto_throttle, telemetry events, the missing facade functions); cancellation of chunks on other nodes; symbolic Gaussian evolution (FR-G04: `pq_gaussian:symbolic_evolve/2`, `to_symbolic/1`, `lower/2`) and symbolic gradients for Gaussian inputs; the verification plan (1,000,000-shot chi-square tests of every sampler, property tests, xref, sanitizer runs); collision-free boson sampling, Fock state constructors, Gaussian to Fock conversion. Phase 4: the loop torontonian (threshold detection of displaced states); feed-forward; adjoint gradients on the Fock backend (one forward and one backward pass, exact for the truncated gates) and exact parameter-shift rules (`docs/decisions/AD1-adjoint-gradients.md`); partially distinguishable photons in boson sampling (HOM visibility or a Gram matrix) multi-photon source terms, detector dark counts and thermal loss (`docs/decisions/N1-noise-models.md`); Glynn's permanent on an NVIDIA GPU (`device => gpu | auto`), its terms bit-identical to the CPU kernel's (`docs/decisions/G1-gpu-offload.md`); density matrices stored by photon-number blocks (`dm_storage => blocks`: cutoff 20 on 4 modes in 0.18 GB instead of 1.81 GB, `docs/decisions/B1-dm-blocks.md`) | The multi-node NFR-02 benchmark on separate machines; Phase 3: API freeze (review done, `docs/decisions/API-review.md`); the rest of the gate library; the benchmark harness and reference hardware; the decision records are in `docs/decisions/` |
+## What is done
+
+### Core and kernels
+- **Infrastructure:** the NIF with loading, version check and cancel tokens; the ChaCha8 random stream (GT-R01);
+  core types, configuration, the error taxonomy and the packed binary codec (`pq_core`).
+- **Permanents:** `permanent`, `permanent_repeated`, `bs_probability`, deterministic by fixed blocks, checked
+  against thewalrus (GT-P01).
+- **Hafnians:** the hafnian, loop hafnian and torontonian, within 1e-15 of thewalrus up to M = 40 and 20 clicks
+  (S3, S4); Kan's repeated-index hafnian; the loop torontonian for threshold detection of displaced states.
+- **Fock matrices:** beamsplitter, displacement and squeezing, checked against 80-digit closed forms (S5, S8).
+
+### Circuits and states
+- **Circuits** (`pq_circuit`): construction and editing; validation of modes, parameters, numeric domains,
+  unitarity, inputs, measured-mode reuse and custom instructions; composition with mode maps and renames; symbols;
+  safe binary serialisation; the gate library; the Clements mesh (`mesh/1`); JSON interchange (Appendix B).
+- **States** (`pq_state`): the Fock basis index (FS 3.4), Gaussian preparation, reduced states, physicality;
+  Fock state constructors; Gaussian to Fock conversion.
+- **Converters** to and from Perceval and Piquasso (`pq_convert`), conventions asserted against the libraries.
+
+### Backends
+- **Gaussian** (`pq_gaussian`): evolution, terminal and mid-circuit homodyne sampling.
+- **Fock, pure states** (`pq_fock`): beamsplitter sectors, phase, Kerr, passive unitaries, displacement and
+  squeezing with the norm deficit; PNR, threshold and mixed sampling.
+- **Fock, density matrices** (`pq_fock_dm`): the Kraus sum of loss, photon statistics after loss equal to the
+  Gaussian backend's (GT-N01); storage by photon-number blocks (`dm_storage => blocks`, B1); gate plans, 5–25×
+  faster (B2).
+- **Measurements:** mid-circuit homodyne and PNR with post-selection (D1); feed-forward.
+- **Noise** (`pq_noise`, N1): loss (at inputs or outputs, or by trajectories), partial distinguishability (HOM
+  visibility or a Gram matrix), multi-photon sources, dark counts, thermal loss.
+
+### Sampling
+- **Boson sampling:** exact `sample_boson` (Clifford–Clifford in O(n 2^n), and brute force), chi-square tested (S6),
+  the stream order pinned by an independent reference (S7); lossy and collision-free variants; a Metropolis
+  sampler.
+- **Gaussian boson sampling:** photon-counting and threshold probabilities, chain-rule samplers with the truncated
+  mass, equal to thewalrus within 1e-14; prefix caching.
+- **Statistics:** mean photon number, g2, total variation distance, histograms, fidelity (GT-X01).
+- **GPU:** Glynn's permanent and the hafnian on an NVIDIA GPU (`device => gpu | auto`), bit-identical to the CPU
+  kernels (G1).
+
+### Jobs and distribution
+- **The job server** (`pq_parallel`, `pq_job`, `pq_worker`): chunks, at most `max_inflight` in flight, retries,
+  cancellation, timeouts, partial results; identical samples for any number of workers and any chunk size.
+- **Several nodes** (`pq_node_registry`, `pq_spec_cache`): discovery and handshake, chunks on other nodes
+  retried elsewhere when a node is lost, the memory pre-check, kernel isolation on peer nodes.
+- **The facade** `pq_api`: backend choice, run, sample, evolve, exact probabilities, `run_batch`; telemetry events.
+
+### Symbolic engine (`pq_symbolic`)
+- **Canonical form:** exact Gaussian rationals, radicals and exponentials, trigonometric functions as exponentials;
+  substitution with domains; differentiation (gradients, Jacobians, higher orders); exact or floating evaluation;
+  matrices; ASCII and LaTeX printing; a parser with atom safety; bounded execution.
+- **Physics:** the symbolic unitary of passive circuits with a decisive unitarity check; symbolic permanents;
+  symbolic Gaussian evolution (FR-G04).
+- **Compiled programs:** straight-line programs and `equiv`.
+- **Speed:** compared with FORM every week (`comparison/form`).
+
+### Gradients
+- Central differences; symbolic gradients for passive circuits and Gaussian inputs; adjoint gradients on the Fock
+  backend, through loss too, and exact parameter-shift rules (AD1).
+
+### Python and services
+- A JSON service over stdio and HTTP (`pq_service`) and the Python client `pqcf` (`python/`, C1).
+
+### Quality
+- The verification plan: million-shot chi-square tests of every sampler, property tests, xref, Dialyzer,
+  AddressSanitizer runs.
+- The user guide `docs/guide.md`, whose examples run as tests; the API review and freeze.
+
+## Unreleased (1.3.0)
+
+The symbolic engine against FORM 5 (`CHANGELOG.md`, `docs/decisions/` K1, K2, H1–H4):
+
+- **Expansion:**
+  - polynomial products and powers in Rust (K1);
+  - polynomials kept in Rust between operations (K2);
+  - dense products about 4× faster than FORM; sparse products, powers and the symbolic mesh 1.5–4.3× FORM's time
+    (from 1.3–32× on 2 Nov).
+- **Compiled programs:**
+  - Horner schemes with primitive nodes and subtraction (H1, H4);
+  - common subexpressions across them (H2);
+  - a parallel, deterministic search over variable orders, local or Monte Carlo tree search (H3, H4);
+  - below FORM's `O2` on the resultant benchmarks at the default order.
+
+## Next
+
+- The multi-node NFR-02 benchmark on separate machines.
+- The reference hardware for the benchmarks (`bench/HARDWARE.md` is provisional).
 
 ## Documentation
 
