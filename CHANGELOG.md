@@ -49,7 +49,12 @@ the public API is additive.
     (`{dots, D}`); the double box checked equal to FIRE's at a random point mod p, and reduced in 3.5 s on one core
     against FIRE's 7.7-8.4 s; seeds chosen automatically (`{auto, Family[, Target]}`: the smallest seeds whose
     reduction is complete, every non-zero master itself a seed): the double box in 3.95 s (FIRE 7.7-8.4 s), and
-    I(1,1,1,1,1,1,1,-2,-1) in 32.2 s (FIRE 11.9-12.2 s), both checked equal to FIRE's; three executors
+    I(1,1,1,1,1,1,1,-2,-1) in 32.2 s (FIRE 11.9-12.2 s), both checked equal to FIRE's;
+  - `pq_simplify`: results simplified by verified rewriting (exact division by an alphabet of candidate factors,
+    collecting by monomials, the smallest of the expanded, factored and collected forms by the additions written,
+    checked at random points; `format/1` prints the structure); the double box's coefficients 25 -> 18 additions
+    and 79 -> 58, in the textbook form (factors in d, monomials in s, t); the remaining numerators are irreducible
+    (checked with FORM), so a network proposing factors has nothing to add on these results; three executors
     behind one task interface (this node, Erlang nodes, FVLLMP federation peers), from a single node to 100+.
 
 ## 1.3.0 (7 November 2026)

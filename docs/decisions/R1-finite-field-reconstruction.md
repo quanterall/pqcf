@@ -512,3 +512,44 @@ Both double-box results are checked equal to FIRE's at a random point mod p (`fi
   cheaper point, by replaying the learned elimination instead of searching for pivots again.
 - **A learned model for the seeds isn't needed yet.** The simple growth finds the smallest seeds at the cost of one
   or two numeric solves; a model would have nothing to gain until families with many more candidates.
+
+## Simplifying the results: verified rewriting (7 Nov 2026)
+
+The question was whether neural networks could simplify symbolic results. A network's output is never exact, but
+PQCF can check any rewrite exactly and cheaply: evaluate the original and the rewritten form at random points. So
+the design is *propose, then verify*. The proposer can be a fixed rule, a heuristic or, later, a trained model; a
+proposal can make a result smaller, never wrong.
+
+`pq_simplify` is that environment, with no learning in it yet:
+- **Moves.**
+  - Exact division by candidate factors over the rationals. The default alphabet is the variables, a·x + b
+    (a = 1..3, |b| ≤ 12) and x ± y, x + 2y, 2x + y; `extra` adds proposals.
+  - Collecting by monomials in some variables (default: all but d), each coefficient factored and cancelled
+    against the denominator's factors in the other variables.
+- **Size: the additions written** (`adds/1`; a sum of k terms has k − 1). A product of linear factors counts one per
+  factor, its expansion one per term. `rational/4` returns the smallest of the expanded, factored and collected
+  forms, the more structured among equals: never larger than the input.
+- **Verification.** Division is exact by construction, and `verify/4` checks the result against the input at random
+  points anyway.
+- **Printing:** `format/1` keeps the structure. `pq_symbolic:pretty/1` canonicalises, which would expand the
+  products again.
+
+On the double box (`ibp:main/2` writes `<name>.simplified`, every coefficient verified):
+
+| target | additions, expanded | simplified |
+| --- | --- | --- |
+| kite I(1,1,1,1,1) | 6 | 5 |
+| double box I(1,1,1,1,1,1,1,−1,−1) | 25 | 18 |
+| double box I(1,1,1,1,1,1,1,−2,−1) | 79 | 58 |
+
+For example, the coefficient of I(1,1,0,0,0,1,1,0,0) goes from (−255 + 323/2 d − 51/2 d²) / (16s − 8ds + d²s) to
+−(17/2)(3d − 10)(d − 3) / (s (d − 4)²).
+
+**Is there anything left for a network to find?** For factors, no. FORM's complete multivariate factorisation (FLINT)
+of the remaining unfactored numerators finds them irreducible over the rationals: only content (2, −1/6, 1/4) comes
+out. The alphabet already found every factor of these results, so a model proposing factors would have nothing to
+add here. Where a network could still help:
+- **The choice of masters.** The basis decides how large the coefficients are. Choices that separate d from the
+  kinematics (d-factorising bases) are known to shrink coefficients a lot, and the space of choices grows quickly
+  with the number of sectors: a search a model can steer, every candidate verified exactly by reducing again.
+- **Larger results** (more loops, more scales), where factors outside a fixed alphabet appear.

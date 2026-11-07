@@ -208,6 +208,17 @@ main(Dir, Cases) ->
          Answer = [{P(pq_sym_norm:to_ast(Nu)), P(pq_sym_norm:to_ast(De)), atom_to_list(X)} || {_, {sym, X}, {Nu, De}} <- NonZero],
          ok = file:write_file(filename:join(Dir, Name ++ ".answer"),
                               [[io_lib:format("~w", [M]), " ", Nu, " / ", De, "\n"] || {{M, _}, {Nu, De, _}} <- lists:zip([{M, S} || {M, S, _} <- NonZero], Answer)]),
+         %% the coefficients simplified (pq_simplify: factors from an alphabet, verified against the reconstruction)
+         Simple = [begin
+                       {Ast, St} = pq_simplify:rational(Nu, De, invariants(Target), #{}),
+                       true = pq_simplify:verify(Ast, Nu, De, invariants(Target)),
+                       {M, Ast, St}
+                   end || {M, _, {Nu, De}} <- NonZero],
+         ok = file:write_file(filename:join(Dir, Name ++ ".simplified"),
+                              [[io_lib:format("~w", [M]), " ", pq_simplify:format(Ast), "\n"] || {M, Ast, _} <- Simple]),
+         io:format("  simplified: ~b additions -> ~b (forms ~w)~n",
+                   [lists:sum([I || {_, _, #{size_in := I}} <- Simple]), lists:sum([O || {_, _, #{size_out := O}} <- Simple]),
+                    [F || {_, _, #{form := F}} <- Simple]]),
          %% the FORM script (FORM eliminates from the last column: the columns and rows reversed); only for systems
          %% FORM can be expected to solve
          case N =< 4000 of
