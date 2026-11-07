@@ -326,3 +326,35 @@ U − Σ rat(Nⱼ mⱼ, Dⱼ) = 0 (it is, in every case):
   FORM's symbolic elimination swells, while PQCF's cost per point is a sparse elimination of numbers.
 - **What wasn't compared:** FORM's threaded TFORM, and the dedicated reduction programs (Kira, FIRE) that physicists
   use for IBP. Those are the real competition at scale, and the next comparison.
+
+## A two-loop family: the massless propagator "kite" (7 Nov 2026)
+
+`comparison/form/ibp.erl` now takes the family with the seeds: `{kite, MaxPower, MaxNumerator}`.
+- **The family:** D₁ = k₁², D₂ = k₂², D₃ = (k₁−p)², D₄ = (k₂−p)², D₅ = (k₁−k₂)², with p² = s. These five form a
+  complete basis of the scalar products, so the family has no irreducible numerators. The invariants are d and s.
+- **The identities:** ∂/∂kᵢ·v for i = 1, 2 and v = k₁, k₂, p, six per seed.
+- **The zero sectors:** the graph has external vertices a and b and lines a–X, X–b, Y–a, b–Y, X–Y. Contract every
+  line whose index is ≤ 0. The integral is scaleless if a and b merge, or if a remaining line becomes a self-loop.
+- **The target:** I(1,1,1,1,1) reduces to the product of two one-loop bubbles, I(1,1,1,1,0), and the sunset. The
+  sunset appears twice, as I(1,0,0,1,1) and I(0,1,1,0,1): the generator doesn't apply the family's symmetries, so
+  two equal integrals stay separate masters.
+
+`pq_recon:linear/4` passes its options' expression limits (`max_expr_nodes`, ...) to the compiler. A is passed
+dense, and at 2,102 equations it has 4.4 million entries, far past the default limit of 10⁶ nodes.
+
+FORM 5 checks every answer, as for the box: U − Σ rat(Nⱼ mⱼ, Dⱼ) = 0.
+
+| seeds (max power, max numerator) | system | masters | FORM 5, 1 core | PQCF, 1 core | ratio |
+| --- | --- | --- | --- | --- | --- |
+| 5, 0 | 222 × 222 | 75 | 0.68 s | 0.23 s | 3.0× |
+| 6, 0 | 389 × 389 | 95 | 2.0 s | 0.45 s | 4.4× |
+| 6, 1 | 932 × 932 | 149 | 12.2 s | 2.78 s | 4.4× |
+| 7, 1 | 1,136 × 1,136 | 164 | 17.2 s | 4.70 s | 3.7× |
+| 7, 2 | 2,102 × 2,102 | 220 | 60.8 s | 12.65 s | 4.8× |
+
+- **Core for core, PQCF is 3–4.8× faster than FORM on every kite system,** the smallest included. The gap
+  grows slowly with the size.
+- **The masters column counts unreduced boundary integrals too.** These are the integrals at the edge of the seed
+  range. Their coefficients in the target's reduction are 0, which one elimination per point finds at once.
+- **Next, at the scale where dense input stops working:** a sparse A for `pq_recon:linear/4`, and the dedicated
+  programs (Kira, FIRE) on a public benchmark.

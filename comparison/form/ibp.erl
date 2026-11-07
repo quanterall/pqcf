@@ -17,9 +17,13 @@
 %% square system of the pivot rows in the pivot columns, the masters moved to the right-hand side as symbols M1, ..,
 %% is what both systems solve for the target.
 %%
-%%   erl -pa _build/default/lib/*/ebin -pa <dir> -noshell -eval 'ibp:main("<dir>", [{4, 0}, {5, 1}])'
+%% A second family, two loops: the massless propagator "kite" (below), seeds {kite, Pos, Neg}, target I(1,1,1,1,1).
+%%
+%%   erl -pa _build/default/lib/*/ebin -pa <dir> -noshell -eval 'ibp:main("<dir>", [{4, 0}, {5, 1}, {kite, 6, 1}])'
 -module(ibp).
 -export([main/2, system/3, identities/1, subst_master/2]).
+
+-define(LIMITS, #{sym_timeout_ms => 3600000, sym_max_heap_words => 4000000000, max_expr_nodes => 500000000}).
 
 -define(P, 1000000007).
 
@@ -73,27 +77,84 @@ identity(A, V) ->
 term(A, C, const) -> {A, C};
 term(A, C, M) -> {setelement(M, A, element(M, A) - 1), C}.
 
+zero(A) when tuple_size(A) =:= 5 -> kite_zero(A);
 zero(A) ->
     Pos = [J || J <- [1, 2, 3, 4], element(J, A) > 0],
     not ((lists:member(1, Pos) andalso lists:member(3, Pos)) orelse (lists:member(2, Pos) andalso lists:member(4, Pos))).
 
 %% every identity for the seeds with indices in -Neg .. 2, at most Pos positive powers, in nonzero sectors: a list of
 %% equations, each a map Integral => CoefficientAst (zero integrals dropped, equal integrals merged)
-identities({Pos, Neg}) ->
-    Seeds = [{A1, A2, A3, A4} || A1 <- lists:seq(-Neg, 2), A2 <- lists:seq(-Neg, 2), A3 <- lists:seq(-Neg, 2),
-                                 A4 <- lists:seq(-Neg, 2),
-                                 lists:sum([max(0, X) || X <- [A1, A2, A3, A4]]) =< Pos,
-                                 not zero({A1, A2, A3, A4})],
+identities({Pos, Neg}) -> identities({box, Pos, Neg});
+identities({Family, Pos, Neg}) ->
+    Size = case Family of box -> 4; kite -> 5 end,
+    Seeds = [list_to_tuple(L) || L <- tuples(Size, lists:seq(-Neg, 2)),
+                                 lists:sum([max(0, X) || X <- L]) =< Pos, not zero(list_to_tuple(L))],
+    Ids = case Family of
+              box -> [identity(A, V) || A <- Seeds, V <- [k, p1, p2, p4]];
+              kite -> [kite_identity(A, Dk, V) || A <- Seeds, Dk <- [k1, k2], V <- [k1, k2, p]]
+          end,
     [maps:filter(fun(I, _) -> not zero(I) end,
-                 lists:foldl(fun({I, C}, M) -> maps:update_with(I, fun(C0) -> {add, [C0, C]} end, C, M) end, #{},
-                             identity(A, V)))
-     || A <- Seeds, V <- [k, p1, p2, p4]].
+                 lists:foldl(fun({I, C}, M) -> maps:update_with(I, fun(C0) -> {add, [C0, C]} end, C, M) end, #{}, Id))
+     || Id <- Ids].
+
+tuples(0, _) -> [[]];
+tuples(N, Range) -> [[X | T] || X <- Range, T <- tuples(N - 1, Range)].
+
+%%% The two-loop massless propagator ("kite") family
+%%
+%% D1 = k1^2, D2 = k2^2, D3 = (k1 - p)^2, D4 = (k2 - p)^2, D5 = (k1 - k2)^2, p^2 = s: a complete basis of the scalar
+%% products (no irreducible numerators). Its graph: external vertices a (p in) and b (p out), inner X and Y; lines
+%% 1: a-X, 2: X-b, 3: Y-a, 4: b-Y, 5: X-Y. A missing propagator (index =< 0) contracts its line; the integral is
+%% scaleless -- zero -- if a and b merge (no momentum flows) or a remaining line becomes a self-loop (a massless
+%% tadpole). The identities: d/dk_i . v for i = 1, 2 and v = k1, k2, p (six per seed).
+
+kite_zero(A) ->
+    Lines = [{1, a, x}, {2, x, b}, {3, y, a}, {4, b, y}, {5, x, y}],
+    Root = lists:foldl(fun({J, U, V}, R) ->
+                               case element(J, A) =< 0 of
+                                   true -> union(U, V, R);
+                                   false -> R
+                               end
+                       end, #{}, Lines),
+    F = fun(V) -> find(V, Root) end,
+    F(a) =:= F(b) orelse lists:any(fun({J, U, V}) -> element(J, A) > 0 andalso F(U) =:= F(V) end, Lines).
+
+find(V, R) -> case R of #{V := P} when P =/= V -> find(P, R); _ -> V end.
+union(U, V, R) -> case {find(U, R), find(V, R)} of {X, X} -> R; {X, Y} -> R#{X => Y} end.
+
+%% scalar products in the D's: a list of {Coefficient, j | const}
+kdot(k1, k1) -> [{1, 1}];
+kdot(k2, k2) -> [{1, 2}];
+kdot(p, p) -> [{s(), const}];
+kdot(k1, k2) -> [{{rat, 1, 2}, 1}, {{rat, 1, 2}, 2}, {{rat, -1, 2}, 5}];
+kdot(k1, p) -> [{{rat, 1, 2}, 1}, {{rat, -1, 2}, 3}, {{mul, [{rat, 1, 2}, s()]}, const}];
+kdot(k2, p) -> [{{rat, 1, 2}, 2}, {{rat, -1, 2}, 4}, {{mul, [{rat, 1, 2}, s()]}, const}];
+kdot(A, B) -> kdot(B, A).
+
+%% d D_j / d k_i as twice a combination of momenta [{Coefficient, momentum}]
+dprop(1, k1) -> [{1, k1}];
+dprop(2, k2) -> [{1, k2}];
+dprop(3, k1) -> [{1, k1}, {-1, p}];
+dprop(4, k2) -> [{1, k2}, {-1, p}];
+dprop(5, k1) -> [{1, k1}, {-1, k2}];
+dprop(5, k2) -> [{-1, k1}, {1, k2}];
+dprop(_, _) -> [].
+
+kite_identity(A, Dk, V) ->
+    Div = case Dk =:= V of true -> [{A, d()}]; false -> [] end,
+    Deriv = lists:append(
+              [begin
+                   Aj = element(J, A),
+                   Raised = setelement(J, A, Aj + 1),
+                   [term(Raised, {mul, [-2 * Aj, C0, C]}, X) || {C0, Mom} <- dprop(J, Dk), {C, X} <- kdot(V, Mom)]
+               end || J <- lists:seq(1, 5), element(J, A) =/= 0]),
+    Div ++ Deriv.
 
 %%% Laporta order and the square system
 
 %% more complex first: positive propagators, then their total power, then numerator powers, then the tuple
-weight({A1, A2, A3, A4} = A) ->
-    L = [A1, A2, A3, A4],
+weight(A) ->
+    L = tuple_to_list(A),
     {length([x || X <- L, X > 0]), lists:sum([X || X <- L, X > 0]), -lists:sum([X || X <- L, X < 0]), A}.
 
 %% {A, B, Vars, Masters, TargetIndex}: the square system for Target, the masters as symbols M1, ..
@@ -127,8 +188,11 @@ system(Seeds, Target, Seed) ->
     Rows = [lists:nth(R, SqRows) || R <- Order],
     A = [[maps:get(I, Row, 0) || I <- UCols] || Row <- Rows],
     B = [{add, [0 | [{mul, [-1, C, maps:get(I, MIndex)]} || I := C <- Row, maps:is_key(I, MIndex)]]} || Row <- Rows],
-    Vars = [d, s, t] ++ [X || {sym, X} <- MSyms],
+    Vars = invariants(Target) ++ [X || {sym, X} <- MSyms],
     {A, B, Vars, lists:zip(Masters, MSyms), length(UCols) - 1, UCols}.
+
+invariants(T) when tuple_size(T) =:= 5 -> [d, s];
+invariants(_) -> [d, s, t].
 
 %% Gaussian elimination mod ?P, rows sparse maps col => value, columns in order 1 .. N: {pivot rows, pivot columns}
 eliminate(Rows, N) -> elim(Rows, 1, N, [], []).
@@ -165,22 +229,25 @@ inv(A, M) -> pq_ff:inv(A, M).
 main(Dir, Cases) ->
     {ok, _} = application:ensure_all_started(pq),
     [begin
-         Target = {2, 1, 1, 1},
+         Target = case Seeds of {kite, _, _} -> {1, 1, 1, 1, 1}; _ -> {2, 1, 1, 1} end,
          {Ts, {A, B, Vars, Masters, TI, _Cols}} = timer:tc(?MODULE, system, [Seeds, Target, 1]),
          N = length(B),
          %% the answer is linear in the masters: one right-hand side per master, each coefficient a rational function
          %% of d, s, t alone; one elimination per point serves them all, and the zero ones are found at once
          MSyms = [X || {_, {sym, X}} <- Masters],
          Bs = [[subst_master(Bi, X) || X <- MSyms] || Bi <- B],
-         {T, {ok, [{TI, PerMaster}]}} = timer:tc(pq_recon, linear, [A, Bs, [d, s, t], #{components => [TI]}]),
+         {T, {ok, [{TI, PerMaster}]}} = timer:tc(pq_recon, linear, [A, Bs, invariants(Target), ?LIMITS#{components => [TI]}]),
          Coeffs = [{M, Sym, lists:nth(C + 1, [ND || {_, ND} <- lists:sort(PerMaster)])} || {C, {M, Sym}} <- lists:enumerate(0, Masters)],
          NonZero = [{M, Sym, NumDen} || {M, Sym, {Nu, _} = NumDen} <- Coeffs, map_size(Nu) > 0],
          P = fun(E) -> binary_to_list(pq_symbolic:pretty(E)) end,
-         File = filename:join(Dir, io_lib:format("ibp_~b_~b.frm", [element(1, Seeds), element(2, Seeds)])),
+         File = filename:join(Dir, case Seeds of
+                                       {F, Po, Ne} -> io_lib:format("ibp_~s_~b_~b.frm", [F, Po, Ne]);
+                                       {Po, Ne} -> io_lib:format("ibp_~b_~b.frm", [Po, Ne])
+                                   end),
          Rev = fun(L) -> lists:reverse(L) end,
          Answer = [{P(pq_sym_norm:to_ast(Nu)), P(pq_sym_norm:to_ast(De)), atom_to_list(X)} || {_, {sym, X}, {Nu, De}} <- NonZero],
          ok = file:write_file(File, form_script(Rev([Rev(Row) || Row <- A]), Rev(B), Vars, Answer)),
-         io:format("IBP box, seeds ~p: ~b x ~b system (built in ~.1f s), ~b masters; I~w reduced in ~.2f s to ~b of them: ~s~n",
+         io:format("IBP, seeds ~p: ~b x ~b system (built in ~.1f s), ~b masters; I~w reduced in ~.2f s to ~b of them: ~s~n",
                    [Seeds, N, N, Ts / 1.0e6, length(Masters), Target, T / 1.0e6, length(NonZero),
                     lists:join(", ", [io_lib:format("~w (~b/~b terms)", [M, map_size(Nu), map_size(De)]) || {M, _, {Nu, De}} <- NonZero])])
      end || Seeds <- Cases],

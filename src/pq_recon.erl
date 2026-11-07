@@ -74,7 +74,8 @@ rational_job(#{bb := BB} = Job, Vars, Shift, Dn, Dd) ->
 %% [{Component, {N, D}}] for one right-hand side, [{Component, [{Rhs, {N, D}}]}] for several. Each is reconstructed
 %% from sparse eliminations mod p at the sample points (pq_nif:ff_linsys/5), never a symbolic solve; with several
 %% right-hand sides, one elimination per point tests them all for 0 (at three points, in the first prime) and only
-%% the others are reconstructed (R1 phase 5). Opts as for rational/3.
+%% the others are reconstructed (R1 phase 5). Opts as for rational/3, plus the expression limits
+%% (max_expr_nodes, ..) for compiling A and B.
 -spec linear([[term()]], [term()] | [[term()]], [atom()], map()) -> {ok, list()} | {error, term()}.
 linear(A, B, Vars, Opts) ->
     N = length(B),
@@ -85,7 +86,9 @@ linear(A, B, Vars, Opts) ->
         andalso lists:all(fun(Row) -> length(Row) =:= M end, Bs) andalso M > 0 of
         false -> {error, {bad_shape, linear_system}};
         true ->
-            case pq_symbolic:compile(lists:append(A) ++ lists:append(Bs), Vars, #{exact_constants => true}) of
+            %% A is passed dense: a large system needs the expression limits raised (Opts' limit keys reach compile)
+            Limits = maps:with([max_poly_terms, max_expand_power, max_expr_nodes, sym_timeout_ms, sym_max_heap_words], Opts),
+            case pq_symbolic:compile(lists:append(A) ++ lists:append(Bs), Vars, Limits#{exact_constants => true}) of
                 {ok, Prog} ->
                     Wanted = maps:get(components, Opts, lists:seq(0, N - 1)),
                     Results = [{W, component(Prog, Vars, N, M, W, Opts)} || W <- Wanted],

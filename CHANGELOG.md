@@ -32,7 +32,9 @@ the public API is additive.
   - several right-hand sides at once (one per master integral): sparse elimination per point in Laporta order, all
     right-hand sides tested for 0 together; on the integration-by-parts identities of the one-loop massless box
     (`comparison/form/ibp.erl`, 86 to 497 equations), the same reductions as FORM 5 and, core for core, 1.9-4.5x
-    faster than its symbolic elimination from about 260 equations up; three executors
+    faster than its symbolic elimination from about 260 equations up; on a two-loop family, the massless propagator "kite" (222 to 2,102
+    equations, the kite reduced to the bubble squared and the sunset), 3-4.8x faster; `linear/4` passes its
+    options' expression limits to the compiler (a dense A of millions of entries); three executors
     behind one task interface (this node, Erlang nodes, FVLLMP federation peers), from a single node to 100+.
 
 ## 1.3.0 (7 November 2026)
