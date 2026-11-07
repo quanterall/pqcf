@@ -175,14 +175,116 @@ pub fn tvandermonde(p: u64, nodes: &[u64], values: &[u64]) -> Option<Vec<u64>> {
 }
 
 /// What the reconstruction samples (R1): a program's first output, or the solution of a linear system whose
-/// entries are a program's outputs (phase 5): A u = b with A the first n*n outputs row by row and b the next n,
-/// solved by elimination mod p at each point, its component `want` the value (bad where A is singular).
+/// entries are a program's outputs (phase 5): A u = B with A the first n*n outputs row by row and B the next n*m
+/// (n rows of m right-hand sides), solved by sparse elimination mod p at each point; the value is component `want`
+/// of the solution for right-hand side `col` (bad where A is singular).
 pub enum BlackBox {
     Prog(Program),
-    Lin { prog: Program, n: usize, want: usize },
+    Lin { prog: Program, n: usize, m: usize, want: usize, col: usize },
+}
+
+/// Component `want` of the solutions of A u = B (A n x n, B n x m, both row-major) mod p, for every right-hand side:
+/// sparse Gaussian elimination, column k = 0 up to n-1 (the order of the columns: put the most complex first, as
+/// Laporta's reductions do, to keep the fill-in low), its pivot row k if that row has the column, else the first
+/// remaining row that does (a deterministic choice); rows indexed by column, so only the rows that hold a column are
+/// touched; then back substitution from column n-1 down to `want` (one step for the last column). None if A is
+/// singular.
+pub fn solve_sparse(p: u64, a: &[u64], b: &[u64], n: usize, m: usize, want: usize) -> Option<Vec<u64>> {
+    use std::collections::BTreeSet;
+    let mut rows: Vec<Vec<(usize, u64)>> = (0..n)
+        .map(|r| (0..n).filter_map(|c| { let v = a[r * n + c] % p; (v != 0).then_some((c, v)) }).collect())
+        .collect();
+    let mut rhs: Vec<Vec<u64>> = (0..n).map(|r| b[r * m..(r + 1) * m].iter().map(|&v| v % p).collect()).collect();
+    let mut col_rows: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); n];
+    for (r, row) in rows.iter().enumerate() {
+        for &(c, _) in row {
+            col_rows[c].insert(r);
+        }
+    }
+    let mut pivot = vec![usize::MAX; n];
+    let mut done = vec![false; n];
+    for k in 0..n {
+        let r = if col_rows[k].contains(&k) && !done[k] { k } else { *col_rows[k].iter().find(|&&q| !done[q])? };
+        done[r] = true;
+        pivot[k] = r;
+        for &(c, _) in &rows[r] {
+            col_rows[c].remove(&r);
+        }
+        let ark = rows[r].iter().find(|e| e.0 == k).map(|e| e.1)?;
+        let inv = invmod(ark, p)?;
+        let others: Vec<usize> = col_rows[k].iter().copied().filter(|&q| !done[q]).collect();
+        for q in others {
+            let aqk = rows[q].iter().find(|e| e.0 == k).map(|e| e.1).unwrap_or(0);
+            if aqk == 0 {
+                continue;
+            }
+            let f = mulmod(aqk, inv, p);
+            // row_q -= f row_r, merging the sorted rows
+            let (rq, rr) = (std::mem::take(&mut rows[q]), &rows[r]);
+            let mut merged = Vec::with_capacity(rq.len() + rr.len());
+            let (mut i, mut j) = (0, 0);
+            while i < rq.len() || j < rr.len() {
+                let (c, v) = if j >= rr.len() || (i < rq.len() && rq[i].0 < rr[j].0) {
+                    i += 1;
+                    rq[i - 1]
+                } else if i >= rq.len() || rr[j].0 < rq[i].0 {
+                    j += 1;
+                    (rr[j - 1].0, (p - mulmod(f, rr[j - 1].1, p)) % p)
+                } else {
+                    i += 1;
+                    j += 1;
+                    (rq[i - 1].0, (rq[i - 1].1 + p - mulmod(f, rr[j - 1].1, p)) % p)
+                };
+                if v != 0 {
+                    merged.push((c, v));
+                } else {
+                    col_rows[c].remove(&q);
+                }
+            }
+            for &(c, _) in &merged {
+                col_rows[c].insert(q);
+            }
+            rows[q] = merged;
+            for t in 0..m {
+                rhs[q][t] = (rhs[q][t] + p - mulmod(f, rhs[r][t], p)) % p;
+            }
+        }
+    }
+    // back substitution: the pivot row of column k holds only columns >= k
+    let mut u = vec![vec![0u64; m]; n];
+    for k in (want..n).rev() {
+        let r = pivot[k];
+        let inv = invmod(rows[r].iter().find(|e| e.0 == k).map(|e| e.1)?, p)?;
+        for t in 0..m {
+            let mut acc = rhs[r][t];
+            for &(c, v) in &rows[r] {
+                if c > k {
+                    acc = (acc + p - mulmod(v, u[c][t], p)) % p;
+                }
+            }
+            u[k][t] = mulmod(acc, inv, p);
+        }
+    }
+    Some(u[want].clone())
 }
 
 impl BlackBox {
+    /// for a linear system: per point, component `want` of the solution for every right-hand side (None where A
+    /// is singular or an entry is undefined)
+    pub fn eval_all(&self, p: u64, points: &[u64]) -> Result<Vec<Option<Vec<u64>>>, FfError> {
+        match self {
+            BlackBox::Prog(_) => Err(FfError::Shape),
+            BlackBox::Lin { prog, n, m, want, .. } => {
+                let (n, m) = (*n, *m);
+                let vals = prog.eval(p, points)?;
+                Ok(vals
+                    .chunks(prog.outputs.len())
+                    .map(|row| if row.contains(&BAD) { None } else { solve_sparse(p, &row[..n * n], &row[n * n..n * n + n * m], n, m, *want) })
+                    .collect())
+            }
+        }
+    }
+
     pub fn ninputs(&self) -> usize {
         match self {
             BlackBox::Prog(p) => p.ninputs,
@@ -197,17 +299,18 @@ impl BlackBox {
                 let vals = prog.eval(p, points)?;
                 Ok(vals.iter().step_by(prog.outputs.len().max(1)).copied().collect())
             }
-            BlackBox::Lin { prog, n, want } => {
-                let n = *n;
-                let width = prog.outputs.len();
+            // one right-hand side: only its column of B goes through the elimination
+            BlackBox::Lin { prog, n, m, want, col } => {
+                let (n, m) = (*n, *m);
                 let vals = prog.eval(p, points)?;
                 Ok(vals
-                    .chunks(width)
+                    .chunks(prog.outputs.len())
                     .map(|row| {
                         if row.contains(&BAD) {
                             return BAD;
                         }
-                        solve_mod(p, row[..n * n].to_vec(), row[n * n..n * n + n].to_vec(), n).map_or(BAD, |u| u[*want])
+                        let b: Vec<u64> = (0..n).map(|r| row[n * n + r * m + col]).collect();
+                        solve_sparse(p, &row[..n * n], &b, n, 1, *want).map_or(BAD, |u| u[0])
                     })
                     .collect())
             }
@@ -471,12 +574,36 @@ mod tests {
             ninputs: 2,
         };
         let p = 101u64;
-        let bb0 = BlackBox::Lin { prog: prog.clone(), n: 2, want: 0 };
-        let bb1 = BlackBox::Lin { prog, n: 2, want: 1 };
+        let bb0 = BlackBox::Lin { prog: prog.clone(), n: 2, m: 1, want: 0, col: 0 };
+        let bb1 = BlackBox::Lin { prog, n: 2, m: 1, want: 1, col: 0 };
         let inv = |a: u64| invmod(a, p).unwrap();
         // at (3, 5): det 14; and (1, 1): singular
         assert_eq!(bb0.eval1(p, &[3, 5, 1, 1]).unwrap(), vec![mulmod(5, inv(14), p), BAD]);
         assert_eq!(bb1.eval1(p, &[3, 5]).unwrap(), vec![(p - inv(14)) % p]);
+    }
+
+    #[test]
+    fn sparse_elimination_agrees_with_dense() {
+        let p = P;
+        let mut s = 0x0123_4567_89ab_cdefu64;
+        let mut next = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            s
+        };
+        for n in [1usize, 2, 5, 12, 30] {
+            let (m, want) = (3usize, (n - 1) * (n % 2));
+            // sparse: the diagonal and about a quarter of the rest
+            let a: Vec<u64> = (0..n * n).map(|i| if i % (n + 1) == 0 || next() % 4 == 0 { next() % p } else { 0 }).collect();
+            let b: Vec<u64> = (0..n * m).map(|_| next() % p).collect();
+            let got = solve_sparse(p, &a, &b, n, m, want).unwrap();
+            for (t, &g) in got.iter().enumerate() {
+                let col: Vec<u64> = (0..n).map(|r| b[r * m + t]).collect();
+                assert_eq!(g, solve_mod(p, a.clone(), col, n).unwrap()[want], "n {n} rhs {t}");
+            }
+        }
+        assert_eq!(solve_sparse(P, &[1, 2, 2, 4], &[1, 1], 2, 1, 1), None);
     }
 
     #[test]

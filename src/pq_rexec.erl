@@ -103,6 +103,8 @@ attempt(Node, Task, Home, Timeout) ->
 %%   {ok, Coefficients} | bad | singular | bad_prime
 %% {line_column, ProgramKey, P, Shift, R, N, SupportKey, Suffix, Ts, Dn, Dd}: one column of the coefficients of a
 %%   rational function along lines (pq_nif:ff_line_column/10): {ok, [Coefficients per output]} | bad | singular
+%% {linsys_all, BlackBox, P, Points}: a linear system's wanted component for every right-hand side at the points
+%%   (pq_nif:ff_linsys_all/3): {ok, [Values | bad]}
 %% {values, ProgramKey, P, Points}: the program's outputs at the points (pq_ff:eval/3)
 -spec run_task(tuple(), node()) -> term().
 run_task({column, ProgKey, P, R, N, SupportKey, Suffix}, Home) ->
@@ -113,6 +115,9 @@ run_task({line_column, ProgKey, P, Shift, R, N, SupportKey, Suffix, Ts, Dn, Dd},
     {ok, {ff, Ref, _, _}} = pq_rstore:prepared(ProgKey, Home),
     {ok, Support} = pq_rstore:fetch(SupportKey, Home),
     pq_nif:ff_line_column(Ref, P, Shift, R, N, Support, Suffix, Ts, Dn, Dd);
+run_task({linsys_all, BB, P, Points}, Home) ->
+    {ok, {ff, Ref, _, _}} = pq_rstore:prepared(BB, Home),
+    pq_nif:ff_linsys_all(Ref, P, lists:append(Points));
 run_task({values, ProgKey, P, Points}, Home) ->
     {ok, FF} = pq_rstore:prepared(ProgKey, Home),
     pq_ff:eval(FF, P, Points).

@@ -66,3 +66,16 @@ components_test() ->
 refusals_test() ->
     ?assertMatch({error, _}, pq_recon:linear([[x(), x()], [x(), x()]], [1, 2], [x], #{})),
     ?assertMatch({error, {bad_shape, _}}, pq_recon:linear([[x(), 1]], [1], [x], #{})).
+
+%% several right-hand sides at once: one elimination per point for all of them, the zero ones found by the shared
+%% test, each solution the one a single right-hand side gives
+multi_rhs_test() ->
+    A = [[x(), y(), 0], [0, x(), z()], [y(), 0, {add, [x(), 1]}]],
+    B1 = [1, {rat, 1, 2}, z()], B2 = [0, 0, 0], B3 = [x(), 0, 1],
+    Bs = [[P, Q, R] || {P, Q, R} <- lists:zip3(B1, B2, B3)],
+    {ok, [{2, PerRhs}]} = pq_recon:linear(A, Bs, [x, y, z], #{components => [2]}),
+    ?assertEqual([0, 1, 2], [C || {C, _} <- PerRhs]),
+    {ok, [{2, S1}]} = pq_recon:linear(A, B1, [x, y, z], #{components => [2]}),
+    {ok, [{2, S3}]} = pq_recon:linear(A, B3, [x, y, z], #{components => [2]}),
+    ?assertEqual({S1, S3}, {element(2, lists:keyfind(0, 1, PerRhs)), element(2, lists:keyfind(2, 1, PerRhs))}),
+    ?assertEqual({#{}, #{{[], []} => {q, {1, 1}, {0, 1}}}}, element(2, lists:keyfind(1, 1, PerRhs))).

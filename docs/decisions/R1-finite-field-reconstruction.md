@@ -280,3 +280,45 @@ is 0 in every case.
 - a real IBP system from the literature, or a public reduction benchmark, instead of synthetic ones;
 - several components at once (one multi-output reconstruction);
 - the federation executor (phase 6, once FVLLMP provides the gate route).
+
+## Phase 5 on a real reduction: the one-loop massless box (7 Nov 2026)
+
+`comparison/form/ibp.erl` generates the integration-by-parts identities of the one-loop massless box.
+- **The family:** D₁ = k², D₂ = (k+p₁)², D₃ = (k+p₁+p₂)², D₄ = (k−p₄)², with massless external momenta and the
+  invariants s, t and d.
+- **The identities:** ∫ ∂/∂k·v / ∏ Dⱼ^aⱼ = 0 for v = k, p₁, p₂, p₄, Laporta-style over seed ranges, with the
+  scaleless sectors dropped.
+- **The square system:** one elimination modulo a prime, in Laporta order, picks the independent equations and the
+  masters. A second elimination pivots the square system so that the target is eliminated last.
+- **The target:** I(2,1,1,1) reduces to the box and the t-bubble with the textbook box coefficient (5 − d)/s, and
+  the other masters drop out.
+- **The masters' coefficients are rational functions of (d, s, t) only.** The answer is linear in the masters, so
+  every master is a right-hand side: `pq_recon:linear/4` takes A u = B with several right-hand sides.
+
+What made it fast:
+- **One sparse elimination per point** (`solve_sparse` in `ffslp.rs`) tests every right-hand side for 0 at once, at
+  three points. Only the non-zero coefficients are reconstructed, each with its own right-hand side alone.
+- **The order of the elimination: Laporta's, the most complex column first.** The first sparse version eliminated
+  in the opposite order: 26 ms per point at n = 480 from fill-in, 3.5 ms in the right order. FORM eliminates in
+  the same order.
+
+FORM 5 solves the same square systems symbolically under `PolyRatFun`, the masters as symbols, and checks
+U − Σ rat(Nⱼ mⱼ, Dⱼ) = 0 (it is, in every case):
+
+| seeds (max power, max numerator) | system | masters | FORM 5, 1 core | PQCF, 1 core | PQCF, 20 cores |
+| --- | --- | --- | --- | --- | --- |
+| 4, 0 | 86 × 86 | 39 | 0.06 s | — | 0.15 s |
+| 5, 1 | 260 × 260 | 79 | 0.54 s | 0.28 s | 0.51 s |
+| 6, 1 | 304 × 304 | 87 | 1.45 s | — | 0.69 s |
+| 6, 2 | 480 × 480 | 103 | 2.4 s (4.4 s in another run) | 0.80 s | 1.29 s |
+| 7, 2 | 493 × 493 | 103 | 3.8 s | 0.84 s | 1.37 s |
+| 8, 2 | 497 × 497 | 103 | 2.5 s | — | 0.93 s |
+
+- **Core for core, PQCF reduces these systems 1.9–4.5 times faster than FORM from about 260 equations up.** The
+  smallest system goes to FORM.
+- **On 20 cores PQCF is slower than on one here.** The answer is small, so each Zippel stage needs a few columns,
+  and computing 20 ahead mostly wastes them. The batch should adapt to the answer, which is open.
+- **These systems are small next to real reductions** (10⁴–10⁶ equations). The method's advantage grows with them:
+  FORM's symbolic elimination swells, while PQCF's cost per point is a sparse elimination of numbers.
+- **What wasn't compared:** FORM's threaded TFORM, and the dedicated reduction programs (Kira, FIRE) that physicists
+  use for IBP. Those are the real competition at scale, and the next comparison.

@@ -9,7 +9,7 @@
 %%
 %%   erl -pa _build/default/lib/*/ebin -pa <dir> -noshell -eval 'linsys:main("<dir>", [{8, 3}])'
 -module(linsys).
--export([main/2, main/3, system/5]).
+-export([main/2, main/3, system/5, form_script/5]).
 
 vars(V) -> [list_to_atom("x" ++ integer_to_list(I)) || I <- lists:seq(1, V)].
 

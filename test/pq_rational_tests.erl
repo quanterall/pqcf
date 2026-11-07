@@ -80,3 +80,9 @@ determinism_test() ->
     ?assertMatch({ok, _}, A),
     ?assertEqual(A, rat(E, [x, y, z], #{seed => 1})),
     ?assertEqual(A, rat(E, [x, y, z], #{seed => 9})).
+
+%% the zero function: 0 / 1
+zero_test() ->
+    {ok, {N, D}} = rat({add, [{pow, {add, [x(), y()]}, -1}, {mul, [-1, {pow, {add, [y(), x()]}, -1}]}, {mul, [0, z()]}]}, [x, y, z]),
+    ?assertEqual(#{}, N),
+    ?assertEqual(#{{[], []} => {q, {1, 1}, {0, 1}}}, D).

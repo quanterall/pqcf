@@ -28,7 +28,11 @@ the public API is additive.
     reconstructed from eliminations mod p at the sample points (`pq_nif:ff_linsys/3`), never solved symbolically;
     against FORM 5's symbolic elimination under `PolyRatFun` (`comparison/form/linsys.erl`), the same answers, FORM
     12-18x faster when the answer is about as large as the elimination, PQCF 25 to 35,000x faster when it is
-    compact (as in integration-by-parts reductions; n = 24: FORM 697 s, PQCF 0.02 s); three executors
+    compact (as in integration-by-parts reductions; n = 24: FORM 697 s, PQCF 0.02 s);
+  - several right-hand sides at once (one per master integral): sparse elimination per point in Laporta order, all
+    right-hand sides tested for 0 together; on the integration-by-parts identities of the one-loop massless box
+    (`comparison/form/ibp.erl`, 86 to 497 equations), the same reductions as FORM 5 and, core for core, 1.9-4.5x
+    faster than its symbolic elimination from about 260 equations up; three executors
     behind one task interface (this node, Erlang nodes, FVLLMP federation peers), from a single node to 100+.
 
 ## 1.3.0 (7 November 2026)

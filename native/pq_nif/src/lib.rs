@@ -1785,15 +1785,31 @@ fn ff_line_column<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, p: u64, shift: Vec
     })
 }
 
-/// ff_linsys(Resource, N, Want) -> {ok, Resource} | {error, bad_shape}: the black box solving A u = b at each point,
-/// A the program's first N*N outputs row by row and b the next N, its value u[Want] (ffslp.rs; R1 phase 5)
+/// ff_linsys(Resource, N, M, Want, Col) -> {ok, Resource} | {error, bad_shape}: the black box solving A u = B at each
+/// point, A the program's first N*N outputs row by row and B the next N*M (N rows of M right-hand sides), its value
+/// u[Want] for right-hand side Col (ffslp.rs; R1 phase 5)
 #[rustler::nif]
-fn ff_linsys<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, n: usize, want: usize) -> NifResult<Term<'a>> {
+fn ff_linsys<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, n: usize, m: usize, want: usize, col: usize) -> NifResult<Term<'a>> {
     Ok(match &prog.0 {
-        ffslp::BlackBox::Prog(pr) if pr.outputs.len() == n * n + n && want < n && n > 0 => {
-            (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Lin { prog: pr.clone(), n, want }))).encode(env)
+        ffslp::BlackBox::Prog(pr) if pr.outputs.len() == n * n + n * m && want < n && col < m && n > 0 => {
+            (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Lin { prog: pr.clone(), n, m, want, col }))).encode(env)
         }
-        _ => bad_shape(env, "linear system: n*n + n outputs, want < n"),
+        _ => bad_shape(env, "linear system: n*n + n*m outputs, want < n, col < m"),
+    })
+}
+
+/// ff_linsys_all(Resource, P, Points) -> {ok, [Values | bad]}: per point, u[Want] for every right-hand side
+#[rustler::nif(schedule = "DirtyCpu")]
+fn ff_linsys_all<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, p: u64, points: Vec<u64>) -> NifResult<Term<'a>> {
+    if !(3..(1u64 << 63)).contains(&p) {
+        return Err(rustler::Error::BadArg);
+    }
+    Ok(match prog.0.eval_all(p, &points) {
+        Ok(rows) => {
+            let out: Vec<Term<'a>> = rows.into_iter().map(|r| match r { Some(v) => v.encode(env), None => atoms::bad().encode(env) }).collect();
+            (atoms::ok(), out).encode(env)
+        }
+        Err(_) => bad_shape(env, "ff linsys points"),
     })
 }
 
