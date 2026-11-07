@@ -35,7 +35,14 @@ the public API is additive.
     faster than its symbolic elimination from about 260 equations up; on a two-loop family, the massless propagator "kite" (222 to 2,102
     equations, the kite reduced to the bubble squared and the sunset), 3-4.8x faster; `linear/4` passes its
     options' expression limits to the compiler, and takes A's rows sparse (maps Column => entry), only the non-zero
-    entries compiled (`pq_nif:ff_linsys/6` with the sparsity pattern, a blob in the store); three executors
+    entries compiled; B's rows may be sparse too (`rhs => M`), the right-hand sides carried as sparse columns of the
+    elimination (`pq_nif:ff_linsys/7` with both patterns, a blob in the store), so thousands of masters cost their
+    non-zero entries: the kite 11-38x faster than FORM on one core; `pq_nif:ff_pivots/3` (the pivots of a sparse
+    matrix mod p, shortest row first); `comparison/form/ibp_family.erl`, IBP identities for any family from its
+    propagators (scalar products solved, zero sectors by the Lee-Pak criterion, Kira-style seeds; it found and fixed
+    a gap in the kite's zero rule); against FIRE 6.5.2 (FLINT) on its double box, FIRE reduces in 16 s what costs
+    PQCF 56 s per sample point -- the gap is the Laporta front end (no symmetries, no equation selection), recorded
+    in R1 with the steps that would close it; three executors
     behind one task interface (this node, Erlang nodes, FVLLMP federation peers), from a single node to 100+.
 
 ## 1.3.0 (7 November 2026)

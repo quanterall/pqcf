@@ -175,23 +175,36 @@ pub fn tvandermonde(p: u64, nodes: &[u64], values: &[u64]) -> Option<Vec<u64>> {
 }
 
 /// What the reconstruction samples (R1): a program's first output, or the solution of a linear system whose
-/// entries are a program's outputs (phase 5): A u = B with A sparse, row r holding the columns `pattern[r]`
-/// (increasing), its entries the first outputs row by row, and B the next n*m (n rows of m right-hand sides),
-/// solved by sparse elimination mod p at each point; the value is component `want` of the solution for right-hand
-/// side `col` (bad where A is singular).
+/// entries are a program's outputs (phase 5): A u = B, both sparse: row r of A holds the columns `pattern[r]`
+/// (increasing), its entries the first outputs row by row; row r of B the right-hand sides `bpattern[r]`
+/// (increasing, < m), its entries the next outputs row by row. Solved by sparse elimination mod p at each point
+/// (`solve_aug`); the value is component `want` of the solution for right-hand side `col` (bad where A is singular).
 pub enum BlackBox {
     Prog(Program),
-    Lin { prog: Program, n: usize, m: usize, want: usize, col: usize, pattern: std::sync::Arc<Vec<Vec<u32>>> },
+    Lin { prog: Program, n: usize, m: usize, want: usize, col: usize, pattern: Patterns },
 }
 
-/// the rows of A from one point's outputs and the pattern, zeros dropped
-fn pattern_rows(p: u64, vals: &[u64], pattern: &[Vec<u32>]) -> Vec<Vec<(usize, u64)>> {
-    let mut at = 0;
-    pattern
-        .iter()
-        .map(|cols| {
-            let row = cols.iter().zip(&vals[at..at + cols.len()]).filter_map(|(&c, &v)| (v % p != 0).then_some((c as usize, v % p))).collect();
-            at += cols.len();
+/// the sparsity patterns of A and B (shared by a system's black boxes)
+pub type Patterns = std::sync::Arc<(Vec<Vec<u32>>, Vec<Vec<u32>>)>;
+
+/// the rows of [A | B] from one point's outputs and the patterns, zeros dropped, B's right-hand side t as column
+/// n + t; with `only`, that right-hand side alone, as column n
+fn aug_rows(p: u64, vals: &[u64], pattern: &(Vec<Vec<u32>>, Vec<Vec<u32>>), n: usize, only: Option<usize>) -> Vec<Vec<(usize, u64)>> {
+    let (pa, pb) = pattern;
+    let nnz: usize = pa.iter().map(Vec::len).sum();
+    let (mut at, mut bt) = (0, nnz);
+    pa.iter()
+        .zip(pb)
+        .map(|(ca, cb)| {
+            let mut row: Vec<(usize, u64)> =
+                ca.iter().zip(&vals[at..at + ca.len()]).filter_map(|(&c, &v)| (v % p != 0).then_some((c as usize, v % p))).collect();
+            row.extend(cb.iter().zip(&vals[bt..bt + cb.len()]).filter_map(|(&t, &v)| match only {
+                _ if v % p == 0 => None,
+                None => Some((n + t as usize, v % p)),
+                Some(o) => (t as usize == o).then_some((n, v % p)),
+            }));
+            at += ca.len();
+            bt += cb.len();
             row
         })
         .collect()
@@ -210,24 +223,38 @@ pub fn solve_sparse(p: u64, a: &[u64], b: &[u64], n: usize, m: usize, want: usiz
     solve_rows(p, rows, b, n, m, want)
 }
 
-/// solve_sparse/6 on A given as sparse rows (column, value), each sorted by column, values reduced mod p
+/// solve_sparse/6 on A given as sparse rows (column, value), each sorted by column, values reduced mod p, and B dense
 pub fn solve_rows(p: u64, mut rows: Vec<Vec<(usize, u64)>>, b: &[u64], n: usize, m: usize, want: usize) -> Option<Vec<u64>> {
-    use std::collections::BTreeSet;
-    let mut rhs: Vec<Vec<u64>> = (0..n).map(|r| b[r * m..(r + 1) * m].iter().map(|&v| v % p).collect()).collect();
+    for (r, row) in rows.iter_mut().enumerate() {
+        row.extend((0..m).filter_map(|t| { let v = b[r * m + t] % p; (v != 0).then_some((n + t, v)) }));
+    }
+    solve_aug(p, rows, n, m, want)
+}
+
+/// The augmented form: row r of [A | B] as sparse (column, value) pairs, A's columns 0..n-1 and right-hand side t as
+/// column n + t, sorted, values reduced mod p. The elimination treats the right-hand sides as columns it never
+/// pivots on, so each costs only its non-zero entries: thousands of them (the masters of a large reduction) are
+/// cheap where most rows hold a few. Component `want` of every right-hand side's solution; None if A is singular.
+pub fn solve_aug(p: u64, mut rows: Vec<Vec<(usize, u64)>>, n: usize, m: usize, want: usize) -> Option<Vec<u64>> {
+    use std::collections::{BTreeMap, BTreeSet};
     let mut col_rows: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); n];
     for (r, row) in rows.iter().enumerate() {
         for &(c, _) in row {
-            col_rows[c].insert(r);
+            if c < n {
+                col_rows[c].insert(r);
+            }
         }
     }
     let mut pivot = vec![usize::MAX; n];
-    let mut done = vec![false; n];
+    let mut done = vec![false; rows.len()];
     for k in 0..n {
-        let r = if col_rows[k].contains(&k) && !done[k] { k } else { *col_rows[k].iter().find(|&&q| !done[q])? };
+        let r = if k < rows.len() && col_rows[k].contains(&k) && !done[k] { k } else { *col_rows[k].iter().find(|&&q| !done[q])? };
         done[r] = true;
         pivot[k] = r;
         for &(c, _) in &rows[r] {
-            col_rows[c].remove(&r);
+            if c < n {
+                col_rows[c].remove(&r);
+            }
         }
         let ark = rows[r].iter().find(|e| e.0 == k).map(|e| e.1)?;
         let inv = invmod(ark, p)?;
@@ -256,6 +283,96 @@ pub fn solve_rows(p: u64, mut rows: Vec<Vec<(usize, u64)>>, b: &[u64], n: usize,
                 };
                 if v != 0 {
                     merged.push((c, v));
+                } else if c < n {
+                    col_rows[c].remove(&q);
+                }
+            }
+            for &(c, _) in &merged {
+                if c < n {
+                    col_rows[c].insert(q);
+                }
+            }
+            rows[q] = merged;
+        }
+    }
+    // back substitution, each u_k a sparse vector over the right-hand sides: the pivot row of column k holds only
+    // columns >= k (with the wanted component last, one step)
+    let mut u: Vec<BTreeMap<usize, u64>> = vec![BTreeMap::new(); n];
+    for k in (want..n).rev() {
+        let r = pivot[k];
+        let inv = invmod(rows[r].iter().find(|e| e.0 == k).map(|e| e.1)?, p)?;
+        let mut acc: BTreeMap<usize, u64> = BTreeMap::new();
+        for &(c, v) in &rows[r] {
+            if c >= n {
+                *acc.entry(c - n).or_insert(0) = v;
+            }
+        }
+        for &(c, v) in &rows[r] {
+            if c > k && c < n {
+                for (&t, &x) in &u[c] {
+                    let e = acc.entry(t).or_insert(0);
+                    *e = (*e + p - mulmod(v, x, p)) % p;
+                }
+            }
+        }
+        u[k] = acc.into_iter().filter(|e| e.1 != 0).map(|(t, x)| (t, mulmod(x, inv, p))).collect();
+    }
+    let mut out = vec![0u64; m];
+    for (&t, &x) in &u[want] {
+        out[t] = x;
+    }
+    Some(out)
+}
+
+/// The pivots of a sparse m x n matrix mod p (rows of (column, value), sorted by column): Gaussian elimination
+/// column by column, 0 to n-1, each column's pivot the shortest remaining row that holds it, the lowest of equals (a
+/// deterministic choice that keeps the fill-in low);
+/// (pivot rows, pivot columns) in column order. The columns without a pivot are the dependent ones: in a Laporta
+/// reduction, columns ordered most complex first, they are the master integrals.
+pub fn pivots(p: u64, mut rows: Vec<Vec<(usize, u64)>>, n: usize) -> (Vec<usize>, Vec<usize>) {
+    use std::collections::BTreeSet;
+    let mut col_rows: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); n];
+    for (r, row) in rows.iter_mut().enumerate() {
+        row.retain(|e| e.1 % p != 0);
+        for e in row.iter_mut() {
+            e.1 %= p;
+            col_rows[e.0].insert(r);
+        }
+    }
+    let (mut prow, mut pcol) = (Vec::new(), Vec::new());
+    for k in 0..n {
+        // the shortest row holding the column (the lowest index among equals): the least fill-in
+        let Some(r) = col_rows[k].iter().copied().min_by_key(|&q| (rows[q].len(), q)) else { continue };
+        prow.push(r);
+        pcol.push(k);
+        for &(c, _) in &rows[r] {
+            col_rows[c].remove(&r);
+        }
+        let inv = match rows[r].iter().find(|e| e.0 == k).and_then(|e| invmod(e.1, p)) {
+            Some(i) => i,
+            None => continue,
+        };
+        let others: Vec<usize> = col_rows[k].iter().copied().collect();
+        for q in others {
+            let aqk = rows[q].iter().find(|e| e.0 == k).map_or(0, |e| e.1);
+            let f = mulmod(aqk, inv, p);
+            let (rq, rr) = (std::mem::take(&mut rows[q]), &rows[r]);
+            let mut merged = Vec::with_capacity(rq.len() + rr.len());
+            let (mut i, mut j) = (0, 0);
+            while i < rq.len() || j < rr.len() {
+                let (c, v) = if j >= rr.len() || (i < rq.len() && rq[i].0 < rr[j].0) {
+                    i += 1;
+                    rq[i - 1]
+                } else if i >= rq.len() || rr[j].0 < rq[i].0 {
+                    j += 1;
+                    (rr[j - 1].0, (p - mulmod(f, rr[j - 1].1, p)) % p)
+                } else {
+                    i += 1;
+                    j += 1;
+                    (rq[i - 1].0, (rq[i - 1].1 + p - mulmod(f, rr[j - 1].1, p)) % p)
+                };
+                if v != 0 {
+                    merged.push((c, v));
                 } else {
                     col_rows[c].remove(&q);
                 }
@@ -264,27 +381,9 @@ pub fn solve_rows(p: u64, mut rows: Vec<Vec<(usize, u64)>>, b: &[u64], n: usize,
                 col_rows[c].insert(q);
             }
             rows[q] = merged;
-            for t in 0..m {
-                rhs[q][t] = (rhs[q][t] + p - mulmod(f, rhs[r][t], p)) % p;
-            }
         }
     }
-    // back substitution: the pivot row of column k holds only columns >= k
-    let mut u = vec![vec![0u64; m]; n];
-    for k in (want..n).rev() {
-        let r = pivot[k];
-        let inv = invmod(rows[r].iter().find(|e| e.0 == k).map(|e| e.1)?, p)?;
-        for t in 0..m {
-            let mut acc = rhs[r][t];
-            for &(c, v) in &rows[r] {
-                if c > k {
-                    acc = (acc + p - mulmod(v, u[c][t], p)) % p;
-                }
-            }
-            u[k][t] = mulmod(acc, inv, p);
-        }
-    }
-    Some(u[want].clone())
+    (prow, pcol)
 }
 
 impl BlackBox {
@@ -294,18 +393,10 @@ impl BlackBox {
         match self {
             BlackBox::Prog(_) => Err(FfError::Shape),
             BlackBox::Lin { prog, n, m, want, pattern, .. } => {
-                let (n, m) = (*n, *m);
-                let nnz = prog.outputs.len() - n * m;
                 let vals = prog.eval(p, points)?;
                 Ok(vals
                     .chunks(prog.outputs.len())
-                    .map(|row| {
-                        if row.contains(&BAD) {
-                            None
-                        } else {
-                            solve_rows(p, pattern_rows(p, &row[..nnz], pattern), &row[nnz..], n, m, *want)
-                        }
-                    })
+                    .map(|row| if row.contains(&BAD) { None } else { solve_aug(p, aug_rows(p, row, pattern, *n, None), *n, *m, *want) })
                     .collect())
             }
         }
@@ -326,9 +417,7 @@ impl BlackBox {
                 Ok(vals.iter().step_by(prog.outputs.len().max(1)).copied().collect())
             }
             // one right-hand side: only its column of B goes through the elimination
-            BlackBox::Lin { prog, n, m, want, col, pattern } => {
-                let (n, m) = (*n, *m);
-                let nnz = prog.outputs.len() - n * m;
+            BlackBox::Lin { prog, n, want, col, pattern, .. } => {
                 let vals = prog.eval(p, points)?;
                 Ok(vals
                     .chunks(prog.outputs.len())
@@ -336,8 +425,7 @@ impl BlackBox {
                         if row.contains(&BAD) {
                             return BAD;
                         }
-                        let b: Vec<u64> = (0..n).map(|r| row[nnz + r * m + col]).collect();
-                        solve_rows(p, pattern_rows(p, &row[..nnz], pattern), &b, n, 1, *want).map_or(BAD, |u| u[0])
+                        solve_aug(p, aug_rows(p, row, pattern, *n, Some(*col)), *n, 1, *want).map_or(BAD, |u| u[0])
                     })
                     .collect())
             }
@@ -601,7 +689,7 @@ mod tests {
             ninputs: 2,
         };
         let p = 101u64;
-        let dense = std::sync::Arc::new(vec![vec![0, 1], vec![0, 1]]);
+        let dense = std::sync::Arc::new((vec![vec![0, 1], vec![0, 1]], vec![vec![0], vec![0]]));
         let bb0 = BlackBox::Lin { prog: prog.clone(), n: 2, m: 1, want: 0, col: 0, pattern: dense.clone() };
         let bb1 = BlackBox::Lin { prog, n: 2, m: 1, want: 1, col: 0, pattern: dense };
         let inv = |a: u64| invmod(a, p).unwrap();
@@ -619,10 +707,22 @@ mod tests {
             ninputs: 2,
         };
         let p = 101u64;
-        let pattern = std::sync::Arc::new(vec![vec![0, 1], vec![1]]);
+        let pattern = std::sync::Arc::new((vec![vec![0, 1], vec![1]], vec![vec![0], vec![0]]));
         let bb = BlackBox::Lin { prog, n: 2, m: 1, want: 0, col: 0, pattern };
         assert_eq!(bb.eval1(p, &[3, 5, 0, 5]).unwrap(), vec![invmod(3, p).unwrap(), BAD]);
         assert_eq!(bb.eval_all(p, &[3, 5]).unwrap(), vec![Some(vec![invmod(3, p).unwrap()])]);
+    }
+
+    #[test]
+    fn finds_pivots() {
+        // rows x+y, 2x+2y, y, z over columns x, y, z, w: x pivots on row 0 (the first of two equally short), y on
+        // row 2 (row 1 is then 0), z on row 3; w has none
+        let rows = vec![vec![(0, 1), (1, 1)], vec![(0, 2), (1, 2)], vec![(1, 1)], vec![(2, 5)]];
+        assert_eq!(pivots(P, rows, 4), (vec![0, 2, 3], vec![0, 1, 2]));
+        // x in a long row and a short one: the short one pivots
+        let rows = vec![vec![(0, 1), (1, 1), (2, 1)], vec![(0, 1), (2, 1)]];
+        assert_eq!(pivots(P, rows, 3), (vec![1, 0], vec![0, 1]));
+        assert_eq!(pivots(P, vec![vec![(1, P)]], 2), (vec![], vec![]));
     }
 
     #[test]

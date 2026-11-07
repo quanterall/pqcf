@@ -1785,20 +1785,22 @@ fn ff_line_column<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, p: u64, shift: Vec
     })
 }
 
-/// ff_linsys(Resource, N, M, Want, Col, Pattern) -> {ok, Resource} | {error, bad_shape}: the black box solving A u = B
-/// at each point, A sparse (row r holds the columns Pattern[r], increasing), its entries the program's first outputs
-/// row by row, B the next N*M (N rows of M right-hand sides), its value u[Want] for right-hand side Col
-/// (ffslp.rs; R1 phase 5)
+/// ff_linsys(Resource, N, M, Want, Col, Pattern, BPattern) -> {ok, Resource} | {error, bad_shape}: the black box
+/// solving A u = B at each point, A and B sparse: row r of A holds the columns Pattern[r] (increasing, < N), row r of
+/// B the right-hand sides BPattern[r] (increasing, < M); the program's outputs are A's entries row by row, then B's;
+/// its value u[Want] for right-hand side Col (ffslp.rs; R1 phase 5)
 #[rustler::nif]
-fn ff_linsys<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, n: usize, m: usize, want: usize, col: usize, pattern: Vec<Vec<u32>>) -> NifResult<Term<'a>> {
-    let nnz: usize = pattern.iter().map(Vec::len).sum();
-    let valid = pattern.len() == n && pattern.iter().all(|r| r.windows(2).all(|w| w[0] < w[1]) && r.iter().all(|&c| (c as usize) < n));
+#[allow(clippy::too_many_arguments)]
+fn ff_linsys<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, n: usize, m: usize, want: usize, col: usize, pattern: Vec<Vec<u32>>,
+                 bpattern: Vec<Vec<u32>>) -> NifResult<Term<'a>> {
+    let nnz: usize = pattern.iter().chain(&bpattern).map(Vec::len).sum();
+    let ok = |pat: &Vec<Vec<u32>>, lim: usize| pat.len() == n && pat.iter().all(|r| r.windows(2).all(|w| w[0] < w[1]) && r.iter().all(|&c| (c as usize) < lim));
     Ok(match &prog.0 {
-        ffslp::BlackBox::Prog(pr) if valid && pr.outputs.len() == nnz + n * m && want < n && col < m && n > 0 => {
-            let pattern = std::sync::Arc::new(pattern);
+        ffslp::BlackBox::Prog(pr) if ok(&pattern, n) && ok(&bpattern, m) && pr.outputs.len() == nnz && want < n && col < m && n > 0 => {
+            let pattern = std::sync::Arc::new((pattern, bpattern));
             (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Lin { prog: pr.clone(), n, m, want, col, pattern }))).encode(env)
         }
-        _ => bad_shape(env, "linear system: n rows of increasing columns < n, nnz + n*m outputs, want < n, col < m"),
+        _ => bad_shape(env, "linear system: n rows of increasing columns < n and right-hand sides < m, one output per entry"),
     })
 }
 
@@ -1815,6 +1817,17 @@ fn ff_linsys_all<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, p: u64, points: Vec
         }
         Err(_) => bad_shape(env, "ff linsys points"),
     })
+}
+
+/// ff_pivots(P, Rows, N) -> {PivotRows, PivotColumns}: the pivots of a sparse matrix mod P (Rows: lists of
+/// {Column, Value}, increasing columns < N), by elimination in column order (ffslp.rs; R1 phase 5)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn ff_pivots(p: u64, rows: Vec<Vec<(usize, u64)>>, n: usize) -> NifResult<(Vec<usize>, Vec<usize>)> {
+    let sorted = rows.iter().all(|r| r.windows(2).all(|w| w[0].0 < w[1].0) && r.iter().all(|e| e.0 < n));
+    if !(3..(1u64 << 63)).contains(&p) || !sorted {
+        return Err(rustler::Error::BadArg);
+    }
+    Ok(ffslp::pivots(p, rows, n))
 }
 
 rustler::init!("pq_nif");

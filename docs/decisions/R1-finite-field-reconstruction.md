@@ -333,8 +333,11 @@ U − Σ rat(Nⱼ mⱼ, Dⱼ) = 0 (it is, in every case):
 - **The family:** D₁ = k₁², D₂ = k₂², D₃ = (k₁−p)², D₄ = (k₂−p)², D₅ = (k₁−k₂)², with p² = s. These five form a
   complete basis of the scalar products, so the family has no irreducible numerators. The invariants are d and s.
 - **The identities:** ∂/∂kᵢ·v for i = 1, 2 and v = k₁, k₂, p, six per seed.
-- **The zero sectors:** the graph has external vertices a and b and lines a–X, X–b, Y–a, b–Y, X–Y. Contract every
-  line whose index is ≤ 0. The integral is scaleless if a and b merge, or if a remaining line becomes a self-loop.
+- **The zero sectors:** decided by the Lee–Pak criterion (`comparison/form/ibp_family.erl`, below). The integral
+  is scaleless if it is invariant under some rescaling of the Feynman parameters, which shows on the support of
+  U + F. A first, graph-based rule missed one case: a loop momentum left with no propagators, as in I(−1,1,−1,1,−1).
+  That integral is 0 but stayed an unknown of the system. The answers were the same either way, and the table below
+  is for the corrected systems.
 - **The target:** I(1,1,1,1,1) reduces to the product of two one-loop bubbles, I(1,1,1,1,0), and the sunset. The
   sunset appears twice, as I(1,0,0,1,1) and I(0,1,1,0,1): the generator doesn't apply the family's symmetries, so
   two equal integrals stay separate masters.
@@ -346,14 +349,17 @@ FORM 5 checks every answer, as for the box: U − Σ rat(Nⱼ mⱼ, Dⱼ) = 0.
 
 | seeds (max power, max numerator) | system | masters | FORM 5, 1 core | PQCF, 1 core | ratio |
 | --- | --- | --- | --- | --- | --- |
-| 5, 0 | 222 × 222 | 75 | 0.68 s | 0.23 s | 3.0× |
-| 6, 0 | 389 × 389 | 95 | 2.0 s | 0.45 s | 4.4× |
-| 6, 1 | 932 × 932 | 149 | 12.2 s | 2.78 s | 4.4× |
-| 7, 1 | 1,136 × 1,136 | 164 | 17.2 s | 4.70 s | 3.7× |
-| 7, 2 | 2,102 × 2,102 | 220 | 60.8 s | 12.65 s | 4.8× |
+| 5, 0 | 198 × 198 | 47 | 0.74 s | 0.07 s | 11× |
+| 6, 0 | 365 × 365 | 67 | 2.3 s | 0.14 s | 16× |
+| 6, 1 | 712 × 712 | 73 | 9.8 s | 0.50 s | 20× |
+| 7, 1 | 916 × 916 | 88 | 16.3 s | 0.68 s | 24× |
+| 7, 2 | 1,408 × 1,408 | 94 | 39.8 s | 1.06 s | 38× |
 
-- **Core for core, PQCF is 3–4.8× faster than FORM on every kite system,** the smallest included. The gap
-  grows slowly with the size.
+- **Core for core, PQCF is 11–38× faster than FORM on every kite system,** and the gap grows with the size. This is
+  with the sparse input below: only the non-zero entries of A and B are compiled, and the right-hand sides are
+  sparse columns of the elimination. The box systems above now take 0.22 s (260 equations), 0.38 s (480) and 0.40 s
+  (493) on one core, 2.5–9.5× faster than FORM. The first kite runs had A compiled dense and the zero-rule gap:
+  3–4.8× (2,102 equations: FORM 60.8 s, PQCF 12.65 s).
 - **The masters column counts unreduced boundary integrals too.** These are the integrals at the edge of the seed
   range. Their coefficients in the target's reduction are 0, which one elimination per point finds at once.
 - **Sparse input (done):** `pq_recon:linear/4` takes A's rows as lists or as maps Column => entry. The program
@@ -361,4 +367,52 @@ FORM 5 checks every answer, as for the box: U − Σ rat(Nⱼ mⱼ, Dⱼ) = 0.
   `ffslp.rs`, `pq_nif:ff_linsys/6`) gets the sparsity pattern, each row's columns. The pattern is a blob in the
   store, so a remote node fetches it by key like the program. A system with 10⁴–10⁵ equations and a handful of
   entries per row now compiles to about 10⁵ outputs, not 10⁸–10¹⁰.
-- **Next:** the dedicated programs (Kira, FIRE) on a public benchmark.
+- **Sparse right-hand sides (done):** B's rows may be maps too (Rhs ⇒ entry, with `rhs => M`). The elimination
+  (`solve_aug` in `ffslp.rs`) carries the right-hand sides as extra columns it never pivots on, so each costs only
+  its non-zero entries. A reduction with thousands of boundary "masters" no longer needs n × M values per point.
+
+## Against FIRE: the two-loop double box (7 Nov 2026)
+
+**Kira couldn't be used.** Kira 3.1 builds from source on this machine (aarch64, with FireFly), but it needs Fermat
+even with FireFly, and Fermat's license forbids use "as part of any business or for-profit endeavor" without its
+author's written permission. Fermat is also x86-only. FIRE 6.5.2 has a fully open path: its FLINT simplifier
+replaces Fermat.
+
+Two changes were needed to build FIRE here:
+- skip the PARI submodule, whose git server hangs;
+- build with `-fsigned-char`. FIRE's `t_index` is a plain `char`, unsigned on ARM, and without the flag it aborts
+  with "Bad inverse!".
+
+**The problem:** FIRE's own `examples/doublebox`, the massless planar double box. It has 7 propagators and 2
+numerators in d, s and t, and the target is I(1,1,1,1,1,1,1,−1,−1). `comparison/form/ibp_family.erl` builds the
+same family for PQCF from its definition:
+- the scalar products are solved from the propagators;
+- the zero sectors come from the Lee–Pak criterion on the support of U + F, built mod p;
+- the seeds follow Kira's (r, s) form.
+
+The module reproduces `ibp.erl`'s hand-written box and kite identities exactly (372 and 1,026 identities, compared
+as sets). It also found the kite's zero-rule gap.
+
+| | FIRE 6.5.2 (FLINT), 1 thread | PQCF, as it stands |
+| --- | --- | --- |
+| equations | 70,476 generated, 58,349 used | 198,160 (r = 7, s = 2), 108,031 integrals |
+| masters | 12 (with the family's symmetries) | 10,223 columns without a pivot, most of them boundary integrals |
+| time | **16.3 s**, the whole reduction | **56 s for one elimination mod p** (`pq_nif:ff_pivots/3`, in Rust) |
+
+- **FIRE wins by orders of magnitude here.** PQCF's reconstruction repeats that elimination at every sample
+  point, and the answer, rational in d, s, t of degree up to about 5, needs hundreds of points. That is hours on one
+  core. (This is an estimate from the measured per-point cost; the full run wasn't made.)
+- **The gap is in setting up the system, not in the finite fields.** Generating PQCF's system takes 4 s; the
+  elimination is the cost. FIRE doesn't solve one global Laporta system:
+  - it works sector by sector, with the family's symmetries (12 masters, not 10,223 unknowns left over);
+  - it uses only the equations the target needs.
+- **What would close it, in order of effect:**
+  1. the symmetries of the sectors (LiteRed-style), which shrink the system and the masters;
+  2. "mark and sweep", as in FiniteFlow: one numeric elimination finds the equations the target needs, and every
+     sample point solves only those;
+  3. a learned elimination, recorded once and replayed per point without the search for pivots;
+  4. the points spread over cores and nodes (`pq_rexec`), which helps only once a point costs milliseconds, not a
+     minute.
+- **Where PQCF stands:** on the systems both programs solve as given, PQCF is 11–38× faster than FORM's symbolic
+  elimination. Against a dedicated IBP program on a real two-loop problem, its Laporta front end is the
+  bottleneck. FIRE's sector-wise reduction with symmetries is the bar to meet.

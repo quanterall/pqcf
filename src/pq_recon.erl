@@ -79,31 +79,34 @@ sparse_row(Row, N) when is_map(Row) ->
 sparse_row(_, _) -> bad.
 
 %% The solution of A u = B, A a list of rows -- each a list of N entries, or a map Column => entry (0-based, the
-%% missing entries 0: the form for large sparse systems) -- B a list of right-hand-side entries -- or of lists of M entries, M
-%% right-hand sides at once (one per master integral, say) -- all expressions in Vars: for every component in Opts'
+%% missing entries 0: the form for large sparse systems) -- B a list of right-hand-side entries -- or of rows of M
+%% entries, M right-hand sides at once (one per master integral, say), each row a list or a map Rhs => entry with M
+%% given as Opts' rhs -- all expressions in Vars: for every component in Opts'
 %% components (default all, 0-based), the reduced rational function {N, D} of each right-hand side's solution, as
 %% [{Component, {N, D}}] for one right-hand side, [{Component, [{Rhs, {N, D}}]}] for several. Each is reconstructed
-%% from sparse eliminations mod p at the sample points (pq_nif:ff_linsys/6), never a symbolic solve; with several
+%% from sparse eliminations mod p at the sample points (pq_nif:ff_linsys/7), never a symbolic solve; with several
 %% right-hand sides, one elimination per point tests them all for 0 (at three points, in the first prime) and only
 %% the others are reconstructed (R1 phase 5). Opts as for rational/3, plus the expression limits
 %% (max_expr_nodes, ..) for compiling A and B.
-%% Only A's non-zero entries are compiled (a dense row's literal zeros are dropped).
--spec linear([[term()] | #{non_neg_integer() => term()}], [term()] | [[term()]], [atom()], map()) -> {ok, list()} | {error, term()}.
+%% Only the non-zero entries of A and B are compiled (a dense row's literal zeros are dropped); the elimination
+%% carries the right-hand sides as sparse columns, so thousands of them cost little where rows hold a few.
+-spec linear([[term()] | #{non_neg_integer() => term()}], [term()] | [[term()] | #{non_neg_integer() => term()}], [atom()], map()) ->
+          {ok, list()} | {error, term()}.
 linear(A, B, Vars, Opts) ->
     N = length(B),
-    Multi = B =/= [] andalso is_list(hd(B)),
+    Multi = B =/= [] andalso (is_list(hd(B)) orelse is_map(hd(B))),
     Bs = case Multi of true -> B; false -> [[Bi] || Bi <- B] end,
-    M = case Bs of [] -> 0; [R | _] -> length(R) end,
+    M = case Bs of [] -> 0; [R | _] when is_map(R) -> maps:get(rhs, Opts, 0); [R | _] -> length(R) end,
     Sparse = [sparse_row(Row, N) || Row <- A],
-    case Vars =/= [] andalso length(A) =:= N andalso not lists:member(bad, Sparse)
-        andalso lists:all(fun(Row) -> length(Row) =:= M end, Bs) andalso M > 0 of
+    SparseB = [sparse_row(Row, M) || Row <- Bs],
+    case Vars =/= [] andalso length(A) =:= N andalso not lists:member(bad, Sparse ++ SparseB) andalso M > 0 of
         false -> {error, {bad_shape, linear_system}};
         true ->
-            Pattern = [[C || {C, _} <- Row] || Row <- Sparse],
+            Pattern = {[[C || {C, _} <- Row] || Row <- Sparse], [[C || {C, _} <- Row] || Row <- SparseB]},
             %% a large system needs the expression limits raised: Opts' limit keys reach compile
             Limits = maps:with([max_poly_terms, max_expand_power, max_expr_nodes, sym_timeout_ms, sym_max_heap_words], Opts),
-            Entries = [E || Row <- Sparse, {_, E} <- Row],
-            case pq_symbolic:compile(Entries ++ lists:append(Bs), Vars, Limits#{exact_constants => true}) of
+            Entries = [E || Row <- Sparse ++ SparseB, {_, E} <- Row],
+            case pq_symbolic:compile(Entries, Vars, Limits#{exact_constants => true}) of
                 {ok, Prog} ->
                     Wanted = maps:get(components, Opts, lists:seq(0, N - 1)),
                     Results = [{W, component(Prog, Vars, {N, Pattern}, M, W, Opts)} || W <- Wanted],

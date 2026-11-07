@@ -21,7 +21,7 @@
 %%
 %%   erl -pa _build/default/lib/*/ebin -pa <dir> -noshell -eval 'ibp:main("<dir>", [{4, 0}, {5, 1}, {kite, 6, 1}])'
 -module(ibp).
--export([main/2, system/3, identities/1, subst_master/2]).
+-export([main/2, system/3, identities/1, zero/1]).
 
 -define(LIMITS, #{sym_timeout_ms => 3600000, sym_max_heap_words => 4000000000, max_expr_nodes => 500000000}).
 
@@ -77,7 +77,8 @@ identity(A, V) ->
 term(A, C, const) -> {A, C};
 term(A, C, M) -> {setelement(M, A, element(M, A) - 1), C}.
 
-zero(A) when tuple_size(A) =:= 5 -> kite_zero(A);
+zero(A) when tuple_size(A) =:= 5 -> ibp_family:zero(ibp_family:family(kite), A);
+zero(A) when tuple_size(A) =:= 9 -> ibp_family:zero(ibp_family:family(doublebox), A);
 zero(A) ->
     Pos = [J || J <- [1, 2, 3, 4], element(J, A) > 0],
     not ((lists:member(1, Pos) andalso lists:member(3, Pos)) orelse (lists:member(2, Pos) andalso lists:member(4, Pos))).
@@ -85,6 +86,9 @@ zero(A) ->
 %% every identity for the seeds with indices in -Neg .. 2, at most Pos positive powers, in nonzero sectors: a list of
 %% equations, each a map Integral => CoefficientAst (zero integrals dropped, equal integrals merged)
 identities({Pos, Neg}) -> identities({box, Pos, Neg});
+identities({doublebox, R, S}) ->
+    Fam = ibp_family:family(doublebox),
+    ibp_family:identities(Fam, ibp_family:seeds(Fam, R, S));
 identities({Family, Pos, Neg}) ->
     Size = case Family of box -> 4; kite -> 5 end,
     Seeds = [list_to_tuple(L) || L <- tuples(Size, lists:seq(-Neg, 2)),
@@ -106,21 +110,8 @@ tuples(N, Range) -> [[X | T] || X <- Range, T <- tuples(N - 1, Range)].
 %% products (no irreducible numerators). Its graph: external vertices a (p in) and b (p out), inner X and Y; lines
 %% 1: a-X, 2: X-b, 3: Y-a, 4: b-Y, 5: X-Y. A missing propagator (index =< 0) contracts its line; the integral is
 %% scaleless -- zero -- if a and b merge (no momentum flows) or a remaining line becomes a self-loop (a massless
-%% tadpole). The identities: d/dk_i . v for i = 1, 2 and v = k1, k2, p (six per seed).
-
-kite_zero(A) ->
-    Lines = [{1, a, x}, {2, x, b}, {3, y, a}, {4, b, y}, {5, x, y}],
-    Root = lists:foldl(fun({J, U, V}, R) ->
-                               case element(J, A) =< 0 of
-                                   true -> union(U, V, R);
-                                   false -> R
-                               end
-                       end, #{}, Lines),
-    F = fun(V) -> find(V, Root) end,
-    F(a) =:= F(b) orelse lists:any(fun({J, U, V}) -> element(J, A) > 0 andalso F(U) =:= F(V) end, Lines).
-
-find(V, R) -> case R of #{V := P} when P =/= V -> find(P, R); _ -> V end.
-union(U, V, R) -> case {find(U, R), find(V, R)} of {X, X} -> R; {X, Y} -> R#{X => Y} end.
+%% tadpole) -- or if a loop momentum is left without propagators: the Lee-Pak criterion of ibp_family.erl, which
+%% decides it. The identities: d/dk_i . v for i = 1, 2 and v = k1, k2, p (six per seed).
 
 %% scalar products in the D's: a list of {Coefficient, j | const}
 kdot(k1, k1) -> [{1, 1}];
@@ -157,7 +148,8 @@ weight(A) ->
     L = tuple_to_list(A),
     {length([x || X <- L, X > 0]), lists:sum([X || X <- L, X > 0]), -lists:sum([X || X <- L, X < 0]), A}.
 
-%% {A, B, Vars, Masters, TargetIndex}: the square system for Target, the masters as symbols M1, ..
+%% {A, B, Vars, Masters, TargetIndex, Columns, Bs}: the square system for Target (A's rows sparse maps), B with the
+%% masters as symbols m1, .., and Bs the same with one right-hand side per master
 system(Seeds, Target, Seed) ->
     Eqs0 = identities(Seeds),
     Eqs = [E || E <- Eqs0, map_size(E) > 0],
@@ -169,58 +161,58 @@ system(Seeds, Target, Seed) ->
     Index = maps:from_list(lists:zip(Cols, lists:seq(1, length(Cols)))),
     rand:seed(exsss, {Seed, 1, 1}),
     Point = #{d => rand:uniform(?P - 1), s => rand:uniform(?P - 1), t => rand:uniform(?P - 1)},
-    Canon = [maps:map(fun(_, C) -> {ok, Cc} = pq_symbolic:canonicalise(C), Cc end, E) || E <- Eqs],
-    Num = [maps:from_list([{maps:get(I, Index), modval(C, Point)} || I := C <- E]) || E <- Canon],
+    %% the coefficients evaluated mod ?P as they are; only the square system's are canonicalised (below)
+    Num = [maps:from_list([{maps:get(I, Index), modval(C, Point)} || I := C <- E]) || E <- Eqs],
     {PivotRows, PivotCols} = eliminate(lists:enumerate(Num), length(Cols)),
     lists:member(maps:get(Target, Index), PivotCols) orelse error(target_is_a_master),
-    Masters = [lists:nth(C, Cols) || C <- lists:seq(1, length(Cols)), not lists:member(C, PivotCols)],
+    ColArr = array:from_list(Cols),
+    Pivoted = sets:from_list(PivotCols, [{version, 2}]),
+    Masters = [array:get(C - 1, ColArr) || C <- lists:seq(1, length(Cols)), not sets:is_element(C, Pivoted)],
     MSyms = [{sym, list_to_atom("m" ++ integer_to_list(K))} || K <- lists:seq(1, length(Masters))],
     MIndex = maps:from_list(lists:zip(Masters, MSyms)),
     %% the square system, its columns re-ordered with the target last, and eliminated again (it is nonsingular, so
     %% every column finds a pivot row): the rows in that pivot order, so that eliminating unknown k on row k from
     %% the first column on is valid, and the target is eliminated last
-    UCols = [lists:nth(C, Cols) || C <- lists:sort(PivotCols), lists:nth(C, Cols) =/= Target] ++ [Target],
+    UCols = [array:get(C - 1, ColArr) || C <- lists:sort(PivotCols), array:get(C - 1, ColArr) =/= Target] ++ [Target],
     UIndex = maps:from_list(lists:zip(UCols, lists:seq(1, length(UCols)))),
-    SqRows = [lists:nth(R, Canon) || R <- PivotRows],
+    EqArr = array:from_list(Eqs),
+    SqRows = [maps:filter(fun(_, C) -> C =/= 0 end,
+                          maps:map(fun(_, C) -> {ok, Cc} = pq_symbolic:canonicalise(C), Cc end, array:get(R - 1, EqArr)))
+              || R <- PivotRows],
     SqNum = [maps:from_list([{maps:get(I, UIndex), modval(C, Point)} || I := C <- Row, maps:is_key(I, UIndex)]) || Row <- SqRows],
     {Order, Cols2} = eliminate(lists:enumerate(SqNum), length(UCols)),
     Cols2 =:= lists:seq(1, length(UCols)) orelse error(square_system_singular),
-    Rows = [lists:nth(R, SqRows) || R <- Order],
-    A = [[maps:get(I, Row, 0) || I <- UCols] || Row <- Rows],
+    SqArr = array:from_list(SqRows),
+    Rows = [array:get(R - 1, SqArr) || R <- Order],
+    %% A sparse: rows as maps Column => entry (0-based)
+    A = [maps:from_list([{maps:get(I, UIndex) - 1, C} || I := C <- Row, maps:is_key(I, UIndex)]) || Row <- Rows],
     B = [{add, [0 | [{mul, [-1, C, maps:get(I, MIndex)]} || I := C <- Row, maps:is_key(I, MIndex)]]} || Row <- Rows],
     Vars = invariants(Target) ++ [X || {sym, X} <- MSyms],
-    {A, B, Vars, lists:zip(Masters, MSyms), length(UCols) - 1, UCols}.
+    %% the right-hand side per master, sparse: master k (0-based) => -A_(i, master)
+    MPos = maps:from_list(lists:zip(Masters, lists:seq(0, length(Masters) - 1))),
+    Bs = [maps:from_list([{maps:get(I, MPos), {mul, [-1, C]}} || I := C <- Row, maps:is_key(I, MPos)]) || Row <- Rows],
+    {A, B, Vars, lists:zip(Masters, MSyms), length(UCols) - 1, UCols, Bs}.
 
 invariants(T) when tuple_size(T) =:= 5 -> [d, s];
+invariants(T) when tuple_size(T) =:= 9 -> [d, s, t];
 invariants(_) -> [d, s, t].
 
-%% Gaussian elimination mod ?P, rows sparse maps col => value, columns in order 1 .. N: {pivot rows, pivot columns}
-eliminate(Rows, N) -> elim(Rows, 1, N, [], []).
+%% the pivots mod ?P (pq_nif:ff_pivots/3, in Rust), rows sparse maps col => value, columns in order 1 .. N:
+%% {pivot rows, pivot columns}, 1-based
+eliminate(Rows, N) ->
+    {PR, PC} = pq_nif:ff_pivots(?P, [lists:sort([{C - 1, V} || C := V <- Row]) || {_, Row} <- Rows], N),
+    {[R + 1 || R <- PR], [C + 1 || C <- PC]}.
 
-elim(_Rows, C, N, PR, PC) when C > N -> {lists:reverse(PR), lists:reverse(PC)};
-elim(Rows, C, N, PR, PC) ->
-    case [{R, Row} || {R, Row} <- Rows, maps:get(C, Row, 0) =/= 0] of
-        [] -> elim(Rows, C + 1, N, PR, PC);
-        [{R, Row} | _] ->
-            Inv = inv(maps:get(C, Row), ?P),
-            Rows2 = [{R2, case maps:get(C, Row2, 0) of
-                              0 -> Row2;
-                              F -> sub(Row2, Row, F * Inv rem ?P)
-                          end} || {R2, Row2} <- Rows, R2 =/= R],
-            elim(Rows2, C + 1, N, [R | PR], [C | PC])
-    end.
-
-sub(A, B, F) ->
-    maps:filter(fun(_, V) -> V =/= 0 end,
-                maps:fold(fun(K, V, Acc) -> maps:put(K, ((maps:get(K, Acc, 0) - F * V) rem ?P + ?P) rem ?P, Acc) end, A, B)).
-
+%% a coefficient's value mod ?P at the point (the ASTs of the identities: integers, rationals, symbols, sums,
+%% products)
+modval(N, _) when is_integer(N) -> (N rem ?P + ?P) rem ?P;
+modval({rat, N, D}, _) -> modval(N, #{}) * inv(modval(D, #{}), ?P) rem ?P;
+modval({sym, X}, Point) -> maps:get(X, Point);
+modval({add, Es}, Point) -> lists:foldl(fun(E, Acc) -> (Acc + modval(E, Point)) rem ?P end, 0, Es);
+modval({mul, Es}, Point) -> lists:foldl(fun(E, Acc) -> Acc * modval(E, Point) rem ?P end, 1, Es);
 modval(C, Point) ->
-    Bind = maps:map(fun(_, V) -> V end, Point),
-    {ok, V} = pq_symbolic:evaluate(C, Bind, #{exact => true}),
-    case V of
-        N when is_integer(N) -> (N rem ?P + ?P) rem ?P;
-        {rat, N, D} -> ((N rem ?P + ?P) rem ?P) * inv(D, ?P) rem ?P
-    end.
+    {ok, V} = pq_symbolic:evaluate(C, Point, #{exact => true}),
+    modval(V, Point).
 
 inv(A, M) -> pq_ff:inv(A, M).
 
@@ -229,15 +221,18 @@ inv(A, M) -> pq_ff:inv(A, M).
 main(Dir, Cases) ->
     {ok, _} = application:ensure_all_started(pq),
     [begin
-         Target = case Seeds of {kite, _, _} -> {1, 1, 1, 1, 1}; _ -> {2, 1, 1, 1} end,
-         {Ts, {A, B, Vars, Masters, TI, _Cols}} = timer:tc(?MODULE, system, [Seeds, Target, 1]),
+         Target = case Seeds of
+                      {kite, _, _} -> {1, 1, 1, 1, 1};
+                      {doublebox, _, _} -> {1, 1, 1, 1, 1, 1, 1, -1, -1};
+                      _ -> {2, 1, 1, 1}
+                  end,
+         {Ts, {A, B, Vars, Masters, TI, _Cols, Bs}} = timer:tc(?MODULE, system, [Seeds, Target, 1]),
          N = length(B),
          %% the answer is linear in the masters: one right-hand side per master, each coefficient a rational function
          %% of d, s, t alone; one elimination per point serves them all, and the zero ones are found at once
-         MSyms = [X || {_, {sym, X}} <- Masters],
-         Bs = [[subst_master(Bi, X) || X <- MSyms] || Bi <- B],
-         {T, {ok, [{TI, PerMaster}]}} = timer:tc(pq_recon, linear, [A, Bs, invariants(Target), ?LIMITS#{components => [TI]}]),
-         Coeffs = [{M, Sym, lists:nth(C + 1, [ND || {_, ND} <- lists:sort(PerMaster)])} || {C, {M, Sym}} <- lists:enumerate(0, Masters)],
+         {T, {ok, [{TI, PerMaster}]}} = timer:tc(pq_recon, linear, [A, Bs, invariants(Target), ?LIMITS#{components => [TI], rhs => length(Masters)}]),
+         PerMap = maps:from_list(PerMaster),
+         Coeffs = [{M, Sym, maps:get(C, PerMap)} || {C, {M, Sym}} <- lists:enumerate(0, Masters)],
          NonZero = [{M, Sym, NumDen} || {M, Sym, {Nu, _} = NumDen} <- Coeffs, map_size(Nu) > 0],
          P = fun(E) -> binary_to_list(pq_symbolic:pretty(E)) end,
          File = filename:join(Dir, case Seeds of
@@ -246,24 +241,16 @@ main(Dir, Cases) ->
                                    end),
          Rev = fun(L) -> lists:reverse(L) end,
          Answer = [{P(pq_sym_norm:to_ast(Nu)), P(pq_sym_norm:to_ast(De)), atom_to_list(X)} || {_, {sym, X}, {Nu, De}} <- NonZero],
-         ok = file:write_file(File, form_script(Rev([Rev(Row) || Row <- A]), Rev(B), Vars, Answer)),
+         %% the FORM script with the dense system, the columns reversed (FORM eliminates from the last); only for
+         %% systems FORM can be expected to solve
+         N =< 4000 andalso
+             ok =:= file:write_file(File, form_script(Rev([Rev([maps:get(C, Row, 0) || C <- lists:seq(0, N - 1)]) || Row <- A]),
+                                                      Rev(B), Vars, Answer)),
          io:format("IBP, seeds ~p: ~b x ~b system (built in ~.1f s), ~b masters; I~w reduced in ~.2f s to ~b of them: ~s~n",
                    [Seeds, N, N, Ts / 1.0e6, length(Masters), Target, T / 1.0e6, length(NonZero),
                     lists:join(", ", [io_lib:format("~w (~b/~b terms)", [M, map_size(Nu), map_size(De)]) || {M, _, {Nu, De}} <- NonZero])])
      end || Seeds <- Cases],
     ok.
-
-%% b_i with master X set to 1 and every other master to 0
-subst_master(E, X) ->
-    {ok, C} = pq_symbolic:canonicalise(pq_symbolic:substitute(E, #{X => 1})),
-    {ok, C0} = pq_symbolic:canonicalise(zero_masters(C)),
-    C0.
-
-zero_masters({sym, M} = S) ->
-    case atom_to_list(M) of [$m | _] -> 0; _ -> S end;
-zero_masters(T) when is_tuple(T) -> list_to_tuple([zero_masters(E) || E <- tuple_to_list(T)]);
-zero_masters(L) when is_list(L) -> [zero_masters(E) || E <- L];
-zero_masters(X) -> X.
 
 %% FORM: the elimination of linsys.erl (unknown 1 the target), the masters symbols; at the end U minus PQCF's answer,
 %% sum_j rat(N_j m_j, D_j), must be 0
