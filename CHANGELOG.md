@@ -23,7 +23,12 @@ the public API is additive.
   - `pq_recon:rational/3` (phase 4): a rational function N / D reconstructed from its program, along lines with a
     shift, the coefficients by one multi-output Zippel, the shift taken out by a Taylor recursion; checked against
     FORM 5's `PolyRatFun` on sums of fractions (`comparison/form/fractions.erl`): the same results exactly, FORM
-    300-12,000x faster on that task (an explicit sum, where adding fractions is the right tool); three executors
+    300-12,000x faster on that task (an explicit sum, where adding fractions is the right tool);
+  - `pq_recon:linear/4` (phase 5): the components of the solution of a linear system with polynomial entries, each
+    reconstructed from eliminations mod p at the sample points (`pq_nif:ff_linsys/3`), never solved symbolically;
+    against FORM 5's symbolic elimination under `PolyRatFun` (`comparison/form/linsys.erl`), the same answers, FORM
+    12-18x faster when the answer is about as large as the elimination, PQCF 25 to 35,000x faster when it is
+    compact (as in integration-by-parts reductions; n = 24: FORM 697 s, PQCF 0.02 s); three executors
     behind one task interface (this node, Erlang nodes, FVLLMP federation peers), from a single node to 100+.
 
 ## 1.3.0 (7 November 2026)

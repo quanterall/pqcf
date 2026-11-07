@@ -1,7 +1,7 @@
 # R1: reducing large results by finite-field reconstruction, distributed
 
 **Status: accepted, in progress (the project owner's decision, 7 Nov 2026: "go with B and the minimal store").
-Phases 1–4 done.**
+Phases 1–5 done.**
 
 ## Why
 
@@ -228,3 +228,55 @@ multi-loop calculations). Symbolic elimination swells, while an elimination modu
 and parallel, and only the solution is reconstructed. That is the method of FiniteFlow, FireFly and Kira. A
 black-box task that solves such a system mod p per point is the next step, with that as the benchmark against
 FORM.
+
+## Phase 5, measured (7 Nov 2026): linear systems, never solved symbolically
+
+`pq_recon:linear(A, B, Vars, Opts)` returns the reduced rational function {N, D} of each wanted component of the
+solution of A u = b, whose entries are expressions.
+- **The black box:** all entries compile into one program with n² + n outputs. At each sample point, the black box
+  (`ffslp.rs` `BlackBox::Lin`, `pq_nif:ff_linsys/3`) evaluates them modulo p, solves by elimination, and returns
+  u[want], or a bad point where A is singular there.
+- **The same machinery:** the rational reconstruction, executors and store run unchanged on top. The column and
+  line functions now take a `BlackBox` (a program's first output, or a linear system), and tasks name theirs.
+  `pq_rstore:prepared/2` caches `{linsys, Key, N, Want}` once per node.
+
+Tests (`test/pq_linear_tests.erl`) check A u = b exactly at random rational points, since the canonical form can't
+combine fractions with different denominators:
+- a 2 × 2 system (u₀ = y/(xy − 1));
+- a sparse 5 × 5 system in three variables, every component;
+- only the components asked for, the same as from a full solve;
+- a singular and a malformed system refused.
+
+Returning the wrong component is caught (3 of 4 tests fail).
+
+**The benchmark** (`comparison/form/linsys.erl`). An IBP-shaped system, n × n: sparse, a full diagonal, every entry
+linear in V variables. PQCF reconstructs u₁. FORM 5 eliminates symbolically under `PolyRatFun`, pivoting unknown k
+on row k, k = n … 2, with the inverted pivot (`reverse_`). FORM itself checks every pair of results: U − rat(N, D)
+is 0 in every case.
+
+| right-hand side | n | V | answer (numerator / denominator terms) | FORM 5 (wall) | PQCF (20 cores) |
+| --- | --- | --- | --- | --- | --- |
+| random | 14 | 3 | 559 / 679 | 0.29 s | 3.9 s |
+| random | 18 | 3 | 1,140 / 1,330 | 0.86 s | 15.3 s |
+| random | 14 | 4 | 2,380 / 3,060 | 4.2 s | 50 s |
+| b = A u*, u* compact | 14 | 3 | 2 / 1 | 0.52 s | 0.02 s |
+| b = A u*, u* compact | 18 | 3 | 2 / 1 | 0.90 s | 0.01 s |
+| b = A u*, u* compact | 14 | 4 | 2 / 1 | 4.2 s | 0.01 s |
+| b = A u*, u* compact | 24 | 4 | 2 / 1 | 697 s | 0.02 s |
+
+**What it shows:**
+- **FORM's time follows the elimination,** whatever the answer: 4.2 s at n = 14, V = 4 in both families. Its
+  intermediate fractions swell with the size of the system.
+- **PQCF's time follows the answer.** With a random right-hand side, the answer is about as large as the
+  intermediates (degree about n, nearly dense), and FORM is 12–18 times faster. When the answer is compact, PQCF is
+  25 to 35,000 times faster: from n = 18 to 24 (V = 4), FORM went from 4.2 to 697 s, PQCF stayed at 0.02 s.
+- **Real reductions sit between the two, closer to the compact family:** integration-by-parts reductions are known
+  for reduced coefficients far simpler than their elimination. That is why reconstruction became the method there
+  (FiniteFlow, FireFly, Kira).
+- **Scale:** every sample is independent, so the executors spread them over cores or nodes (phase 3), and the work
+  grows with the answer, not with the elimination.
+
+**Next:**
+- a real IBP system from the literature, or a public reduction benchmark, instead of synthetic ones;
+- several components at once (one multi-output reconstruction);
+- the federation executor (phase 6, once FVLLMP provides the gate route).

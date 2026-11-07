@@ -1680,7 +1680,7 @@ fn horner_count<'a>(env: Env<'a>, prep: ResourceArc<HornerRes>, order: Vec<usize
 }
 
 /// A straight-line program prepared for evaluation over prime fields (ffslp.rs; R1).
-pub struct FfRes(ffslp::Program);
+pub struct FfRes(ffslp::BlackBox);
 
 #[rustler::resource_impl]
 impl rustler::Resource for FfRes {}
@@ -1712,7 +1712,7 @@ fn ff_prepare<'a>(env: Env<'a>, ninputs: usize, ops: Vec<Term<'a>>, outputs: Vec
     }
     let p = ffslp::Program { ops: prog, outputs, ninputs };
     Ok(match p.check() {
-        Ok(()) => (atoms::ok(), ResourceArc::new(FfRes(p))).encode(env),
+        Ok(()) => (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Prog(p)))).encode(env),
         Err(_) => bad_shape(env, "ff program"),
     })
 }
@@ -1725,7 +1725,11 @@ fn ff_eval<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, p: u64, points: Vec<u64>)
     if !(3..(1u64 << 63)).contains(&p) {
         return Err(rustler::Error::BadArg);
     }
-    Ok(match prog.0.eval(p, &points) {
+    let r = match &prog.0 {
+        ffslp::BlackBox::Prog(pr) => pr.eval(p, &points),
+        bb => bb.eval1(p, &points),
+    };
+    Ok(match r {
         Ok(v) => (atoms::ok(), v).encode(env),
         Err(ffslp::FfError::BadPrime) => atoms::bad_prime().encode(env),
         Err(ffslp::FfError::Shape) => bad_shape(env, "ff points"),
@@ -1778,6 +1782,18 @@ fn ff_line_column<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, p: u64, shift: Vec
         Err(ffslp::ColumnError::Singular) => atoms::singular().encode(env),
         Err(ffslp::ColumnError::BadPrime) => atoms::bad_prime().encode(env),
         Err(ffslp::ColumnError::Shape) => bad_shape(env, "ff line column"),
+    })
+}
+
+/// ff_linsys(Resource, N, Want) -> {ok, Resource} | {error, bad_shape}: the black box solving A u = b at each point,
+/// A the program's first N*N outputs row by row and b the next N, its value u[Want] (ffslp.rs; R1 phase 5)
+#[rustler::nif]
+fn ff_linsys<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, n: usize, want: usize) -> NifResult<Term<'a>> {
+    Ok(match &prog.0 {
+        ffslp::BlackBox::Prog(pr) if pr.outputs.len() == n * n + n && want < n && n > 0 => {
+            (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Lin { prog: pr.clone(), n, want }))).encode(env)
+        }
+        _ => bad_shape(env, "linear system: n*n + n outputs, want < n"),
     })
 }
 

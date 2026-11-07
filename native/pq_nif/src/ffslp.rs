@@ -6,6 +6,7 @@
 /// The value of every output at a bad point (never a residue, as p < 2^63).
 pub const BAD: u64 = u64::MAX;
 
+#[derive(Clone)]
 pub enum Op {
     /// the point's coordinate i
     Input(usize),
@@ -18,6 +19,7 @@ pub enum Op {
     Pow(usize, i64),
 }
 
+#[derive(Clone)]
 pub struct Program {
     pub ops: Vec<Op>,
     pub outputs: Vec<usize>,
@@ -172,6 +174,47 @@ pub fn tvandermonde(p: u64, nodes: &[u64], values: &[u64]) -> Option<Vec<u64>> {
     Some(out)
 }
 
+/// What the reconstruction samples (R1): a program's first output, or the solution of a linear system whose
+/// entries are a program's outputs (phase 5): A u = b with A the first n*n outputs row by row and b the next n,
+/// solved by elimination mod p at each point, its component `want` the value (bad where A is singular).
+pub enum BlackBox {
+    Prog(Program),
+    Lin { prog: Program, n: usize, want: usize },
+}
+
+impl BlackBox {
+    pub fn ninputs(&self) -> usize {
+        match self {
+            BlackBox::Prog(p) => p.ninputs,
+            BlackBox::Lin { prog, .. } => prog.ninputs,
+        }
+    }
+
+    /// one value per point (`points`: ninputs residues per point), BAD where the black box is undefined
+    pub fn eval1(&self, p: u64, points: &[u64]) -> Result<Vec<u64>, FfError> {
+        match self {
+            BlackBox::Prog(prog) => {
+                let vals = prog.eval(p, points)?;
+                Ok(vals.iter().step_by(prog.outputs.len().max(1)).copied().collect())
+            }
+            BlackBox::Lin { prog, n, want } => {
+                let n = *n;
+                let width = prog.outputs.len();
+                let vals = prog.eval(p, points)?;
+                Ok(vals
+                    .chunks(width)
+                    .map(|row| {
+                        if row.contains(&BAD) {
+                            return BAD;
+                        }
+                        solve_mod(p, row[..n * n].to_vec(), row[n * n..n * n + n].to_vec(), n).map_or(BAD, |u| u[*want])
+                    })
+                    .collect())
+            }
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum ColumnError {
     /// a point where the program divides by zero
@@ -182,17 +225,17 @@ pub enum ColumnError {
     Shape,
 }
 
-impl Program {
+impl BlackBox {
     /// One column of Zippel's interpolation, mod p: the coefficients c_m of the support's n monomials m (exponent
     /// rows of r.len() each; with no variable yet, one empty monomial) in the program's first output at the points (r^i, suffix), i = 1 .. |support| --
     /// sum_m c_m m(r)^i -- by a transposed Vandermonde system on the nodes m(r), divided by the nodes.
     pub fn column(&self, p: u64, r: &[u64], n: usize, support: &[u32], suffix: &[u64]) -> Result<Vec<u64>, ColumnError> {
         let k = r.len();
-        if k + suffix.len() != self.ninputs || support.len() != n * k {
+        if k + suffix.len() != self.ninputs() || support.len() != n * k {
             return Err(ColumnError::Shape);
         }
         // the points r^1 .. r^n, each followed by the suffix
-        let mut points = Vec::with_capacity(n * self.ninputs);
+        let mut points = Vec::with_capacity(n * self.ninputs());
         let mut cur: Vec<u64> = r.iter().map(|&x| x % p).collect();
         for _ in 0..n {
             points.extend_from_slice(&cur);
@@ -201,12 +244,10 @@ impl Program {
                 *c = mulmod(*c, x, p);
             }
         }
-        let vals = self.eval(p, &points).map_err(|e| match e {
+        let first = self.eval1(p, &points).map_err(|e| match e {
             FfError::BadPrime => ColumnError::BadPrime,
             FfError::Shape => ColumnError::Shape,
         })?;
-        let width = self.outputs.len().max(1);
-        let first: Vec<u64> = vals.iter().step_by(width).copied().collect();
         if first.contains(&BAD) {
             return Err(ColumnError::Bad);
         }
@@ -249,13 +290,13 @@ pub fn solve_mod(p: u64, mut a: Vec<u64>, mut b: Vec<u64>, n: usize) -> Option<V
     Some(b)
 }
 
-impl Program {
+impl BlackBox {
     /// The coefficients of the univariate rational function g(t) = f(shift + t (1, zz)) = n(t) / d(t), with
     /// deg n = dn, deg d = dd and d(0) = 1, from its values at the dn + dd + 1 points ts: [n_0 .. n_dn, d_1 .. d_dd].
     /// Err(Bad) if f is undefined at one of the points, or the system is singular there.
     pub fn line(&self, p: u64, shift: &[u64], zz: &[u64], ts: &[u64], dn: usize, dd: usize) -> Result<Vec<u64>, ColumnError> {
         let n = shift.len();
-        if zz.len() + 1 != n || n != self.ninputs || ts.len() != dn + dd + 1 {
+        if zz.len() + 1 != n || n != self.ninputs() || ts.len() != dn + dd + 1 {
             return Err(ColumnError::Shape);
         }
         let mut points = Vec::with_capacity(ts.len() * n);
@@ -265,12 +306,10 @@ impl Program {
                 points.push((shift[i + 1] + mulmod(t, z, p)) % p);
             }
         }
-        let vals = self.eval(p, &points).map_err(|e| match e {
+        let g = self.eval1(p, &points).map_err(|e| match e {
             FfError::BadPrime => ColumnError::BadPrime,
             FfError::Shape => ColumnError::Shape,
         })?;
-        let width = self.outputs.len().max(1);
-        let g: Vec<u64> = vals.iter().step_by(width).copied().collect();
         if g.contains(&BAD) {
             return Err(ColumnError::Bad);
         }
@@ -418,9 +457,26 @@ mod tests {
             outputs: vec![9],
             ninputs: 2,
         };
-        let c = prog.line(p, &[1, 2], &[5], &[7, 11, 13], 1, 1).unwrap();
+        let c = BlackBox::Prog(prog).line(p, &[1, 2], &[5], &[7, 11, 13], 1, 1).unwrap();
         let half = invmod(2, p).unwrap();
         assert_eq!(c, vec![mulmod(5, half, p), mulmod(11, half, p), p - 2]);
+    }
+
+    #[test]
+    fn solves_a_linear_system_per_point() {
+        // [[x, 1], [1, y]] u = [1, 0]: u_0 = y / (x y - 1), u_1 = -1 / (x y - 1)
+        let prog = Program {
+            ops: vec![Op::Input(0), Op::Const(1, vec![1], vec![1]), Op::Input(1), Op::Const(1, vec![0], vec![1])],
+            outputs: vec![0, 1, 1, 2, 1, 3],
+            ninputs: 2,
+        };
+        let p = 101u64;
+        let bb0 = BlackBox::Lin { prog: prog.clone(), n: 2, want: 0 };
+        let bb1 = BlackBox::Lin { prog, n: 2, want: 1 };
+        let inv = |a: u64| invmod(a, p).unwrap();
+        // at (3, 5): det 14; and (1, 1): singular
+        assert_eq!(bb0.eval1(p, &[3, 5, 1, 1]).unwrap(), vec![mulmod(5, inv(14), p), BAD]);
+        assert_eq!(bb1.eval1(p, &[3, 5]).unwrap(), vec![(p - inv(14)) % p]);
     }
 
     #[test]
@@ -448,7 +504,7 @@ mod tests {
             ninputs: 3,
         };
         let support = [2u32, 1, 0, 1, 0, 0]; // x^2 y, y, 1
-        let c = prog.column(p, &[123_456_789, 987_654_321], 3, &support, &[11]).unwrap();
+        let c = BlackBox::Prog(prog).column(p, &[123_456_789, 987_654_321], 3, &support, &[11]).unwrap();
         assert_eq!(c, vec![3, 55, p - 7]);
     }
 }

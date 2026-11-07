@@ -105,8 +105,23 @@ fetch(Key, Home) ->
             end
     end.
 
-%% the program of key Key prepared for pq_ff, prepared once per node
--spec prepared(binary(), node()) -> {ok, tuple()} | {error, term()}.
+%% the black box of a task prepared for pq_ff, once per node: a program by its key, or {linsys, Key, N, Want}, the
+%% program's outputs solved as A u = b at each point, u[Want] its value (R1 phase 5)
+-spec prepared(binary() | {linsys, binary(), pos_integer(), non_neg_integer()}, node()) -> {ok, tuple()} | {error, term()}.
+prepared({linsys, Key, N, Want} = BB, Home) ->
+    ensure(),
+    case ets:lookup(?PREPARED, BB) of
+        [{_, FF}] -> {ok, FF};
+        [] ->
+            case prepared(Key, Home) of
+                {ok, {ff, Ref, Inputs, _}} ->
+                    case pq_nif:ff_linsys(Ref, N, Want) of
+                        {ok, R} -> FF = {ff, R, Inputs, 1}, ets:insert(?PREPARED, {BB, FF}), {ok, FF};
+                        Error -> Error
+                    end;
+                Error -> Error
+            end
+    end;
 prepared(Key, Home) ->
     ensure(),
     case ets:lookup(?PREPARED, Key) of

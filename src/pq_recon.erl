@@ -9,7 +9,7 @@
 %% sparse interpolation is: degrees are found by early termination (Terminate further points that add nothing), and
 %% the result is checked at a point no stage used, in a prime no stage used.
 -module(pq_recon).
--export([polynomial/3, rational/3]).
+-export([polynomial/3, rational/3, linear/4]).
 
 -define(TERMINATE, 2).
 -define(MAX_DEGREE, 1000).
@@ -46,21 +46,45 @@ polynomial(Program, Vars, Opts) ->
 rational({slp, 1, Inputs, _, _}, Vars, _Opts) when Inputs =/= Vars -> {error, {bad_shape, {variables, Inputs}}};
 rational(_Program, [], _Opts) -> {error, {bad_shape, no_variables}};
 rational(Program, Vars, Opts) ->
-    N = length(Vars),
-    with_job(Program, N - 1, Opts,
-             fun(#{key := Key, seed := Seed} = Job) ->
-                     Shift = [1 + V rem (1 bsl 20) || V <- rnd_list(1 bsl 62, N, {Seed, shift})],
-                     P1 = pq_ff:prime(1),
-                     {Dn, Dd} = degrees(Job, P1, Shift),
-                     Task = fun(P, R, NM, SKey, Suffix) ->
-                                    {line_column, Key, P, [S rem P || S <- Shift], R, NM, SKey, Suffix, ts(Job, P, Dn + Dd + 1), Dn, Dd}
-                            end,
-                     Rat = Job#{outs => Dn + Dd + 1, task => Task},
-                     {Support, Coeffs} = case solve(Rat) of [Sc] -> Sc end,
-                     {Num, Den} = unshift(Vars, Shift, Support, Coeffs, Dn, Dd),
-                     ok = check_rat(Rat, Vars, Num, Den),
-                     {to_map(Vars, Num), to_map(Vars, Den)}
-             end).
+    with_job(Program, length(Vars) - 1, Opts, fun(Job) -> rational_job(Job, Vars) end).
+
+rational_job(#{bb := BB, seed := Seed} = Job, Vars) ->
+    Shift = [1 + V rem (1 bsl 20) || V <- rnd_list(1 bsl 62, length(Vars), {Seed, shift})],
+    P1 = pq_ff:prime(1),
+    {Dn, Dd} = degrees(Job, P1, Shift),
+    Task = fun(P, R, NM, SKey, Suffix) ->
+                   {line_column, BB, P, [S rem P || S <- Shift], R, NM, SKey, Suffix, ts(Job, P, Dn + Dd + 1), Dn, Dd}
+           end,
+    Rat = Job#{outs => Dn + Dd + 1, task => Task},
+    {Support, Coeffs} = case solve(Rat) of [Sc] -> Sc end,
+    {Num, Den} = unshift(Vars, Shift, Support, Coeffs, Dn, Dd),
+    ok = check_rat(Rat, Vars, Num, Den),
+    {to_map(Vars, Num), to_map(Vars, Den)}.
+
+%%% Linear systems
+
+%% The solution of A u = b, A a list of rows and b a list, their entries expressions in Vars: the reduced rational
+%% function {N, D} of every component in Opts' components (default all, 0-based), each reconstructed from
+%% eliminations mod p at the sample points (pq_nif:ff_linsys/3) -- the system is never solved symbolically
+%% (R1 phase 5). Opts as for rational/3.
+-spec linear([[term()]], [term()], [atom()], map()) -> {ok, [{non_neg_integer(), {map(), map()}}]} | {error, term()}.
+linear(A, B, Vars, Opts) ->
+    N = length(B),
+    case Vars =/= [] andalso length(A) =:= N andalso lists:all(fun(Row) -> length(Row) =:= N end, A) of
+        false -> {error, {bad_shape, linear_system}};
+        true ->
+            case pq_symbolic:compile(lists:append(A) ++ B, Vars, #{exact_constants => true}) of
+                {ok, Prog} ->
+                    Wanted = maps:get(components, Opts, lists:seq(0, N - 1)),
+                    Results = [{W, with_job(Prog, length(Vars) - 1, Opts, {linsys, N, W},
+                                            fun(Job) -> rational_job(Job, Vars) end)} || W <- Wanted],
+                    case [E || {_, {error, _} = E} <- Results] of
+                        [] -> {ok, [{W, R} || {W, {ok, R}} <- Results]};
+                        [E | _] -> E
+                    end;
+                Error -> Error
+            end
+    end.
 
 ts(#{seed := Seed}, P, Count) ->
     distinct(P, Count, {Seed, P, ts}).
@@ -74,11 +98,16 @@ distinct(P, Count, Key) ->
 
 %%% The job
 
-with_job(Program, N, Opts, Body) ->
+with_job(Program, N, Opts, Body) -> with_job(Program, N, Opts, program, Body).
+
+%% Kind: program (the program's first output) or {linsys, Size, Want} (R1 phase 5)
+with_job(Program, N, Opts, Kind, Body) ->
     case pq_ff:prepare(Program) of
         {ok, _} ->
             Exec = maps:get(executor, Opts, local),
-            Job = #{key => pq_rstore:put(Program), run => fun(Tasks) -> pq_rexec:map(Tasks, Exec, Opts) end,
+            Key = pq_rstore:put(Program),
+            BB = case Kind of program -> Key; {linsys, Size, Want} -> {linsys, Key, Size, Want} end,
+            Job = #{key => Key, bb => BB, run => fun(Tasks) -> pq_rexec:map(Tasks, Exec, Opts) end,
                     batch => maps:get(batch, Opts, batch(Exec, Opts)), seed => maps:get(seed, Opts, 1), n => N},
             try {ok, Body(Job)}
             catch throw:{recon, Why} -> {error, {reconstruction, Why}}
@@ -239,7 +268,7 @@ split(L, [N | Ns]) -> {A, B} = lists:split(N, L), [A | split(B, Ns)].
 
 %% the degrees of numerator and denominator in t along a random line s + t (1, z): the continued fraction grows
 %% until Terminate further points are predicted, then its last convergent gives them
-degrees(#{key := Key, run := Run, seed := Seed, n := M}, P, Shift) ->
+degrees(#{bb := Key, run := Run, seed := Seed, n := M}, P, Shift) ->
     Z = rnd_list(P, M, {Seed, P, line}),
     Ts = rnd_list(P, 2 * ?MAX_DEGREE + 2 * ?TERMINATE, {Seed, P, line_ts}),
     Point = fun(T) -> [(S + T * Zi) rem P || {S, Zi} <- lists:zip(Shift, [1 | Z])] end,
@@ -362,7 +391,7 @@ check_poly(#{key := Key, run := Run, seed := Seed, n := N}, Support, [Rat]) ->
         Other -> throw({recon, {check, Other}})
     end.
 
-check_rat(#{key := Key, run := Run, seed := Seed}, Vars, Num, Den) ->
+check_rat(#{bb := Key, run := Run, seed := Seed}, Vars, Num, Den) ->
     P = pq_ff:prime(?CHECK_PRIME),
     X = rnd_list(P, length(Vars), {Seed, check}),
     case Run([{values, Key, P, [X]}]) of
