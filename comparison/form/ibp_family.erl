@@ -9,7 +9,7 @@
 %% kin_at(Pi, Pj, Point) their values mod p at a point of the invariants; top: the indices that can be positive.
 %% The propagators must span the scalar products of the loop momenta (with each other and with the externals).
 -module(ibp_family).
--export([family/1, identities/2, zero/2, seeds/3]).
+-export([family/1, identities/2, zero/2, seeds/3, canon/2]).
 
 -define(P, 1000000007).
 
@@ -144,22 +144,34 @@ identity(Fam = #{props := Props}, A, L, V) ->
 term(A, C, const) -> {A, C};
 term(A, C, M) -> {setelement(M, A, element(M, A) - 1), C}.
 
-%% every identity of every seed: maps Integral => CoefficientAst, zero integrals dropped, equal ones merged
+%% every identity of every seed: maps Integral => CoefficientAst, zero integrals dropped, equal ones merged (equal
+%% by the sector symmetries too, canon/2, unless the family has symmetries => false)
 identities(Fam = #{loops := Ls, ext := Es}, Seeds) ->
-    [maps:filter(fun(I, _) -> not zero(Fam, I) end,
-                 lists:foldl(fun({I, C}, M) -> maps:update_with(I, fun(C0) -> {add, [C0, C]} end, C, M) end, #{},
-                             identity(Fam, A, L, V)))
+    Canon = case maps:get(symmetries, Fam, true) of
+                true -> fun(I) -> canon(Fam, I) end;
+                false -> fun(I) -> I end
+            end,
+    [lists:foldl(fun({I, C}, M) ->
+                         case zero(Fam, I) of
+                             true -> M;
+                             false -> maps:update_with(Canon(I), fun(C0) -> {add, [C0, C]} end, C, M)
+                         end
+                 end, #{}, identity(Fam, A, L, V))
      || A <- Seeds, L <- Ls, V <- Ls ++ Es].
 
 %%% The seeds: every non-zero sector within top, the positive indices summing to at most R, the others (numerators)
 %%% to at least -S
 
+%%% With R = {dots, D} instead: every sector's powers at most D above 1 in total (Kira's r lets a small sector carry
+%%% many dots, which a reduction of the top sector rarely needs).
+
 seeds(Fam = #{top := Top, props := Props}, R, S) ->
     N = length(Props),
-    Sectors = [Sec || Sec <- subsets(Top), Sec =/= [], length(Sec) =< R],
+    Budget = fun(Sec) -> case R of {dots, D} -> length(Sec) + D; _ -> R end end,
+    Sectors = [Sec || Sec <- subsets(Top), Sec =/= [], length(Sec) =< Budget(Sec)],
     lists:append(
       [[list_to_tuple(fill(N, Sec, Pos, Others, Neg))
-        || Pos <- compositions(Sec, R),
+        || Pos <- compositions(Sec, Budget(Sec)),
            Neg <- numerators(length(Others), S)]
        || Sec <- Sectors, Others <- [[J || J <- lists:seq(1, N), not lists:member(J, Sec)]],
           not zero(Fam, sector_point(N, Sec))]).
@@ -264,3 +276,75 @@ reduce(Rows, C, K) ->
             Elim = fun(R) -> F = lists:nth(C, R) * Inv rem ?P, [(X - F * Y rem ?P + ?P) rem ?P || {X, Y} <- lists:zip(R, Piv)] end,
             [Piv | reduce([Elim(R) || R <- More] ++ Rest, C + 1, K)]
     end.
+
+%%% Sector symmetries (Pak's criterion): two sectors are equivalent if U + F of one is U + F of the other with the
+%%% Feynman parameters permuted (compared mod p at a random point of the invariants, as for the zero sectors). The
+%%% Feynman-parameter integral of an integral without numerators depends on U, F and the powers alone, so then
+%%% I_S(a) = I_R(a permuted). Every such integral maps to the smallest of its images (over the equivalent sectors
+%%% and each sector's own automorphisms); an integral with numerators stays as it is (its identities reduce it to
+%%% ones without).
+
+canon(Fam, A) ->
+    L = tuple_to_list(A),
+    Sec = [J || {J, X} <- lists:enumerate(L), X > 0],
+    case lists:any(fun(X) -> X < 0 end, L) orelse maps:get(Sec, classes(Fam), none) of
+        true -> A;
+        none -> A;
+        {_Rep, Perms} -> lists:min([image(A, Sec, Perm, length(L)) || Perm <- Perms])
+    end.
+
+%% the integral with index j of the sector moved to Perm's image of j
+image(A, Sec, Perm, N) ->
+    M = maps:from_list([{R, element(J, A)} || {J, R} <- lists:zip(Sec, Perm)]),
+    list_to_tuple([maps:get(K, M, 0) || K <- lists:seq(1, N)]).
+
+%% Sector => {Representative, [Perm]}: Perm the images in the representative of the sector's indices, in order, for
+%% every map that carries U + F of one onto the other (memoised)
+classes(Fam = #{name := Name, top := Top, props := Props}) ->
+    case get({classes, Name}) of
+        undefined ->
+            N = length(Props),
+            {U, F} = symanzik(Fam),
+            G = maps:merge(U, F),
+            Sectors = lists:sort(fun(X, Y) -> {length(X), X} =< {length(Y), Y} end,
+                                 [S || S <- subsets(Top), S =/= [], not zero(Fam, sector_point(N, S))]),
+            {Classes, _} =
+                lists:foldl(
+                  fun(S, {Acc, Reps}) ->
+                          GS = restrict(G, S),
+                          Sig = signature(S, GS),
+                          case first_match(S, GS, [Rp || {_, Sig1, _} = Rp <- Reps, Sig1 =:= Sig]) of
+                              {Rep, Perms} -> {Acc#{S => {Rep, Perms}}, Reps};
+                              none -> {Acc#{S => {S, matches(S, GS, S, GS)}}, Reps ++ [{S, Sig, GS}]}
+                          end
+                  end, {#{}, []}, Sectors),
+            put({classes, Name}, Classes),
+            Classes;
+        C -> C
+    end.
+
+first_match(_, _, []) -> none;
+first_match(S, GS, [{R, _, GR} | Rest]) ->
+    case matches(S, GS, R, GR) of
+        [] -> first_match(S, GS, Rest);
+        Perms -> {R, Perms}
+    end.
+
+%% U + F with the parameters outside the sector set to 0, as exponents over the sector's indices
+restrict(G, S) ->
+    maps:from_list([{[lists:nth(J, E) || J <- S], C} || E := C <- G, C =/= 0,
+                    lists:all(fun({J, X}) -> X =:= 0 orelse lists:member(J, S) end, lists:enumerate(E))]).
+
+signature(S, GS) -> {length(S), map_size(GS), lists:sort(maps:values(GS))}.
+
+%% the bijections S -> R carrying GS onto GR
+matches(S, GS, R, GR) ->
+    [Perm || Perm <- perms(R),
+             begin
+                 %% the exponent of R's k-th index is that of the S index mapped to it
+                 Pos = maps:from_list(lists:zip(Perm, lists:seq(1, length(S)))),
+                 maps:from_list([{[lists:nth(maps:get(Rk, Pos), E) || Rk <- R], C} || E := C <- GS]) =:= GR
+             end].
+
+perms([]) -> [[]];
+perms(L) -> [[X | P] || X <- L, P <- perms(L -- [X])].

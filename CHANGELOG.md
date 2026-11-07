@@ -42,7 +42,12 @@ the public API is additive.
     propagators (scalar products solved, zero sectors by the Lee-Pak criterion, Kira-style seeds; it found and fixed
     a gap in the kite's zero rule); against FIRE 6.5.2 (FLINT) on its double box, FIRE reduces in 16 s what costs
     PQCF 56 s per sample point -- the gap is the Laporta front end (no symmetries, no equation selection), recorded
-    in R1 with the steps that would close it; three executors
+    in R1 with the steps that would close it; then closed: mark and sweep (`pq_nif:ff_pivots/4` records which
+    rows each row was combined with, and only the equations the target needs are solved: 0.19 s per point instead
+    of 56 s), sector symmetries by Pak's criterion (`ibp_family:canon/2`: the double box reduces to its 8 masters), a
+    cache of solved points shared by a system's right-hand sides (prefix-stable sample points), and dot-free seeds
+    (`{dots, D}`); the double box checked equal to FIRE's at a random point mod p, and reduced in 3.5 s on one core
+    against FIRE's 7.7-8.4 s; three executors
     behind one task interface (this node, Erlang nodes, FVLLMP federation peers), from a single node to 100+.
 
 ## 1.3.0 (7 November 2026)

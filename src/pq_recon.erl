@@ -152,12 +152,18 @@ zero_columns(Prog, Vars, NP, M, W, Opts) ->
 ts(#{seed := Seed}, P, Count) ->
     distinct(P, Count, {Seed, P, ts}).
 
+%% the first Count distinct values of the key's stream, in its order: a prefix of any longer request, so that
+%% reconstructions of different degrees share their sample points (and a linear system's cache serves them all)
 distinct(P, Count, Key) ->
-    L = lists:usort(rnd_list(P, Count + 8, Key)),
+    L = dedup(rnd_list(P, 2 * Count + 8, Key), #{}),
     case length(L) >= Count of
         true -> lists:sublist(L, Count);
         false -> distinct(P, Count, {Key, again})
     end.
+
+dedup([], _) -> [];
+dedup([X | Xs], Seen) when is_map_key(X, Seen) -> dedup(Xs, Seen);
+dedup([X | Xs], Seen) -> [X | dedup(Xs, Seen#{X => true})].
 
 %%% The job
 

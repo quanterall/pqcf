@@ -181,8 +181,21 @@ pub fn tvandermonde(p: u64, nodes: &[u64], values: &[u64]) -> Option<Vec<u64>> {
 /// (`solve_aug`); the value is component `want` of the solution for right-hand side `col` (bad where A is singular).
 pub enum BlackBox {
     Prog(Program),
-    Lin { prog: Program, n: usize, m: usize, want: usize, col: usize, pattern: Patterns },
+    Lin { prog: Program, n: usize, m: usize, want: usize, col: usize, pattern: Patterns, cache: LinCache },
 }
+
+/// The solutions at the points already solved, shared by the black boxes of one program (one per right-hand side):
+/// keyed by (n, m, want, p, point), every right-hand side's non-zero values (None where A is singular). One
+/// elimination gives every right-hand side, and the reconstructions of different right-hand sides sample mostly the
+/// same points, so each point is eliminated once. The values are those a fresh elimination gives: the cache changes
+/// no result.
+pub type LinCache = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<LinKey, Solved>>>;
+
+/// (n, m, want, p, point)
+pub type LinKey = (usize, usize, usize, u64, Vec<u64>);
+
+/// every right-hand side's non-zero values at a point, None where A is singular
+pub type Solved = Option<Vec<(u32, u64)>>;
 
 /// the sparsity patterns of A and B (shared by a system's black boxes)
 pub type Patterns = std::sync::Arc<(Vec<Vec<u32>>, Vec<Vec<u32>>)>;
@@ -327,9 +340,15 @@ pub fn solve_aug(p: u64, mut rows: Vec<Vec<(usize, u64)>>, n: usize, m: usize, w
 /// The pivots of a sparse m x n matrix mod p (rows of (column, value), sorted by column): Gaussian elimination
 /// column by column, 0 to n-1, each column's pivot the shortest remaining row that holds it, the lowest of equals (a
 /// deterministic choice that keeps the fill-in low);
-/// (pivot rows, pivot columns) in column order. The columns without a pivot are the dependent ones: in a Laporta
-/// reduction, columns ordered most complex first, they are the master integrals.
-pub fn pivots(p: u64, mut rows: Vec<Vec<(usize, u64)>>, n: usize) -> (Vec<usize>, Vec<usize>) {
+/// (pivot rows, pivot columns) in column order, and the rows that `targets` need. The columns without a pivot are the
+/// dependent ones: in a Laporta reduction, columns ordered most complex first, they are the master integrals.
+///
+/// Mark and sweep (as in FiniteFlow): a pivot row is final once chosen, and every row records the pivot rows it was
+/// combined with. A target column needs its pivot row; a needed row needs the rows it was combined with (its forward
+/// elimination) and the pivot row of every other non-master column left in it (back substitution). The other rows
+/// never touch the targets: the needed rows, in the pivot order of their columns, solve for them alone, by the same
+/// elimination. Sorted by pivot column; empty without targets.
+pub fn pivots(p: u64, mut rows: Vec<Vec<(usize, u64)>>, n: usize, targets: &[usize]) -> (Vec<usize>, Vec<usize>, Vec<usize>) {
     use std::collections::BTreeSet;
     let mut col_rows: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); n];
     for (r, row) in rows.iter_mut().enumerate() {
@@ -340,11 +359,14 @@ pub fn pivots(p: u64, mut rows: Vec<Vec<(usize, u64)>>, n: usize) -> (Vec<usize>
         }
     }
     let (mut prow, mut pcol) = (Vec::new(), Vec::new());
+    let mut deps: Vec<Vec<u32>> = vec![Vec::new(); rows.len()];
+    let mut pivot_of = vec![usize::MAX; n];
     for k in 0..n {
         // the shortest row holding the column (the lowest index among equals): the least fill-in
         let Some(r) = col_rows[k].iter().copied().min_by_key(|&q| (rows[q].len(), q)) else { continue };
         prow.push(r);
         pcol.push(k);
+        pivot_of[k] = r;
         for &(c, _) in &rows[r] {
             col_rows[c].remove(&r);
         }
@@ -356,6 +378,7 @@ pub fn pivots(p: u64, mut rows: Vec<Vec<(usize, u64)>>, n: usize) -> (Vec<usize>
         for q in others {
             let aqk = rows[q].iter().find(|e| e.0 == k).map_or(0, |e| e.1);
             let f = mulmod(aqk, inv, p);
+            deps[q].push(r as u32);
             let (rq, rr) = (std::mem::take(&mut rows[q]), &rows[r]);
             let mut merged = Vec::with_capacity(rq.len() + rr.len());
             let (mut i, mut j) = (0, 0);
@@ -383,7 +406,19 @@ pub fn pivots(p: u64, mut rows: Vec<Vec<(usize, u64)>>, n: usize) -> (Vec<usize>
             rows[q] = merged;
         }
     }
-    (prow, pcol)
+    // the sweep: the rows the targets need
+    let mut needed = vec![false; rows.len()];
+    let mut stack: Vec<usize> = targets.iter().filter(|&&t| t < n && pivot_of[t] != usize::MAX).map(|&t| pivot_of[t]).collect();
+    while let Some(r) = stack.pop() {
+        if needed[r] {
+            continue;
+        }
+        needed[r] = true;
+        stack.extend(deps[r].iter().map(|&d| d as usize).filter(|&d| !needed[d]));
+        stack.extend(rows[r].iter().map(|e| pivot_of[e.0]).filter(|&q| q != usize::MAX && !needed[q]));
+    }
+    let need: Vec<usize> = pcol.iter().map(|&c| pivot_of[c]).filter(|&r| needed[r]).collect();
+    (prow, pcol, need)
 }
 
 impl BlackBox {
@@ -392,14 +427,52 @@ impl BlackBox {
     pub fn eval_all(&self, p: u64, points: &[u64]) -> Result<Vec<Option<Vec<u64>>>, FfError> {
         match self {
             BlackBox::Prog(_) => Err(FfError::Shape),
-            BlackBox::Lin { prog, n, m, want, pattern, .. } => {
-                let vals = prog.eval(p, points)?;
-                Ok(vals
-                    .chunks(prog.outputs.len())
-                    .map(|row| if row.contains(&BAD) { None } else { solve_aug(p, aug_rows(p, row, pattern, *n, None), *n, *m, *want) })
-                    .collect())
+            BlackBox::Lin { m, .. } => Ok(self
+                .lin_sparse(p, points)?
+                .into_iter()
+                .map(|r| {
+                    r.map(|sparse| {
+                        let mut u = vec![0u64; *m];
+                        for (t, v) in sparse {
+                            u[t as usize] = v;
+                        }
+                        u
+                    })
+                })
+                .collect()),
+        }
+    }
+
+    /// a linear system's solution at each point, every right-hand side's non-zero values, through the cache
+    fn lin_sparse(&self, p: u64, points: &[u64]) -> Result<Vec<Solved>, FfError> {
+        let BlackBox::Lin { prog, n, m, want, pattern, cache, .. } = self else { return Err(FfError::Shape) };
+        let k = prog.ninputs.max(1);
+        let key = |pt: &[u64]| (*n, *m, *want, p, pt.to_vec());
+        let mut out: Vec<Option<Solved>> = {
+            let c = cache.lock().map_err(|_| FfError::Shape)?;
+            points.chunks(k).map(|pt| c.get(&key(pt)).cloned()).collect()
+        };
+        let miss: Vec<usize> = out.iter().enumerate().filter(|(_, o)| o.is_none()).map(|(i, _)| i).collect();
+        if !miss.is_empty() {
+            let pts: Vec<u64> = miss.iter().flat_map(|&i| points[i * k..(i + 1) * k].iter().copied()).collect();
+            let vals = prog.eval(p, &pts)?;
+            let solved: Vec<Solved> = vals
+                .chunks(prog.outputs.len())
+                .map(|row| {
+                    if row.contains(&BAD) {
+                        return None;
+                    }
+                    solve_aug(p, aug_rows(p, row, pattern, *n, None), *n, *m, *want)
+                        .map(|u| u.into_iter().enumerate().filter(|e| e.1 != 0).map(|(t, v)| (t as u32, v)).collect())
+                })
+                .collect();
+            let mut c = cache.lock().map_err(|_| FfError::Shape)?;
+            for (&i, r) in miss.iter().zip(solved) {
+                c.insert(key(&points[i * k..(i + 1) * k]), r.clone());
+                out[i] = Some(r);
             }
         }
+        Ok(out.into_iter().map(|o| o.flatten()).collect())
     }
 
     pub fn ninputs(&self) -> usize {
@@ -416,19 +489,15 @@ impl BlackBox {
                 let vals = prog.eval(p, points)?;
                 Ok(vals.iter().step_by(prog.outputs.len().max(1)).copied().collect())
             }
-            // one right-hand side: only its column of B goes through the elimination
-            BlackBox::Lin { prog, n, want, col, pattern, .. } => {
-                let vals = prog.eval(p, points)?;
-                Ok(vals
-                    .chunks(prog.outputs.len())
-                    .map(|row| {
-                        if row.contains(&BAD) {
-                            return BAD;
-                        }
-                        solve_aug(p, aug_rows(p, row, pattern, *n, Some(*col)), *n, 1, *want).map_or(BAD, |u| u[0])
-                    })
-                    .collect())
-            }
+            // one right-hand side: every one is solved (and cached for the others), this one kept
+            BlackBox::Lin { col, .. } => Ok(self
+                .lin_sparse(p, points)?
+                .into_iter()
+                .map(|r| match r {
+                    None => BAD,
+                    Some(sparse) => sparse.binary_search_by_key(&(*col as u32), |e| e.0).map_or(0, |i| sparse[i].1),
+                })
+                .collect()),
         }
     }
 }
@@ -690,8 +759,9 @@ mod tests {
         };
         let p = 101u64;
         let dense = std::sync::Arc::new((vec![vec![0, 1], vec![0, 1]], vec![vec![0], vec![0]]));
-        let bb0 = BlackBox::Lin { prog: prog.clone(), n: 2, m: 1, want: 0, col: 0, pattern: dense.clone() };
-        let bb1 = BlackBox::Lin { prog, n: 2, m: 1, want: 1, col: 0, pattern: dense };
+        let cache = LinCache::default();
+        let bb0 = BlackBox::Lin { prog: prog.clone(), n: 2, m: 1, want: 0, col: 0, pattern: dense.clone(), cache: cache.clone() };
+        let bb1 = BlackBox::Lin { prog, n: 2, m: 1, want: 1, col: 0, pattern: dense, cache };
         let inv = |a: u64| invmod(a, p).unwrap();
         // at (3, 5): det 14; and (1, 1): singular
         assert_eq!(bb0.eval1(p, &[3, 5, 1, 1]).unwrap(), vec![mulmod(5, inv(14), p), BAD]);
@@ -708,7 +778,7 @@ mod tests {
         };
         let p = 101u64;
         let pattern = std::sync::Arc::new((vec![vec![0, 1], vec![1]], vec![vec![0], vec![0]]));
-        let bb = BlackBox::Lin { prog, n: 2, m: 1, want: 0, col: 0, pattern };
+        let bb = BlackBox::Lin { prog, n: 2, m: 1, want: 0, col: 0, pattern, cache: LinCache::default() };
         assert_eq!(bb.eval1(p, &[3, 5, 0, 5]).unwrap(), vec![invmod(3, p).unwrap(), BAD]);
         assert_eq!(bb.eval_all(p, &[3, 5]).unwrap(), vec![Some(vec![invmod(3, p).unwrap()])]);
     }
@@ -718,11 +788,16 @@ mod tests {
         // rows x+y, 2x+2y, y, z over columns x, y, z, w: x pivots on row 0 (the first of two equally short), y on
         // row 2 (row 1 is then 0), z on row 3; w has none
         let rows = vec![vec![(0, 1), (1, 1)], vec![(0, 2), (1, 2)], vec![(1, 1)], vec![(2, 5)]];
-        assert_eq!(pivots(P, rows, 4), (vec![0, 2, 3], vec![0, 1, 2]));
+        assert_eq!(pivots(P, rows.clone(), 4, &[]), (vec![0, 2, 3], vec![0, 1, 2], vec![]));
+        // y needs only its own row; x needs row 0 and, for the y left in it, row 2; z needs row 3
+        assert_eq!(pivots(P, rows.clone(), 4, &[1]).2, vec![2]);
+        assert_eq!(pivots(P, rows.clone(), 4, &[0]).2, vec![0, 2]);
+        assert_eq!(pivots(P, rows, 4, &[2]).2, vec![3]);
         // x in a long row and a short one: the short one pivots
         let rows = vec![vec![(0, 1), (1, 1), (2, 1)], vec![(0, 1), (2, 1)]];
-        assert_eq!(pivots(P, rows, 3), (vec![1, 0], vec![0, 1]));
-        assert_eq!(pivots(P, vec![vec![(1, P)]], 2), (vec![], vec![]));
+        // y's row was combined with x's pivot row (row 1): y needs both
+        assert_eq!(pivots(P, rows, 3, &[1]), (vec![1, 0], vec![0, 1], vec![1, 0]));
+        assert_eq!(pivots(P, vec![vec![(1, P)]], 2, &[0]), (vec![], vec![], vec![]));
     }
 
     #[test]

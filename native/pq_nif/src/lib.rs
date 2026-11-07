@@ -1679,8 +1679,9 @@ fn horner_count<'a>(env: Env<'a>, prep: ResourceArc<HornerRes>, order: Vec<usize
     })
 }
 
-/// A straight-line program prepared for evaluation over prime fields (ffslp.rs; R1).
-pub struct FfRes(ffslp::BlackBox);
+/// A straight-line program prepared for evaluation over prime fields (ffslp.rs; R1), with the cache its linear-system
+/// black boxes share.
+pub struct FfRes(ffslp::BlackBox, ffslp::LinCache);
 
 #[rustler::resource_impl]
 impl rustler::Resource for FfRes {}
@@ -1712,7 +1713,7 @@ fn ff_prepare<'a>(env: Env<'a>, ninputs: usize, ops: Vec<Term<'a>>, outputs: Vec
     }
     let p = ffslp::Program { ops: prog, outputs, ninputs };
     Ok(match p.check() {
-        Ok(()) => (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Prog(p)))).encode(env),
+        Ok(()) => (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Prog(p), ffslp::LinCache::default()))).encode(env),
         Err(_) => bad_shape(env, "ff program"),
     })
 }
@@ -1798,7 +1799,8 @@ fn ff_linsys<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, n: usize, m: usize, wan
     Ok(match &prog.0 {
         ffslp::BlackBox::Prog(pr) if ok(&pattern, n) && ok(&bpattern, m) && pr.outputs.len() == nnz && want < n && col < m && n > 0 => {
             let pattern = std::sync::Arc::new((pattern, bpattern));
-            (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Lin { prog: pr.clone(), n, m, want, col, pattern }))).encode(env)
+            let cache = prog.1.clone();
+            (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Lin { prog: pr.clone(), n, m, want, col, pattern, cache: cache.clone() }, cache))).encode(env)
         }
         _ => bad_shape(env, "linear system: n rows of increasing columns < n and right-hand sides < m, one output per entry"),
     })
@@ -1819,15 +1821,16 @@ fn ff_linsys_all<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, p: u64, points: Vec
     })
 }
 
-/// ff_pivots(P, Rows, N) -> {PivotRows, PivotColumns}: the pivots of a sparse matrix mod P (Rows: lists of
-/// {Column, Value}, increasing columns < N), by elimination in column order (ffslp.rs; R1 phase 5)
+/// ff_pivots(P, Rows, N, Targets) -> {PivotRows, PivotColumns, Needed}: the pivots of a sparse matrix mod P (Rows:
+/// lists of {Column, Value}, increasing columns < N), by elimination in column order, and the rows the Targets
+/// (columns) need, by mark and sweep (ffslp.rs; R1 phase 5)
 #[rustler::nif(schedule = "DirtyCpu")]
-fn ff_pivots(p: u64, rows: Vec<Vec<(usize, u64)>>, n: usize) -> NifResult<(Vec<usize>, Vec<usize>)> {
+fn ff_pivots(p: u64, rows: Vec<Vec<(usize, u64)>>, n: usize, targets: Vec<usize>) -> NifResult<(Vec<usize>, Vec<usize>, Vec<usize>)> {
     let sorted = rows.iter().all(|r| r.windows(2).all(|w| w[0].0 < w[1].0) && r.iter().all(|e| e.0 < n));
     if !(3..(1u64 << 63)).contains(&p) || !sorted {
         return Err(rustler::Error::BadArg);
     }
-    Ok(ffslp::pivots(p, rows, n))
+    Ok(ffslp::pivots(p, rows, n, &targets))
 }
 
 rustler::init!("pq_nif");

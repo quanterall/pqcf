@@ -413,6 +413,72 @@ as sets). It also found the kite's zero-rule gap.
   3. a learned elimination, recorded once and replayed per point without the search for pivots;
   4. the points spread over cores and nodes (`pq_rexec`), which helps only once a point costs milliseconds, not a
      minute.
-- **Where PQCF stands:** on the systems both programs solve as given, PQCF is 11–38× faster than FORM's symbolic
-  elimination. Against a dedicated IBP program on a real two-loop problem, its Laporta front end is the
-  bottleneck. FIRE's sector-wise reduction with symmetries is the bar to meet.
+- **Where PQCF stood:** on the systems both programs solve as given, PQCF was 11–38× faster than FORM's symbolic
+  elimination. Against a dedicated IBP program on a real two-loop problem, its Laporta front end was the
+  bottleneck. The next section closes the gap.
+
+## Closing the gap: mark and sweep, symmetries, a shared cache (7 Nov 2026)
+
+The steps listed above, in the order they paid off:
+
+1. **Mark and sweep** (`pq_nif:ff_pivots/4`). The learning elimination records, for every row, the pivot rows it
+   was combined with. The target needs its pivot row, every row that row was combined with, and the pivot row of
+   every unknown left in a needed row, recursively. The other rows never touch the target. The needed rows, in the
+   pivot order of their columns, form the square system. Its unknowns stay in Laporta order, so eliminating column
+   k on row k repeats the learned elimination, fill-in included (`ibp:system/3`).
+   - On the double box at Kira's r = 7, s = 2, 54,549 of 198,160 equations are needed.
+   - A sample point costs **0.19 s instead of 56 s**.
+2. **Sector symmetries** (`ibp_family:canon/2`, Pak's criterion). Two sectors are equivalent if U + F of one is U +
+   F of the other with the Feynman parameters permuted, compared mod p at a random point of the invariants.
+   - An integral without numerators then equals its images in the equivalent sectors and under the sector's own
+     automorphisms, and is named by the smallest image.
+   - The double box's 43 non-zero sectors fall into 18 classes; its top sector has 4 automorphisms.
+   - The kite's two sunsets become one master, and the double box's target reduces to **8 masters**, the known
+     number.
+3. **A cache shared by the right-hand sides** (`LinCache` in `ffslp.rs`). One elimination yields every right-hand
+   side, but each non-zero coefficient was reconstructed separately, so each one eliminated at its own sample points.
+   - The points of a line along t are now a prefix-stable stream (`distinct/3`), so reconstructions of different
+     degrees sample the same points.
+   - The black boxes of one system share a cache of solved points: each point is eliminated once.
+   - This changes no result. The double box's reduction fell from 135 s to 38 s.
+   - Caveat for benchmarks: a second run of the identical system in the same VM is served from the cache. The timings
+     below are fresh VMs.
+4. **Seeds without dots** (`{dots, D}`: every sector's powers at most D above 1). Kira's r = 7 lets a 4-propagator
+   sector carry 3 dots, and a reduction of a dot-free target rarely needs them. The double box at D = 0, s = 2 has
+   7,300 equations instead of 198,160, and still reduces completely.
+
+A pre-filter that dropped equations whose integral appears nowhere else removed only 3% of them, so it was left out.
+
+**Checked against FIRE** (`comparison/fire/fire_check.erl`). The two programs pick different masters. FIRE's
+example applies fewer symmetries, so it keeps 12 masters, which are 8 up to the symmetries. It also takes a dotted
+top integral where PQCF takes one with a numerator. FIRE reduces PQCF's numerator master into its own basis. At a
+random point mod p, PQCF's answer then equals FIRE's on every master, both for D = 0 and for D = 1.
+
+**One core each, back to back on the same core, the machine otherwise loaded:**
+
+| | equations generated / needed | masters | time |
+| --- | --- | --- | --- |
+| FIRE 6.5.2 (FLINT), `examples/doublebox` | 70,476 / 58,349 | 12 (8 up to symmetries) | 7.7–8.4 s |
+| PQCF, seeds D = 0, s = 2 | 7,300 / 4,044 | 8 | **3.50 s** (0.3 s system, 3.15 s reconstruction) |
+| PQCF, seeds D = 1, s = 2 | 39,790 / 15,379 | 8 | 24.3 s |
+| PQCF, Kira's r = 7, s = 2 | 198,160 / 52,997 | 8 | about 100 s (learning 60 s) |
+
+(FIRE's first runs took 16 s on a busier core.)
+
+- **On this double box PQCF is now about 2.3× faster than FIRE on one core**, with the same answer.
+- **The seeds matter as much as anything.** FIRE chooses its equations itself. PQCF needs a seed choice that fits the
+  target; with Kira's standard seeds it is about 12× slower than FIRE. Choosing seeds automatically (growing them
+  until the target reduces) is the next step for the front end.
+- **The systems the box and kite benchmarks solve shrank with mark and sweep and the symmetries.** The kite at 7, 2
+  keeps 261 of 2,310 equations. FORM, solving the same small systems, is now as fast as PQCF on the smallest:
+
+| family, seeds | needed | FORM 5, 1 core | PQCF, 1 core (reconstruction) |
+| --- | --- | --- | --- |
+| box 5, 1 | 39 | 0.03 s | 0.05 s |
+| box 6, 2 | 121 | 0.12 s | 0.11 s |
+| kite 6, 1 | 112 | 0.09 s | 0.05 s |
+| kite 7, 1 | 127 | 0.11 s | 0.06 s |
+| kite 7, 2 | 261 | 0.43 s | 0.11 s |
+
+  The large ratios over FORM in the sections above came from solving the full systems. Once only the needed
+  equations are solved, symbolic elimination is fine at this size; the reconstruction wins on the large systems.
