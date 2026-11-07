@@ -79,3 +79,11 @@ multi_rhs_test() ->
     {ok, [{2, S3}]} = pq_recon:linear(A, B3, [x, y, z], #{components => [2]}),
     ?assertEqual({S1, S3}, {element(2, lists:keyfind(0, 1, PerRhs)), element(2, lists:keyfind(2, 1, PerRhs))}),
     ?assertEqual({#{}, #{{[], []} => {q, {1, 1}, {0, 1}}}}, element(2, lists:keyfind(1, 1, PerRhs))).
+
+%% A as sparse rows (maps Column => entry): the same answers as dense rows; a column out of range is refused
+sparse_rows_test() ->
+    A = [[x(), y(), 0], [0, x(), z()], [y(), 0, {add, [x(), 1]}]],
+    B = [1, {rat, 1, 2}, z()],
+    Maps = [#{0 => x(), 1 => y()}, #{1 => x(), 2 => z()}, #{0 => y(), 2 => {add, [x(), 1]}}],
+    ?assertEqual(pq_recon:linear(A, B, [x, y, z], #{}), pq_recon:linear(Maps, B, [x, y, z], #{})),
+    ?assertEqual({error, {bad_shape, linear_system}}, pq_recon:linear([#{3 => x()}, #{1 => x()}, #{2 => x()}], B, [x, y, z], #{})).

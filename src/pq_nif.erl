@@ -16,7 +16,7 @@
          fock_dmb_from/3, fock_dmb_to_dense/3, fock_dmb_apply/4, fock_dmb_pnr_probabilities/4, fock_dmb_measure_pnr/5,
          fock_dm_adjoint_gradient/5, sym_poly_mul/6, sym_poly_pow/5,
          rpoly_new/4, rpoly_mul/5, rpoly_add/5, rpoly_pow/2, rpoly_scale/4, rpoly_info/1, rpoly_to_map/2, rpoly_to_ast/2,
-         horner_prepare/2, horner_count/2, ff_prepare/3, ff_eval/3, ff_tvandermonde/3, ff_column/6, ff_line_column/10, ff_linsys/5, ff_linsys_all/3]).
+         horner_prepare/2, horner_count/2, ff_prepare/3, ff_eval/3, ff_tvandermonde/3, ff_column/6, ff_line_column/10, ff_linsys/6, ff_linsys_all/3]).
 -on_load(load/0).
 
 %% The NIF {Major, Minor} this code was written against (FS 8.1).
@@ -383,10 +383,12 @@ ff_column(_Program, _P, _R, _N, _Support, _Suffix) -> erlang:nif_error(nif_not_l
           {ok, [[non_neg_integer()]]} | bad | singular | bad_prime | {error, term()}.
 ff_line_column(_Program, _P, _Shift, _R, _N, _Support, _Suffix, _Ts, _Dn, _Dd) -> erlang:nif_error(nif_not_loaded).
 
-%% A black box solving A u = B at each point (R1 phase 5): A the prepared program's first N*N outputs row by row,
-%% B the next N*M (N rows of M right-hand sides); ff_eval/3 then gives u[Want] for right-hand side Col per point,
-%% ff_linsys_all/3 u[Want] for every right-hand side (bad where A is singular).
--spec ff_linsys(reference(), pos_integer(), pos_integer(), non_neg_integer(), non_neg_integer()) -> {ok, reference()} | {error, term()}.
-ff_linsys(_Program, _N, _M, _Want, _Col) -> erlang:nif_error(nif_not_loaded).
+%% A black box solving A u = B at each point (R1 phase 5): A sparse, row r holding the columns Pattern[r] (0-based,
+%% increasing), its entries the prepared program's first outputs row by row; B the next N*M (N rows of M right-hand
+%% sides); ff_eval/3 then gives u[Want] for right-hand side Col per point, ff_linsys_all/3 u[Want] for every
+%% right-hand side (bad where A is singular).
+-spec ff_linsys(reference(), pos_integer(), pos_integer(), non_neg_integer(), non_neg_integer(), [[non_neg_integer()]]) ->
+          {ok, reference()} | {error, term()}.
+ff_linsys(_Program, _N, _M, _Want, _Col, _Pattern) -> erlang:nif_error(nif_not_loaded).
 -spec ff_linsys_all(reference(), pos_integer(), [non_neg_integer()]) -> {ok, [[non_neg_integer()] | bad]} | {error, term()}.
 ff_linsys_all(_Program, _P, _Points) -> erlang:nif_error(nif_not_loaded).

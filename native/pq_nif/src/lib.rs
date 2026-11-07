@@ -1785,16 +1785,20 @@ fn ff_line_column<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, p: u64, shift: Vec
     })
 }
 
-/// ff_linsys(Resource, N, M, Want, Col) -> {ok, Resource} | {error, bad_shape}: the black box solving A u = B at each
-/// point, A the program's first N*N outputs row by row and B the next N*M (N rows of M right-hand sides), its value
-/// u[Want] for right-hand side Col (ffslp.rs; R1 phase 5)
+/// ff_linsys(Resource, N, M, Want, Col, Pattern) -> {ok, Resource} | {error, bad_shape}: the black box solving A u = B
+/// at each point, A sparse (row r holds the columns Pattern[r], increasing), its entries the program's first outputs
+/// row by row, B the next N*M (N rows of M right-hand sides), its value u[Want] for right-hand side Col
+/// (ffslp.rs; R1 phase 5)
 #[rustler::nif]
-fn ff_linsys<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, n: usize, m: usize, want: usize, col: usize) -> NifResult<Term<'a>> {
+fn ff_linsys<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, n: usize, m: usize, want: usize, col: usize, pattern: Vec<Vec<u32>>) -> NifResult<Term<'a>> {
+    let nnz: usize = pattern.iter().map(Vec::len).sum();
+    let valid = pattern.len() == n && pattern.iter().all(|r| r.windows(2).all(|w| w[0] < w[1]) && r.iter().all(|&c| (c as usize) < n));
     Ok(match &prog.0 {
-        ffslp::BlackBox::Prog(pr) if pr.outputs.len() == n * n + n * m && want < n && col < m && n > 0 => {
-            (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Lin { prog: pr.clone(), n, m, want, col }))).encode(env)
+        ffslp::BlackBox::Prog(pr) if valid && pr.outputs.len() == nnz + n * m && want < n && col < m && n > 0 => {
+            let pattern = std::sync::Arc::new(pattern);
+            (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Lin { prog: pr.clone(), n, m, want, col, pattern }))).encode(env)
         }
-        _ => bad_shape(env, "linear system: n*n + n*m outputs, want < n, col < m"),
+        _ => bad_shape(env, "linear system: n rows of increasing columns < n, nnz + n*m outputs, want < n, col < m"),
     })
 }
 

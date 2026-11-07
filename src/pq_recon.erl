@@ -68,30 +68,45 @@ rational_job(#{bb := BB} = Job, Vars, Shift, Dn, Dd) ->
 
 %%% Linear systems
 
-%% The solution of A u = B, A a list of rows, B a list of right-hand-side entries -- or of lists of M entries, M
+%% a row as [{Column, Entry}] by increasing column, the zero entries left out; bad if it doesn't fit N columns
+sparse_row(Row, N) when is_list(Row), length(Row) =:= N ->
+    [{C, E} || {C, E} <- lists:enumerate(0, Row), E =/= 0];
+sparse_row(Row, N) when is_map(Row) ->
+    case lists:all(fun(C) -> is_integer(C) andalso C >= 0 andalso C < N end, maps:keys(Row)) of
+        true -> [{C, E} || {C, E} <- lists:sort(maps:to_list(Row)), E =/= 0];
+        false -> bad
+    end;
+sparse_row(_, _) -> bad.
+
+%% The solution of A u = B, A a list of rows -- each a list of N entries, or a map Column => entry (0-based, the
+%% missing entries 0: the form for large sparse systems) -- B a list of right-hand-side entries -- or of lists of M entries, M
 %% right-hand sides at once (one per master integral, say) -- all expressions in Vars: for every component in Opts'
 %% components (default all, 0-based), the reduced rational function {N, D} of each right-hand side's solution, as
 %% [{Component, {N, D}}] for one right-hand side, [{Component, [{Rhs, {N, D}}]}] for several. Each is reconstructed
-%% from sparse eliminations mod p at the sample points (pq_nif:ff_linsys/5), never a symbolic solve; with several
+%% from sparse eliminations mod p at the sample points (pq_nif:ff_linsys/6), never a symbolic solve; with several
 %% right-hand sides, one elimination per point tests them all for 0 (at three points, in the first prime) and only
 %% the others are reconstructed (R1 phase 5). Opts as for rational/3, plus the expression limits
 %% (max_expr_nodes, ..) for compiling A and B.
--spec linear([[term()]], [term()] | [[term()]], [atom()], map()) -> {ok, list()} | {error, term()}.
+%% Only A's non-zero entries are compiled (a dense row's literal zeros are dropped).
+-spec linear([[term()] | #{non_neg_integer() => term()}], [term()] | [[term()]], [atom()], map()) -> {ok, list()} | {error, term()}.
 linear(A, B, Vars, Opts) ->
     N = length(B),
     Multi = B =/= [] andalso is_list(hd(B)),
     Bs = case Multi of true -> B; false -> [[Bi] || Bi <- B] end,
     M = case Bs of [] -> 0; [R | _] -> length(R) end,
-    case Vars =/= [] andalso length(A) =:= N andalso lists:all(fun(Row) -> length(Row) =:= N end, A)
+    Sparse = [sparse_row(Row, N) || Row <- A],
+    case Vars =/= [] andalso length(A) =:= N andalso not lists:member(bad, Sparse)
         andalso lists:all(fun(Row) -> length(Row) =:= M end, Bs) andalso M > 0 of
         false -> {error, {bad_shape, linear_system}};
         true ->
-            %% A is passed dense: a large system needs the expression limits raised (Opts' limit keys reach compile)
+            Pattern = [[C || {C, _} <- Row] || Row <- Sparse],
+            %% a large system needs the expression limits raised: Opts' limit keys reach compile
             Limits = maps:with([max_poly_terms, max_expand_power, max_expr_nodes, sym_timeout_ms, sym_max_heap_words], Opts),
-            case pq_symbolic:compile(lists:append(A) ++ lists:append(Bs), Vars, Limits#{exact_constants => true}) of
+            Entries = [E || Row <- Sparse, {_, E} <- Row],
+            case pq_symbolic:compile(Entries ++ lists:append(Bs), Vars, Limits#{exact_constants => true}) of
                 {ok, Prog} ->
                     Wanted = maps:get(components, Opts, lists:seq(0, N - 1)),
-                    Results = [{W, component(Prog, Vars, N, M, W, Opts)} || W <- Wanted],
+                    Results = [{W, component(Prog, Vars, {N, Pattern}, M, W, Opts)} || W <- Wanted],
                     case [E || {_, {error, _} = E} <- Results] of
                         [] when Multi -> {ok, [{W, R} || {W, {ok, R}} <- Results]};
                         [] -> {ok, [{W, NumDen} || {W, {ok, [{0, NumDen}]}} <- Results]};
@@ -102,13 +117,13 @@ linear(A, B, Vars, Opts) ->
     end.
 
 %% one component for every right-hand side: the zero test at three points, then a reconstruction per non-zero one
-component(Prog, Vars, N, M, W, Opts) ->
+component(Prog, Vars, NP, M, W, Opts) ->
     Zero = {#{}, #{{[], []} => {q, {1, 1}, {0, 1}}}},
-    case zero_columns(Prog, Vars, N, M, W, Opts) of
+    case zero_columns(Prog, Vars, NP, M, W, Opts) of
         {ok, Zeros} ->
             Cols = [case lists:member(C, Zeros) of
                         true -> {C, {ok, Zero}};
-                        false -> {C, with_job(Prog, length(Vars) - 1, Opts, {linsys, N, M, W, C}, fun(Job) -> rational_job(Job, Vars) end)}
+                        false -> {C, with_job(Prog, length(Vars) - 1, Opts, {linsys, NP, M, W, C}, fun(Job) -> rational_job(Job, Vars) end)}
                     end || C <- lists:seq(0, M - 1)],
             case [E || {_, {error, _} = E} <- Cols] of
                 [] -> {ok, [{C, R} || {C, {ok, R}} <- Cols]};
@@ -119,9 +134,9 @@ component(Prog, Vars, N, M, W, Opts) ->
 
 %% the right-hand sides whose solution component W is 0 at three random points of the first prime (a rational
 %% function that isn't 0 vanishes there with probability about its degree / p, 10^-17)
-zero_columns(_Prog, _Vars, _N, 1, _W, _Opts) -> {ok, []};
-zero_columns(Prog, Vars, N, M, W, Opts) ->
-    with_job(Prog, length(Vars) - 1, Opts, {linsys, N, M, W, 0},
+zero_columns(_Prog, _Vars, _NP, 1, _W, _Opts) -> {ok, []};
+zero_columns(Prog, Vars, NP, M, W, Opts) ->
+    with_job(Prog, length(Vars) - 1, Opts, {linsys, NP, M, W, 0},
              fun(#{bb := BB, run := Run, seed := Seed}) ->
                      P = pq_ff:prime(1),
                      Points = [rnd_list(P, length(Vars), {Seed, zero, I}) || I <- [1, 2, 3]],
@@ -145,13 +160,16 @@ distinct(P, Count, Key) ->
 
 with_job(Program, N, Opts, Body) -> with_job(Program, N, Opts, program, Body).
 
-%% Kind: program (the program's first output) or {linsys, Size, Rhs, Want, Col} (R1 phase 5)
+%% Kind: program (the program's first output) or {linsys, {Size, Pattern}, Rhs, Want, Col} (R1 phase 5)
 with_job(Program, N, Opts, Kind, Body) ->
     case pq_ff:prepare(Program) of
         {ok, _} ->
             Exec = maps:get(executor, Opts, local),
             Key = pq_rstore:put(Program),
-            BB = case Kind of program -> Key; {linsys, Size, Rhs, Want, Col} -> {linsys, Key, Size, Rhs, Want, Col} end,
+            BB = case Kind of
+                     program -> Key;
+                     {linsys, {Size, Pattern}, Rhs, Want, Col} -> {linsys, Key, pq_rstore:put(Pattern), Size, Rhs, Want, Col}
+                 end,
             Job = #{key => Key, bb => BB, run => fun(Tasks) -> pq_rexec:map(Tasks, Exec, Opts) end,
                     batch => maps:get(batch, Opts, batch(Exec, Opts)), seed => maps:get(seed, Opts, 1), n => N},
             try {ok, Body(Job)}

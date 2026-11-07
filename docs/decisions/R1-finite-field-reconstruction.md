@@ -356,5 +356,9 @@ FORM 5 checks every answer, as for the box: U − Σ rat(Nⱼ mⱼ, Dⱼ) = 0.
   grows slowly with the size.
 - **The masters column counts unreduced boundary integrals too.** These are the integrals at the edge of the seed
   range. Their coefficients in the target's reduction are 0, which one elimination per point finds at once.
-- **Next, at the scale where dense input stops working:** a sparse A for `pq_recon:linear/4`, and the dedicated
-  programs (Kira, FIRE) on a public benchmark.
+- **Sparse input (done):** `pq_recon:linear/4` takes A's rows as lists or as maps Column => entry. The program
+  outputs only the non-zero entries, a dense row's literal zeros included. The linear-system black box (`Lin` in
+  `ffslp.rs`, `pq_nif:ff_linsys/6`) gets the sparsity pattern, each row's columns. The pattern is a blob in the
+  store, so a remote node fetches it by key like the program. A system with 10⁴–10⁵ equations and a handful of
+  entries per row now compiles to about 10⁵ outputs, not 10⁸–10¹⁰.
+- **Next:** the dedicated programs (Kira, FIRE) on a public benchmark.
