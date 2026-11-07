@@ -11,7 +11,7 @@
 %%
 %%   erl -pa _build/default/lib/*/ebin -pa <dir> -noshell -eval 'ibp:main("<dir>", [{4, 0}, {5, 1}, {kite, 6, 1}])'
 -module(ibp).
--export([main/2, system/3, identities/1, zero/1]).
+-export([main/2, system/3, system/4, identities/1, zero/1, auto/2]).
 
 -define(LIMITS, #{sym_timeout_ms => 3600000, sym_max_heap_words => 4000000000, max_expr_nodes => 500000000}).
 
@@ -44,10 +44,17 @@ tuples(N, Range) -> [[X | T] || X <- Range, T <- tuples(N - 1, Range)].
 
 %%% Laporta order and the square system
 
-%% more complex first: positive propagators, then their total power, then numerator powers, then the tuple
-weight(A) ->
+%% more complex first: positive propagators, then their total power, then numerator powers, then the tuple (order
+%% numerators: within a sector a numerator is simpler than a dot, so masters carry numerators); order dots: the
+%% total of the powers and numerators first, then the numerators (masters carry dots, as FIRE's do)
+weight(A, Order) ->
     L = tuple_to_list(A),
-    {length([x || X <- L, X > 0]), lists:sum([X || X <- L, X > 0]), -lists:sum([X || X <- L, X < 0]), A}.
+    Pos = lists:sum([X || X <- L, X > 0]),
+    Neg = -lists:sum([X || X <- L, X < 0]),
+    case Order of
+        numerators -> {length([x || X <- L, X > 0]), Pos, Neg, A};
+        dots -> {length([x || X <- L, X > 0]), Pos + Neg, Neg, A}
+    end.
 
 %% The square system for Target, as a map:
 %%   a, bs: A (rows as sparse maps Column => entry, 0-based) and the right-hand sides, one per master (sparse maps
@@ -60,11 +67,15 @@ weight(A) ->
 %% (pq_nif:ff_pivots/4): the independent equations, the masters (the columns without a pivot) and, by mark and
 %% sweep, the equations the target needs. Those, in the pivot order of their columns, are the square system; its
 %% unknowns stay in Laporta order, so that eliminating column k on row k repeats the learned elimination.
-system(Seeds, Target, Seed) ->
+system(Seeds, Target, Seed) -> system(Seeds, Target, Seed, #{}).
+
+%% Opts: order => numerators (default) | dots, the Laporta order that picks the masters (weight/2)
+system(Seeds, Target, Seed, Opts) ->
     Eqs = [E || E <- identities(Seeds), map_size(E) > 0],
     Ints = lists:usort(lists:append([maps:keys(E) || E <- Eqs])),
     lists:member(Target, Ints) orelse error({target_not_in_system, Target}),
-    Cols = [I || {_, I} <- lists:reverse(lists:sort([{weight(I), I} || I <- Ints]))],
+    Order = maps:get(order, Opts, numerators),
+    Cols = [I || {_, I} <- lists:reverse(lists:sort([{weight(I, Order), I} || I <- Ints]))],
     Index = maps:from_list(lists:zip(Cols, lists:seq(0, length(Cols) - 1))),
     rand:seed(exsss, {Seed, 1, 1}),
     Point = #{d => rand:uniform(?P - 1), s => rand:uniform(?P - 1), t => rand:uniform(?P - 1)},
@@ -92,8 +103,10 @@ system(Seeds, Target, Seed) ->
       target => maps:get(Target, UIndex), columns => UCols, rows => Rows, point => Point,
       size => {length(Eqs), length(Cols)}}.
 
-auto(Family, Target) ->
-    {Ta, {Chosen, Tried}} = timer:tc(fun() -> auto_seeds(Family, Target) end),
+auto(Family, Target) -> auto(Family, Target, #{}).
+
+auto(Family, Target, Opts) ->
+    {Ta, {Chosen, Tried}} = timer:tc(fun() -> auto_seeds(Family, Target, Opts) end),
     io:format("auto seeds for ~s ~w: ~w (tried ~w, ~.1f s)~n", [Family, Target, Chosen, Tried, Ta / 1.0e6]),
     Chosen.
 
@@ -106,19 +119,19 @@ target(box) -> {2, 1, 1, 1}.
 %% non-zero coefficient (one numeric solve at a random point mod ?P) is itself a seed, its identities generated --
 %% a master at the edge of the seed range, whose identities were never written, means the seeds are too small.
 %% {Seeds, [Tried]}
-auto_seeds(Family, Target) ->
+auto_seeds(Family, Target, Opts) ->
     Fam = ibp_family:family(Family),
     L = tuple_to_list(Target),
     Dt = lists:sum([X - 1 || X <- L, X > 1]),
     St = lists:sum([-X || X <- L, X < 0]),
     Candidates = lists:sort(fun({D1, S1}, {D2, S2}) -> {D1 + S1, D1} =< {D2 + S2, D2} end,
                             [{D, S} || D <- lists:seq(Dt, Dt + 2), S <- lists:seq(St, St + 2)]),
-    auto_seeds(Fam, Family, Target, Candidates, []).
+    auto_seeds(Fam, Family, Target, Opts, Candidates, []).
 
-auto_seeds(_, Family, _, [], Tried) -> error({no_seeds_reduce_the_target, Family, lists:reverse(Tried)});
-auto_seeds(Fam, Family, Target, [{D, S} | More], Tried) ->
+auto_seeds(_, Family, _, _, [], Tried) -> error({no_seeds_reduce_the_target, Family, lists:reverse(Tried)});
+auto_seeds(Fam, Family, Target, Opts, [{D, S} | More], Tried) ->
     Seeds = {Family, {dots, D}, S},
-    Complete = try system(Seeds, Target, 1) of
+    Complete = try system(Seeds, Target, 1, Opts) of
                    Sys ->
                        SeedSet = sets:from_list([ibp_family:canon(Fam, X) || X <- ibp_family:seeds(Fam, {dots, D}, S)], [{version, 2}]),
                        lists:all(fun(M) -> sets:is_element(M, SeedSet) end, nonzero_masters(Sys))
@@ -128,7 +141,7 @@ auto_seeds(Fam, Family, Target, [{D, S} | More], Tried) ->
                end,
     case Complete of
         true -> {Seeds, lists:reverse([{D, S} | Tried])};
-        false -> auto_seeds(Fam, Family, Target, More, [{D, S} | Tried])
+        false -> auto_seeds(Fam, Family, Target, Opts, More, [{D, S} | Tried])
     end.
 
 %% the masters with a non-zero coefficient in the target, from one numeric solve at a random point mod ?P
@@ -174,7 +187,9 @@ inv(A, M) -> pq_ff:inv(A, M).
 main(Dir, Cases) ->
     {ok, _} = application:ensure_all_started(pq),
     [begin
+         SysOpts = case Cases0 of {auto, _, _, O} -> O; _ -> #{} end,
          Target0 = case Cases0 of
+                       {auto, _, T0, _} -> T0;
                        {auto, _, T0} -> T0;
                        {auto, Fm0} -> target(Fm0);
                        {P0, _} when is_integer(P0) -> target(box);
@@ -187,10 +202,11 @@ main(Dir, Cases) ->
          Seeds = case Cases0 of
                      {auto, Fm} -> auto(Fm, Target);
                      {auto, Fm, _} -> auto(Fm, Target);
+                     {auto, Fm, _, _} -> auto(Fm, Target, SysOpts);
                      _ -> Cases0
                  end,
          {Ts, #{a := A, bs := Bs, vars := Vars, masters := Masters, target := TI, size := {NEqs, NInts}} = Sys} =
-             timer:tc(?MODULE, system, [Seeds, Target, 1]),
+             timer:tc(?MODULE, system, [Seeds, Target, 1, SysOpts]),
          N = length(A),
          %% the answer is linear in the masters: one right-hand side per master, each coefficient a rational function
          %% of d, s, t alone; one elimination per point serves them all, and the zero ones are found at once
@@ -201,6 +217,9 @@ main(Dir, Cases) ->
          P = fun(E) -> binary_to_list(pq_symbolic:pretty(E)) end,
          Name = case Seeds of
                     {F, {dots, Po}, Ne} when Cases0 =:= Seeds -> io_lib:format("ibp_~s_d~b_~b", [F, Po, Ne]);
+                    {F, {dots, Po}, Ne} when SysOpts =/= #{} ->
+                        io_lib:format("ibp_~s_d~b_~b_~s_~s", [F, Po, Ne, maps:get(order, SysOpts, numerators),
+                                                              lists:join("_", [integer_to_list(X) || X <- tuple_to_list(Target)])]);
                     {F, {dots, Po}, Ne} -> io_lib:format("ibp_~s_d~b_~b_~s", [F, Po, Ne, lists:join("_", [integer_to_list(X) || X <- tuple_to_list(Target)])]);
                     {F, Po, Ne} -> io_lib:format("ibp_~s_~b_~b", [F, Po, Ne]);
                     {Po, Ne} -> io_lib:format("ibp_~b_~b", [Po, Ne])

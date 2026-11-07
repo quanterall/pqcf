@@ -54,7 +54,13 @@ the public API is additive.
     collecting by monomials, the smallest of the expanded, factored and collected forms by the additions written,
     checked at random points; `format/1` prints the structure); the double box's coefficients 25 -> 18 additions
     and 79 -> 58, in the textbook form (factors in d, monomials in s, t); the remaining numerators are irreducible
-    (checked with FORM), so a network proposing factors has nothing to add on these results; three executors
+    (checked with FORM), so a network proposing factors has nothing to add on these results;
+  - master-integral differential equations derived by PQCF (`ibp_family:derivative/3`, external-momentum
+    operators reduced by IBP; `comparison/pinn/box_de.erl`): the one-loop box's textbook equation, checked to 1e-8
+    against direct Feynman-parameter integration; a physics-informed neural network on it
+    (`comparison/pinn/pinn_box.py`, after TechUPGRADE's PINN-PONN, in its JAX image): 1e-4 accuracy after 52 s of
+    training against an ODE solver's 1e-13 in 19 ms, and 0.3-5.7% as a surrogate over unseen dimensions; recorded in
+    R1 with what was positive and what was negative; `ibp:system/4` with `order => numerators | dots`; three executors
     behind one task interface (this node, Erlang nodes, FVLLMP federation peers), from a single node to 100+.
 
 ## 1.3.0 (7 November 2026)

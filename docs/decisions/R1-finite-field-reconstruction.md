@@ -553,3 +553,66 @@ add here. Where a network could still help:
   kinematics (d-factorising bases) are known to shrink coefficients a lot, and the space of choices grows quickly
   with the number of sectors: a search a model can steer, every candidate verified exactly by reducing again.
 - **Larger results** (more loops, more scales), where factors outside a fixed alphabet appear.
+
+## The masters' differential equations, and a physics-informed neural network on them (7 Nov 2026)
+
+**Differential equations from PQCF** (`ibp_family:derivative/3`, `comparison/pinn/box_de.erl`).
+- **The derivative.** The derivative of an integral with respect to an invariant is written with external-momentum
+  operators p_i·∂/∂p_j acting on the propagators, like an IBP identity. A combination Σ c_ij p_i·∂/∂p_j that moves
+  every external scalar product exactly as the invariant does (the others fixed, the legs on shell) is that
+  derivative. The c_ij come from a small exact linear solve (`pq_recon:linear/4`).
+- **The equation.** Each master's derivative is reduced to the masters (automatic seeds), and every entry of the
+  matrix is reconstructed as one reduced rational function and simplified (`pq_simplify`).
+- **The one-loop massless box gives the textbook equation**, dM/dt = A M for M = (box, s-bubble, t-bubble):
+  - dBox/dt = [(d − 6)s − 2t] / (2t(s + t)) · Box − 2(d − 3) / (s t (s + t)) · Bub_s + 2(d − 3) / (t² (s + t)) · Bub_t;
+  - dBub_t/dt = (d − 4)/(2t) · Bub_t, and dBub_s/dt = 0.
+- **Checked independently.** The box, computed directly over its Feynman parameters (tensor tanh-sinh quadrature,
+  about 1e-8), and carried by an ODE solver along PQCF's equation from t = −1, agree to 1e-8 at t = −0.1, −0.3, −3
+  and −10 (d = 5.3, s = −1). The bubbles agree with their closed form to 1e-13.
+
+**The PINN** (`comparison/pinn/pinn_box.py`). It learns M(t) from the equation and the value at t = −1 alone, with no
+solution data.
+- **Setup.** The network and training follow TechUPGRADE's PINN-PONN reproduction (TU-TR-2026-002; reused with its
+  owners' permission): a tanh layer, three residual blocks of two tanh layers, AdamW inside a look-ahead (k = 5,
+  α = 0.5), then L-BFGS. The boundary value is built in exactly. It ran in TechUPGRADE's JAX + CUDA image
+  (phnn-trainer, read-only) on the GB10, with memory capped at 5% of the GPU because the machine was short.
+- **Results:**
+
+| task | PINN | classical |
+| --- | --- | --- |
+| M(t) on t ∈ [−10, −0.1], d = 5.3 | 52 s of training; max relative error 0.9e-4 (box), 1.0e-4 (s-bubble), 3.7e-4 (t-bubble) | ODE (DOP853): 19 ms at a tolerance of 1e-13 |
+| one network over (t, d), d ∈ [4.6, 5.8], boundary values given at 5 values of d | 143 s of training; at unseen d (4.75, 5.05, 5.3, 5.65) max relative error 0.3–5.7% | an ODE solve per d (about 20 ms) after that d's boundary value (1–3 s of integration) |
+
+(The first single-d run, with a dense Jacobian for the residual, took 398 s for the same 1e-4. Forward-mode with a
+tangent of ones gives the same derivative in 52 s.)
+
+**Negative:**
+- **Accuracy and cost.** For one evaluation the PINN is about 2,700× slower and 10⁹× less accurate than an ODE
+  solver on the same equation.
+- **Exactness.** A PINN can't give the exact or verified results PQCF is built on. Its errors are unknown without a
+  reference solution, and computing that reference is the classical work it was meant to replace.
+- **The surrogate over d** reaches only percent-level accuracy away from the dimensions whose boundary values it
+  saw. It still needs those boundary values, the expensive part: 1–3 s of integration each, against 20 ms for the
+  equation.
+- **It doesn't simplify anything.** A PINN evaluates integrals numerically; it doesn't make symbolic results smaller.
+
+**Positive:**
+- **No solution data.** The PINN learned the solution from the equation and one boundary value alone, to 1e-4,
+  with no tuning beyond the borrowed recipe. The method works as advertised at this scale.
+- **A differentiable model.** The result is smooth in t (and in d for the surrogate), differentiable, and cheap to
+  evaluate in bulk. That could be useful where a downstream fit or optimisation needs derivatives of the integrals.
+- **The setup was cheap.** Reusing TechUPGRADE's stack meant no new infrastructure, and it fit a tight memory
+  budget.
+- **The real gain of this step is the differential equation itself.** PQCF now derives master-integral equations
+  exactly from IBP, verified against direct integration. That's the input every modern method needs: canonical
+  bases, series solutions, numerical evaluation with classical solvers.
+
+**Conclusion:** for evaluating master integrals, use PQCF's equation with a classical ODE or series solver. A PINN
+is worth reconsidering only as a differentiable surrogate over many parameters, and only once its error is
+acceptable, which here it wasn't. For simplifying results it is the wrong tool. The steerable search (the choice of
+masters) stays the place for learning.
+
+**The choice of masters, first look.** Ordering dots before numerators (`order => dots`) keeps the same 8 masters on
+the double box. The dot-free seeds the automatic choice picks contain no dotted integrals to swap in. It still
+shrinks the needed system (3,717 equations instead of 4,044). A different basis needs seeds with dots, chosen
+together with the order: the next step for the basis search.

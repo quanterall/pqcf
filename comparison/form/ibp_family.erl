@@ -9,7 +9,7 @@
 %% kin_at(Pi, Pj, Point) their values mod p at a point of the invariants; top: the indices that can be positive.
 %% The propagators must span the scalar products of the loop momenta (with each other and with the externals).
 -module(ibp_family).
--export([family/1, identities/2, zero/2, seeds/3, canon/2]).
+-export([family/1, identities/2, zero/2, seeds/3, canon/2, derivative/3]).
 
 -define(P, 1000000007).
 
@@ -348,3 +348,86 @@ matches(S, GS, R, GR) ->
 
 perms([]) -> [[]];
 perms(L) -> [[X | P] || X <- L, P <- perms(L -- [X])].
+
+%%% Derivatives with respect to an invariant (for the masters' differential equations). An operator
+%%% O_ij = p_i . d/dp_j (p_i, p_j external) acts on the integrand through the propagators, like an IBP identity; on
+%%% a function of the scalar products q_ab = p_a . p_b it moves them by O_ij q_ab = [j = a] q_ib + [j = b] q_ai. A
+%%% combination sum c_ij O_ij that moves every q_ab exactly as Var does (the others fixed, the legs on shell) is
+%%% d/dVar: the c_ij solve a small linear system (exact, pq_recon:linear/4), the operators left out set to 0.
+
+%% d I(A) / d Var as [{Integral, CoefficientAst}], zero integrals dropped, equal ones merged (the symmetries too)
+derivative(Fam, A, Var) ->
+    Cs = operator(Fam, Var),
+    Terms = lists:append([[{I, {mul, [C, X]}} || {I, X} <- ext_op(Fam, A, Pi, Pj)] || {{Pi, Pj}, C} <- Cs]),
+    maps:to_list(lists:foldl(fun({I, C}, M) ->
+                                     case zero(Fam, I) of
+                                         true -> M;
+                                         false -> maps:update_with(canon(Fam, I), fun(C0) -> {add, [C0, C]} end, C, M)
+                                     end
+                             end, #{}, Terms)).
+
+%% p_i . d/dp_j of 1 / prod D^a: -a_k D_k^(-a_k-1) p_i . dD_k/dp_j, dD_k/dp_j = 2 Sign_k c_(k, p_j) Mom_k
+ext_op(Fam = #{props := Props}, A, Pi, Pj) ->
+    lists:append(
+      [begin
+           Ak = element(K, A),
+           Raised = setelement(K, A, Ak + 1),
+           Cj = lists:sum([C || {C, Q} <- Mom, Q =:= Pj]),
+           [term(Raised, {mul, [-2 * Ak * Sign * Cj * Cq, X]}, Y) || Cj =/= 0, {Cq, Q} <- Mom, {X, Y} <- dot(Fam, Pi, Q)]
+       end || {K, {Sign, Mom}} <- lists:enumerate(Props), element(K, A) =/= 0]).
+
+%% [{{Pi, Pj}, CoefficientAst}]: sum c_ij O_ij = d/dVar on the scalar products of the externals (memoised)
+operator(#{name := Name, ext := Es, kin := Kin, vars := Vars}, Var) ->
+    case get({operator, Name, Var}) of
+        undefined ->
+            Pairs = [{A, B} || {I, A} <- lists:enumerate(Es), {J, B} <- lists:enumerate(Es), I =< J],
+            Ops = [{Pi, Pj} || Pi <- Es, Pj <- Es],
+            Q = fun(A, B) -> Kin(A, B) end,
+            Act = fun({Pi, Pj}, {A, B}) ->
+                          {add, [0] ++ [Q(Pi, B) || Pj =:= A] ++ [Q(A, Pi) || Pj =:= B]}
+                  end,
+            Rows = [[Act(O, P) || O <- Ops] || P <- Pairs],
+            Rhs = [diff(Q(A, B), Var) || {A, B} <- Pairs],
+            %% the operators kept: a set of as many as there are pairs, the matrix nonsingular at a random point
+            Keep = independent(Rows, length(Pairs), Vars),
+            A = [[lists:nth(K, Row) || K <- Keep] || Row <- Rows],
+            {ok, Sol} = pq_recon:linear(A, Rhs, Vars, #{}),
+            Cs = [{lists:nth(K, Ops), {mul, [pq_sym_norm:to_ast(N), {pow, pq_sym_norm:to_ast(D), -1}]}}
+                  || {C, {N, D}} <- Sol, K <- [lists:nth(C + 1, Keep)], map_size(N) > 0],
+            put({operator, Name, Var}, Cs),
+            Cs;
+        Cs -> Cs
+    end.
+
+%% the first N columns (in order) that are independent at a random point mod p
+independent(Rows, N, Vars) ->
+    rand:seed(exsss, {5, 5, 5}),
+    Point = maps:from_list([{V, rand:uniform(?P - 1)} || V <- Vars]),
+    Num = [[begin {ok, X} = pq_symbolic:evaluate(E, Point, #{exact => true}), modq(X) end || E <- Row] || Row <- Rows],
+    Cols = length(hd(Num)),
+    pick(Num, lists:seq(1, Cols), [], N).
+
+pick(_, _, Chosen, N) when length(Chosen) =:= N -> lists:reverse(Chosen);
+pick(_, [], Chosen, _) -> error({operators_dependent, lists:reverse(Chosen)});
+pick(Num, [C | Cs], Chosen, N) ->
+    Try = lists:reverse([C | Chosen]),
+    Sub = [[lists:nth(K, Row) || K <- Try] || Row <- Num],
+    case rank(Sub) =:= length(Try) of
+        true -> pick(Num, Cs, [C | Chosen], N);
+        false -> pick(Num, Cs, Chosen, N)
+    end.
+
+%% the rank of a matrix mod p (rows of residues)
+rank(Rows) ->
+    K = length(hd(Rows)),
+    length([R || R <- reduce([R ++ [0] || R <- Rows], 1, K), lists:any(fun(X) -> X =/= 0 end, lists:sublist(R, K))]).
+
+%% d/dVar of an AST built from numbers, symbols, sums and products
+diff(N, _) when is_integer(N) -> 0;
+diff({rat, _, _}, _) -> 0;
+diff({sym, X}, X) -> 1;
+diff({sym, _}, _) -> 0;
+diff({add, Es}, V) -> {add, [diff(E, V) || E <- Es]};
+diff({mul, Es}, V) ->
+    {add, [{mul, [diff(E, V) | [F || {J, F} <- lists:enumerate(Es), J =/= I]]} || {I, E} <- lists:enumerate(Es)]}.
+
