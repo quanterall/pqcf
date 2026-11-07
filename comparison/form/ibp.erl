@@ -29,8 +29,8 @@ zero(A) -> ibp_family:zero(family(tuple_size(A)), A).
 
 %% a list of equations, each a map Integral => CoefficientAst
 identities({Pos, Neg}) -> identities({box, Pos, Neg});
-identities({doublebox, R, S}) ->
-    Fam = ibp_family:family(doublebox),
+identities({Family, R, S}) when Family =:= doublebox; is_tuple(R) ->
+    Fam = ibp_family:family(Family),
     ibp_family:identities(Fam, ibp_family:seeds(Fam, R, S));
 identities({Family, Pos, Neg}) ->
     Fam = ibp_family:family(Family),
@@ -92,6 +92,56 @@ system(Seeds, Target, Seed) ->
       target => maps:get(Target, UIndex), columns => UCols, rows => Rows, point => Point,
       size => {length(Eqs), length(Cols)}}.
 
+auto(Family, Target) ->
+    {Ta, {Chosen, Tried}} = timer:tc(fun() -> auto_seeds(Family, Target) end),
+    io:format("auto seeds for ~s ~w: ~w (tried ~w, ~.1f s)~n", [Family, Target, Chosen, Tried, Ta / 1.0e6]),
+    Chosen.
+
+target(kite) -> {1, 1, 1, 1, 1};
+target(doublebox) -> {1, 1, 1, 1, 1, 1, 1, -1, -1};
+target(box) -> {2, 1, 1, 1}.
+
+%% The smallest seeds that reduce the target completely, without learning: {dots, D} and numerators up to S, from
+%% the target's own (its dots, its numerator powers) upward, the cheaper first. Complete: every master with a
+%% non-zero coefficient (one numeric solve at a random point mod ?P) is itself a seed, its identities generated --
+%% a master at the edge of the seed range, whose identities were never written, means the seeds are too small.
+%% {Seeds, [Tried]}
+auto_seeds(Family, Target) ->
+    Fam = ibp_family:family(Family),
+    L = tuple_to_list(Target),
+    Dt = lists:sum([X - 1 || X <- L, X > 1]),
+    St = lists:sum([-X || X <- L, X < 0]),
+    Candidates = lists:sort(fun({D1, S1}, {D2, S2}) -> {D1 + S1, D1} =< {D2 + S2, D2} end,
+                            [{D, S} || D <- lists:seq(Dt, Dt + 2), S <- lists:seq(St, St + 2)]),
+    auto_seeds(Fam, Family, Target, Candidates, []).
+
+auto_seeds(_, Family, _, [], Tried) -> error({no_seeds_reduce_the_target, Family, lists:reverse(Tried)});
+auto_seeds(Fam, Family, Target, [{D, S} | More], Tried) ->
+    Seeds = {Family, {dots, D}, S},
+    Complete = try system(Seeds, Target, 1) of
+                   Sys ->
+                       SeedSet = sets:from_list([ibp_family:canon(Fam, X) || X <- ibp_family:seeds(Fam, {dots, D}, S)], [{version, 2}]),
+                       lists:all(fun(M) -> sets:is_element(M, SeedSet) end, nonzero_masters(Sys))
+               catch
+                   error:{target_not_in_system, _} -> false;
+                   error:target_is_a_master -> false
+               end,
+    case Complete of
+        true -> {Seeds, lists:reverse([{D, S} | Tried])};
+        false -> auto_seeds(Fam, Family, Target, More, [{D, S} | Tried])
+    end.
+
+%% the masters with a non-zero coefficient in the target, from one numeric solve at a random point mod ?P
+nonzero_masters(#{a := A, bs := Bs, masters := Masters, target := TI, vars := Vars0}) ->
+    Vars = [V || V <- Vars0, lists:member(V, [d, s, t])],
+    Sp = fun(Row) -> lists:sort(maps:to_list(Row)) end,
+    SA = [Sp(R) || R <- A], SB = [Sp(R) || R <- Bs],
+    {ok, Prog} = pq_symbolic:compile([E || Row <- SA ++ SB, {_, E} <- Row], Vars, ?LIMITS#{exact_constants => true}),
+    {ok, {ff, Ref, _, _}} = pq_ff:prepare(Prog),
+    {ok, Lin} = pq_nif:ff_linsys(Ref, length(A), length(Masters), TI, 0, [[C || {C, _} <- R] || R <- SA], [[C || {C, _} <- R] || R <- SB]),
+    {ok, [Vals]} = pq_nif:ff_linsys_all(Lin, ?P, [rand:uniform(?P - 1) || _ <- Vars]),
+    [M || {{M, _}, V} <- lists:zip(Masters, Vals), V =/= 0].
+
 %% For FORM (linsys.erl's elimination): the target the last column, the rows in the pivot order of a forward
 %% elimination (row k pivots on column k), so that the target is eliminated last; dense rows and B
 form_system(#{rows := Rows, columns := UCols, b := B, point := Point}, Target) ->
@@ -124,13 +174,21 @@ inv(A, M) -> pq_ff:inv(A, M).
 main(Dir, Cases) ->
     {ok, _} = application:ensure_all_started(pq),
     [begin
-         Target0 = case Seeds of
-                      {kite, _, _} -> {1, 1, 1, 1, 1};
-                      {doublebox, _, _} -> {1, 1, 1, 1, 1, 1, 1, -1, -1};
-                      _ -> {2, 1, 1, 1}
-                  end,
+         Target0 = case Cases0 of
+                       {auto, _, T0} -> T0;
+                       {auto, Fm0} -> target(Fm0);
+                       {P0, _} when is_integer(P0) -> target(box);
+                       _ -> target(element(1, Cases0))
+                   end,
          %% the target as the identities name it: its canonical image under the sector symmetries
          Target = ibp_family:canon(family(tuple_size(Target0)), Target0),
+         %% {auto, Family} or {auto, Family, Target}: the smallest seeds that reduce the target completely
+         %% (auto_seeds/2)
+         Seeds = case Cases0 of
+                     {auto, Fm} -> auto(Fm, Target);
+                     {auto, Fm, _} -> auto(Fm, Target);
+                     _ -> Cases0
+                 end,
          {Ts, #{a := A, bs := Bs, vars := Vars, masters := Masters, target := TI, size := {NEqs, NInts}} = Sys} =
              timer:tc(?MODULE, system, [Seeds, Target, 1]),
          N = length(A),
@@ -142,7 +200,8 @@ main(Dir, Cases) ->
          NonZero = [{M, Sym, NumDen} || {M, Sym, {Nu, _} = NumDen} <- Coeffs, map_size(Nu) > 0],
          P = fun(E) -> binary_to_list(pq_symbolic:pretty(E)) end,
          Name = case Seeds of
-                    {F, {dots, Po}, Ne} -> io_lib:format("ibp_~s_d~b_~b", [F, Po, Ne]);
+                    {F, {dots, Po}, Ne} when Cases0 =:= Seeds -> io_lib:format("ibp_~s_d~b_~b", [F, Po, Ne]);
+                    {F, {dots, Po}, Ne} -> io_lib:format("ibp_~s_d~b_~b_~s", [F, Po, Ne, lists:join("_", [integer_to_list(X) || X <- tuple_to_list(Target)])]);
                     {F, Po, Ne} -> io_lib:format("ibp_~s_~b_~b", [F, Po, Ne]);
                     {Po, Ne} -> io_lib:format("ibp_~b_~b", [Po, Ne])
                 end,
@@ -162,7 +221,7 @@ main(Dir, Cases) ->
                    "to ~b of them: ~s~n",
                    [Seeds, NEqs, NInts, N, Ts / 1.0e6, length(Masters), Target, T / 1.0e6, length(NonZero),
                     lists:join(", ", [io_lib:format("~w (~b/~b terms)", [M, map_size(Nu), map_size(De)]) || {M, _, {Nu, De}} <- NonZero])])
-     end || Seeds <- Cases],
+     end || Cases0 <- Cases],
     ok.
 
 %% FORM: the elimination of linsys.erl (unknown 1 the target), the masters symbols; at the end U minus PQCF's answer,

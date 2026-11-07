@@ -482,3 +482,33 @@ random point mod p, PQCF's answer then equals FIRE's on every master, both for D
 
   The large ratios over FORM in the sections above came from solving the full systems. Once only the needed
   equations are solved, symbolic elimination is fine at this size; the reconstruction wins on the large systems.
+
+## Choosing the seeds automatically (7 Nov 2026)
+
+`ibp:main/2` takes `{auto, Family}` or `{auto, Family, Target}`. `ibp:auto_seeds/2` tries seeds `{dots, D}` with
+numerators up to S. It starts from the target's own dots and numerator powers and tries the cheaper candidates
+first (D + S, then D).
+
+A candidate is accepted when the reduction is **complete**. After one numeric solve at a random point mod p, every
+master with a non-zero coefficient must itself be a seed, its own identities generated. A master at the edge of the
+seed range, whose identities were never written, means the seeds are too small. No learning is involved: on these
+families the first or second candidate is the answer, and the test costs one numeric solve (0.4–1.1 s on the
+double box).
+
+| family, target | seeds chosen | equations / needed | PQCF, 1 core | FIRE, same core |
+| --- | --- | --- | --- | --- |
+| box I(2,1,1,1) | D = 1, S = 0 | 108 / 5 | 0.08 s | — |
+| kite I(1,1,1,1,1) | D = 0, S = 1 (after S = 0) | 102 / 15 | 0.05 s | — |
+| double box I(1,1,1,1,1,1,1,−1,−1) | D = 0, S = 2 | 7,300 / 4,044 | 3.95 s | 7.7–8.4 s |
+| double box I(1,1,1,1,1,1,1,−2,−1) | D = 0, S = 3 | 18,370 / 9,895 | 32.2 s | 11.9–12.2 s |
+
+Both double-box results are checked equal to FIRE's at a random point mod p (`fire_check.erl`), all 8 masters.
+
+- **The criterion picks the smallest working seeds**, the ones that were chosen by hand before, and the answers stay
+  exact and verified.
+- **On the harder target FIRE is 2.7× faster.** PQCF's time is now the reconstruction (30 of 32 s): the coefficients
+  are larger (up to 15 / 10 terms), so they need more sample points. Two ways to cut it: fewer points, by guessing
+  the denominators' factors (the factors of IBP coefficients come from a small set of polynomials in d, s, t), and a
+  cheaper point, by replaying the learned elimination instead of searching for pivots again.
+- **A learned model for the seeds isn't needed yet.** The simple growth finds the smallest seeds at the cost of one
+  or two numeric solves; a model would have nothing to gain until families with many more candidates.

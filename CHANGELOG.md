@@ -47,7 +47,9 @@ the public API is additive.
     of 56 s), sector symmetries by Pak's criterion (`ibp_family:canon/2`: the double box reduces to its 8 masters), a
     cache of solved points shared by a system's right-hand sides (prefix-stable sample points), and dot-free seeds
     (`{dots, D}`); the double box checked equal to FIRE's at a random point mod p, and reduced in 3.5 s on one core
-    against FIRE's 7.7-8.4 s; three executors
+    against FIRE's 7.7-8.4 s; seeds chosen automatically (`{auto, Family[, Target]}`: the smallest seeds whose
+    reduction is complete, every non-zero master itself a seed): the double box in 3.95 s (FIRE 7.7-8.4 s), and
+    I(1,1,1,1,1,1,1,-2,-1) in 32.2 s (FIRE 11.9-12.2 s), both checked equal to FIRE's; three executors
     behind one task interface (this node, Erlang nodes, FVLLMP federation peers), from a single node to 100+.
 
 ## 1.3.0 (7 November 2026)
