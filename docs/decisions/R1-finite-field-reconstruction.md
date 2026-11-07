@@ -317,7 +317,11 @@ U − Σ rat(Nⱼ mⱼ, Dⱼ) = 0 (it is, in every case):
 - **Core for core, PQCF reduces these systems 1.9–4.5 times faster than FORM from about 260 equations up.** The
   smallest system goes to FORM.
 - **On 20 cores PQCF is slower than on one here.** The answer is small, so each Zippel stage needs a few columns,
-  and computing 20 ahead mostly wastes them. The batch should adapt to the answer, which is open.
+  and computing 20 ahead mostly wastes them. **Fixed by an adaptive batch:** the first round of a stage computes
+  Terminate + 2 columns, each further round twice as many, up to the slots. On the 480 × 480 system the column
+  tasks fell from 89 to 33 for the same result. While another job held 12 of the 20 cores, 20 cores still didn't
+  beat one on a problem this small (1.22 s against 0.82 s): the parallel gain needs larger answers, or an idle
+  machine to show.
 - **These systems are small next to real reductions** (10⁴–10⁶ equations). The method's advantage grows with them:
   FORM's symbolic elimination swells, while PQCF's cost per point is a sparse elimination of numbers.
 - **What wasn't compared:** FORM's threaded TFORM, and the dedicated reduction programs (Kira, FIRE) that physicists

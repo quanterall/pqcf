@@ -184,15 +184,19 @@ stage(#{seed := Seed, outs := Outs} = Job, P, K, S, Anchors) ->
     {R, _Nodes} = nodes(P, K - 1, S, {Seed, P, K}),
     SKey = pq_rstore:put(lists:append(S)),
     Newton0 = [[{[], []} || _ <- S] || _ <- lists:seq(1, Outs)],   % per output, per monomial: {Xs, Newton coefficients}
-    columns(Job, P, K, S, {R, SKey}, Rest, Newton0, 0, 0).
+    columns(Job, P, K, S, {R, SKey}, Rest, Newton0, 0, 0, min(maps:get(batch, Job), ?TERMINATE + 2)).
 
-columns(#{run := Run, batch := Batch, seed := Seed, task := Task} = Job, P, K, S, {R, SKey}, Rest, Newton, J, Quiet) ->
+%% a stage needs about degree + 1 + Terminate columns, unknown in advance: the first round computes Terminate + 2,
+%% each further round twice as many, up to the executor's slots -- so a small answer doesn't pay for columns
+%% computed ahead and never used (20 cores were slower than one on the IBP benchmark before), and a large one still
+%% fills every slot. The columns are taken in order, so the result is the same for any round sizes.
+columns(#{run := Run, batch := Batch, seed := Seed, task := Task} = Job, P, K, S, {R, SKey}, Rest, Newton, J, Quiet, Round) ->
     J > ?MAX_DEGREE andalso throw({recon, degree_bound}),
-    Bs = [point_value(P, {Seed, P, K, b, I}) || I <- lists:seq(J, J + Batch - 1)],
+    Bs = [point_value(P, {Seed, P, K, b, I}) || I <- lists:seq(J, J + Round - 1)],
     Results = Run([Task(P, R, length(S), SKey, [B | Rest]) || B <- Bs]),
     case take(P, lists:zip(Bs, Results), Newton, Quiet) of
         {done, Newton2} -> support(P, S, Newton2);
-        {more, Newton2, Quiet2} -> columns(Job, P, K, S, {R, SKey}, Rest, Newton2, J + Batch, Quiet2)
+        {more, Newton2, Quiet2} -> columns(Job, P, K, S, {R, SKey}, Rest, Newton2, J + Round, Quiet2, min(Batch, 2 * Round))
     end.
 
 %% the columns in order: each adds a point to every Newton interpolant, until Terminate in a row add nothing
