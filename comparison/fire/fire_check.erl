@@ -6,7 +6,7 @@
 %%
 %%   fire_check:run("<dir>/ibp_doublebox_7_2.answer", "<FIRE's doublebox1.tables>", [{Master, "<FIRE's tables>"}])
 -module(fire_check).
--export([run/3]).
+-export([run/3, compare/5, tables/1]).
 
 -define(P, 1000000007).
 
@@ -36,6 +36,43 @@ run(AnswerFile, TablesFile, Reduced) ->
               [length(Fire), length(FireClasses), length(Ours),
                case Bad of [] -> "all equal"; _ -> io_lib:format("~b differ: ~p", [length(Bad), Bad]) end]),
     Bad =:= [].
+
+%% The same for any family (bench/ibp_suite.erl): Ours = [{Master, Ast}], FIRE's tables as tables/1 reads them --
+%% the target's, and (or none) FIRE's reductions of PQCF's masters, a master FIRE doesn't reduce being one of its
+%% own. {Equal, FireMasters, FireClasses}.
+compare(Fam, Ours0, Target, FireTables, MasterTables) ->
+    Canon = fun(F) -> pq_ibp_family:canon(Fam, F) end,
+    Vs = pq_ibp_family:vars(Fam),
+    Point = maps:from_list(lists:zip(Vs, lists:sublist([1234577, 7654337, 3456791, 2345681, 5678917, 4567903], length(Vs)))),
+    Ours = [{M, value(Ast, Point)} || {M, Ast} <- Ours0],
+    Fire = [{F, value(Ast, Point)} || {F, Ast} <- maps:get(Target, FireTables)],
+    FireClasses = lists:usort([Canon(F) || {F, _} <- Fire]),
+    InFire = fun(M) ->
+                     case lists:member(Canon(M), FireClasses) of
+                         true -> [{Canon(M), 1}];
+                         false ->
+                             case maps:find(M, MasterTables) of
+                                 {ok, Red} -> [{Canon(F), value(Ast, Point)} || {F, Ast} <- Red];
+                                 error -> [{Canon(M), 1}]
+                             end
+                     end
+             end,
+    Add = fun(K, V, Acc) -> Acc#{K => (maps:get(K, Acc, 0) + V) rem ?P} end,
+    Lhs = lists:foldl(fun({M, C}, Acc) -> lists:foldl(fun({F, H}, A) -> Add(F, C * H rem ?P, A) end, Acc, InFire(M)) end, #{}, Ours),
+    Rhs = lists:foldl(fun({F, V}, Acc) -> Add(Canon(F), V, Acc) end, #{}, Fire),
+    Keys = lists:usort(maps:keys(Lhs) ++ maps:keys(Rhs)),
+    {[] =:= [K || K <- Keys, maps:get(K, Lhs, 0) =/= maps:get(K, Rhs, 0)], length(Fire), length(FireClasses)}.
+
+%% a FIRE tables file as #{Integral => [{Master, Ast}]}: the file is an Erlang term, its reductions keyed by codes
+%% and the codes' integrals listed after them
+tables(File) ->
+    {ok, Bin} = file:read_file(File),
+    {ok, Toks, _} = erl_scan:string(binary_to_list(Bin) ++ "."),
+    {ok, {Reds, Names}} = erl_parse:parse_term(Toks),
+    Name = maps:from_list([{Code, Idx} || {Code, {_, Idx}} <- tuple_to_list(Names)]),
+    maps:from_list([{maps:get(Code, Name), [{maps:get(M, Name), begin {ok, A} = pq_symbolic:parse(list_to_binary(C)), A end}
+                                            || {M, C} <- tuple_to_list(Terms)]}
+                    || {Code, Terms} <- tuple_to_list(Reds)]).
 
 %% an exact rational function evaluated at the integer point, mod p
 value(Ast, Point) ->
