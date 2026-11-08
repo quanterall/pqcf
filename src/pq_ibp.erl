@@ -149,14 +149,22 @@ system(Fam, Seeds, Targets, Opts) ->
     %% in parallel chunks of the seeds, concatenated in order (the same equations in the same order as one process),
     %% the family's caches computed once here and handed to the chunks
     Warm = pq_ibp_family:warm(Fam, Seeds),
-    Eqs = [E || E <- lists:append(pmap(fun(Chunk) -> ok = pq_ibp_family:load(Warm), pq_ibp_family:identities_poly(Fam, Chunk) end,
-                                       chunks(Seeds, max(64, length(Seeds) div (4 * erlang:system_info(schedulers_online)) + 1)))),
-                map_size(E) > 0]
+    Point = point(Vars, {1, 1, 1}),
+    PointList = [maps:get(V, Point) || V <- Vars],
+    %% each equation with its coefficients' values mod ?P, computed where the equation is made (one copy back)
+    Valued = fun(E) -> {E, [{I, polymod(C, PointList)} || I := C <- E]} end,
+    Pairs = [P || {E, _} = P <- lists:append(pmap(fun(Chunk) ->
+                                                         ok = pq_ibp_family:load(Warm),
+                                                         [Valued(E) || E <- pq_ibp_family:identities_poly(Fam, Chunk)]
+                                                 end,
+                                                 chunks(Seeds, max(64, length(Seeds) div (4 * erlang:system_info(schedulers_online)) + 1)))),
+                  map_size(E) > 0]
           %% a target in a sector that maps onto another one: defined by its expansion (its own sector has no
           %% identities)
-          ++ [maps:fold(fun(J, C, M) -> M#{J => pq_ibp_family:qpneg(C)} end, #{T => pq_ibp_family:qpone(Fam)},
-                        maps:from_list(pq_ibp_family:expand(Fam, T)))
+          ++ [Valued(maps:fold(fun(J, C, M) -> M#{J => pq_ibp_family:qpneg(C)} end, #{T => pq_ibp_family:qpone(Fam)},
+                               maps:from_list(pq_ibp_family:expand(Fam, T))))
               || T <- Targets, pq_ibp_family:mapped(Fam, T)],
+    Eqs = [E || {E, _} <- Pairs],
     Ints = lists:usort(lists:append([maps:keys(E) || E <- Eqs])),
     case [T || T <- Targets, not lists:member(T, Ints)] of
         [] -> ok;
@@ -165,10 +173,7 @@ system(Fam, Seeds, Targets, Opts) ->
     Order = maps:get(order, Opts, numerators),
     Cols = [I || {_, I} <- lists:reverse(lists:sort([{weight(I, Order), I} || I <- Ints]))],
     Index = maps:from_list(lists:zip(Cols, lists:seq(0, length(Cols) - 1))),
-    Point = point(Vars, {1, 1, 1}),
-    PointList = [maps:get(V, Point) || V <- Vars],
-    Num = lists:append(pmap(fun(Part) -> [lists:sort([{maps:get(I, Index), polymod(C, PointList)} || I := C <- E]) || E <- Part] end,
-                            chunks(Eqs, max(256, length(Eqs) div (4 * erlang:system_info(schedulers_online)) + 1)))),
+    Num = [lists:sort([{maps:get(I, Index), V} || {I, V} <- Vals]) || {_, Vals} <- Pairs],
     TCols = [maps:get(T, Index) || T <- Targets],
     {PR, PC, Needed} = pq_nif:ff_pivots(?P, Num, length(Cols), TCols),
     PivotCol = maps:from_list(lists:zip(PR, PC)),

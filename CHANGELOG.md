@@ -33,6 +33,11 @@ the public API is additive.
   against a final 654,082, 31 s; now 3.2 s, and the target needs 18,543 equations instead of 67,663. That reduction:
   10.7 s on one core (FIRE 6.5.2: 12.8 s on one thread), 9.6 s on 20 (FIRE: 6.9 s on 20 threads), peak memory
   1.9-3.7 GB; FIRE's example targets 0.31 s and 0.79 s on one core (FIRE 8.0 s and 12.2 s), answers equal to FIRE's.
+- The systems' coefficients are evaluated mod p in the processes that generate them (one copy of the equations
+  instead of two): the large double-box system 6.45 -> 5.28 s on 20 cores, its whole reduction about 7.1 s (FIRE: 6.9
+  s on 20 threads). A batched parallel learning elimination (equations reduced in parallel against earlier pivots,
+  then inserted in order: exact, the same result as sequential) was measured and dropped: no faster, since
+  neighbouring equations reduce mostly against each other's pivots.
 - Fixed: `pq_ibp_family:canon/2` mapped integrals even in a family with `symmetries => false`; the automatic seeds
   could then never be complete for such a family. Found by the sector-map test, which compares mapped reductions
   with unmapped ones, master by master.
