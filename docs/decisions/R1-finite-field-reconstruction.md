@@ -849,3 +849,18 @@ The first run (dgx-spark, core 8, load average 4–5, commit 5c8a65b):
 On v2, PQCF needs 2 masters, while FIRE's example basis has 3 up to symmetries. The answers still agree in FIRE's
 basis, so FIRE's third master reduces to the other two.
 
+## Against FORM's Forcer on FORM's four-loop checks (8 Nov 2026)
+
+`comparison/forcer` reduces the integrals of FORM's own Forcer checks (`check/extra/forcer.frm`; Forcer:
+[arXiv:1704.06650](https://arxiv.org/abs/1704.06650)). These are the four-loop massless propagators behind the
+five-loop β-function ([arXiv:1701.01404](https://arxiv.org/abs/1701.01404)).
+- **Exactness:** every answer is exact. PQCF's reductions, composed with the master integrals' values
+  ([arXiv:1108.0732](https://arxiv.org/abs/1108.0732), [arXiv:1004.1153](https://arxiv.org/abs/1004.1153), as Forcer
+  ships them), equal Forcer's results as ε-expansions. The MS-bar sums equal FORM's assertions, ζ₃ to ζ₇ included.
+- **Speed:** Forcer's parametric reduction is 75–150× faster on the four-loop checks (`Forcer_1`: 10.3 s against
+  918 s). The automatic seed choice is most of PQCF's cost; for one case it chose a system nine times larger than
+  needed.
+- **What the comparison added to PQCF:** insertions in families, numerators as integrals, and symmetry classes
+  100× faster. The details and every number are in `comparison/forcer/README.md`.
+- **Next:** seeds per sector; then the same checks again.
+

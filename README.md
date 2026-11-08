@@ -81,7 +81,8 @@ implements no cryptographic algorithms.
   symbolic Gaussian evolution (FR-G04).
 - **Compiled programs:** straight-line programs and `equiv`.
 - **Speed:** compared with FORM every week (`comparison/form`); reductions compared with FIRE on FIRE's own
-  examples, answers checked equal (`bench/ibp.sh`).
+  examples, answers checked equal (`bench/ibp.sh`), and with FORM's Forcer on FORM's own four-loop checks
+  (`comparison/forcer`, [arXiv:1704.06650](https://arxiv.org/abs/1704.06650)): every answer exact, Forcer faster.
 
 ### Reducing results (`pq_recon`, `pq_ibp`, `pq_simplify`)
 - **Reconstruction over finite fields:** polynomials, rational functions and linear systems reconstructed exactly

@@ -29,6 +29,16 @@ the public API is additive.
   identities do not reduce is handled by the `sector_maps => false` option (every sector's identities, scalar
   symmetries only), which the automatic seeds try after `true` at each budget: I(1,1,1,1,1,1,1,-2,-1) takes
   1.28 s on one core this way (18,366 equations; FIRE 12.0 s).
+- **Comparison with FORM's Forcer on FORM's own four-loop checks** (`comparison/forcer`; Forcer:
+  [arXiv:1704.06650](https://arxiv.org/abs/1704.06650)): PQCF reduces the integrals of `forcer.frm`
+  (`Forcer_example`, `Forcer_1`, `Forcer_2`: the four-loop non-planar topologies no1-no3 with dots and numerators,
+  and a two-loop kite with insertions), and every answer is exact: equal to Forcer's results as epsilon expansions,
+  and equal in MS-bar to the numbers FORM's checks assert (zeta_3 to zeta_7). Forcer is 75-150x faster on the
+  four-loop checks (10.3 s against 918 s for `Forcer_1`); PQCF 7x faster on the three-loop example.
+- **`pq_ibp_family`: insertions and numerators** -- `eps => #{Line => M}` (a line's power index + M epsilon, as a
+  one-loop insertion leaves it) and `numerator/3` (an integral times scalar products, as integrals of the family).
+- **Four-loop symmetry classes 75 s -> 0.7 s**: sector maps found by backtracking over lines with equal invariants
+  instead of every permutation (11! for a four-loop top sector).
 - **A reduction benchmark suite** (`bench/ibp.sh`, `bench/ibp_suite.erl`, `bench/fire_run.sh`): PQCF and FIRE
   6.5.2 on FIRE's own examples (the one-loop box, the two-loop vertex v2, the double box) and harder double-box
   targets, on the same core back to back. Every answer is checked equal to FIRE's (`fire_check:compare/5`,
