@@ -17,15 +17,18 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/pqcf-ibp-XXXXXX")
 mkdir -p "$WORK/src" "$WORK/out"
 git archive HEAD | tar -x -C "$WORK/src"
 LOAD=$(cut -d' ' -f1-3 /proc/loadavg)
-DEV="docker run --rm -v $WORK/src:/src -v $WORK/out:/out -v pqcf-bench-build:/src/_build -v pqcf-bench-target:/src/native/pq_nif/target -w /src pqcf-dev"
+dev() {   # cpus ("" for all), command
+    docker run --rm ${1:+--cpuset-cpus=$1} -v "$WORK/src":/src -v "$WORK/out":/out -v pqcf-bench-build:/src/_build \
+        -v pqcf-bench-target:/src/native/pq_nif/target -w /src pqcf-dev sh -c "$2"
+}
 ERL='erl -noshell -pa _build/default/lib/*/ebin -pa /tmp'
 COMPILE='rebar3 compile >/dev/null && erlc -o /tmp bench/ibp_suite.erl comparison/fire/fire_check.erl'
 # PQCF on one core, then on all of them; FIRE (one thread) on the same core; then the check
-$DEV --cpuset-cpus="$CORE" sh -c "$COMPILE && $ERL +S 1 -eval 'ibp_suite:fire_cases(\"/out\"), ibp_suite:pqcf(\"/out\", \"one\"), halt().'"
-$DEV sh -c "$COMPILE && $ERL -eval 'ibp_suite:pqcf(\"/out\", \"all\"), halt().'"
+dev "$CORE" "$COMPILE && $ERL +S 1 -eval 'ibp_suite:fire_cases(\"/out\"), ibp_suite:pqcf(\"/out\", \"one\"), halt().'"
+dev "" "$COMPILE && $ERL -eval 'ibp_suite:pqcf(\"/out\", \"all\"), halt().'"
 docker run --rm --cpuset-cpus="$CORE" -v "$WORK/out":/out -v "$PWD/bench":/b:ro pqcf-fire2 sh /b/fire_run.sh
 CHECK=0
-$DEV sh -c "$COMPILE && $ERL -eval 'ibp_suite:check(\"/out\"), halt().'" || CHECK=1
+dev "" "$COMPILE && $ERL -eval 'ibp_suite:check(\"/out\"), halt().'" || CHECK=1
 # the files the containers wrote are root's: hand them back before removing the work directory
 docker run --rm -v "$WORK":/w pqcf-dev chown -R "$(id -u):$(id -g)" /w
 OUT=bench/results/ibp-$HOST-$DATE.json
