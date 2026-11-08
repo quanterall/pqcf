@@ -39,6 +39,61 @@ pub fn mulmod(a: u64, b: u64, p: u64) -> u64 {
     ((a as u128 * b as u128) % p as u128) as u64
 }
 
+/// Montgomery arithmetic mod an odd p < 2^63: x stands for x R mod p (R = 2^64), a product reduces with three 64-bit
+/// products and no 128-bit division (a library call on aarch64). For long runs of arithmetic mod one prime: the
+/// values enter with to(), leave with from().
+#[derive(Clone, Copy)]
+pub struct Mont {
+    p: u64,
+    /// -p^-1 mod 2^64
+    pinv: u64,
+    /// R^2 mod p
+    r2: u64,
+}
+
+impl Mont {
+    pub fn new(p: u64) -> Mont {
+        // p^-1 mod 2^64 by Newton's iteration (p odd): each step doubles the correct low bits
+        let mut inv = 1u64;
+        for _ in 0..6 {
+            inv = inv.wrapping_mul(2u64.wrapping_sub(p.wrapping_mul(inv)));
+        }
+        let r = ((1u128 << 64) % p as u128) as u64;
+        Mont { p, pinv: inv.wrapping_neg(), r2: mulmod(r, r, p) }
+    }
+
+    #[inline]
+    pub fn mul(&self, a: u64, b: u64) -> u64 {
+        let t = a as u128 * b as u128;
+        let m = (t as u64).wrapping_mul(self.pinv);
+        let u = ((t + m as u128 * self.p as u128) >> 64) as u64;
+        if u >= self.p { u - self.p } else { u }
+    }
+
+    #[inline]
+    pub fn to(&self, x: u64) -> u64 {
+        self.mul(x % self.p, self.r2)
+    }
+
+    #[inline]
+    pub fn from(&self, x: u64) -> u64 {
+        self.mul(x, 1)
+    }
+
+    /// x^e for x in Montgomery form, the result in Montgomery form
+    pub fn pow(&self, mut x: u64, mut e: u64) -> u64 {
+        let mut r = self.to(1);
+        while e > 0 {
+            if e & 1 == 1 {
+                r = self.mul(r, x);
+            }
+            x = self.mul(x, x);
+            e >>= 1;
+        }
+        r
+    }
+}
+
 /// Shoup's multiplication by a fixed w < p (p < 2^63): w' = floor(w 2^64 / p) once, then w x mod p for any x < p
 /// with two 64-bit products and one high product -- no 128-bit division, which on aarch64 is a library call
 #[inline]
@@ -112,13 +167,15 @@ impl Program {
         if self.ninputs == 0 && !points.is_empty() || self.ninputs > 0 && !points.len().is_multiple_of(self.ninputs) {
             return Err(FfError::Shape);
         }
+        // Montgomery arithmetic throughout a point (p odd; every prime here is), converted back at the outputs
+        let mo = Mont::new(p);
         // the constants once per prime
         let mut consts = vec![0u64; self.ops.len()];
         for (s, op) in self.ops.iter().enumerate() {
             if let Op::Const(sign, ref n, ref d) = *op {
                 let di = invmod(limbs_mod(d, p), p).ok_or(FfError::BadPrime)?;
                 let v = mulmod(limbs_mod(n, p), di, p);
-                consts[s] = if sign < 0 { (p - v) % p } else { v };
+                consts[s] = mo.to(if sign < 0 { (p - v) % p } else { v });
             }
         }
         let npoints = if self.ninputs == 0 { 1 } else { points.len() / self.ninputs };
@@ -128,9 +185,9 @@ impl Program {
             let x = &points[k * self.ninputs..(k + 1) * self.ninputs];
             for (s, op) in self.ops.iter().enumerate() {
                 v[s] = match *op {
-                    Op::Input(i) => x[i] % p,
+                    Op::Input(i) => mo.to(x[i]),
                     Op::Const(..) => consts[s],
-                    Op::Mul(a, b) => mulmod(v[a], v[b], p),
+                    Op::Mul(a, b) => mo.mul(v[a], v[b]),
                     Op::Add(a, b) => {
                         let t = v[a] + v[b];
                         if t >= p { t - p } else { t }
@@ -140,8 +197,8 @@ impl Program {
                     }
                     Op::Pow(a, e) => {
                         let base = if e < 0 {
-                            match invmod(v[a], p) {
-                                Some(i) => i,
+                            match invmod(mo.from(v[a]), p) {
+                                Some(i) => mo.to(i),
                                 None => {
                                     out.extend(std::iter::repeat_n(BAD, self.outputs.len()));
                                     continue 'points;
@@ -150,11 +207,11 @@ impl Program {
                         } else {
                             v[a]
                         };
-                        powmod(base, e.unsigned_abs(), p)
+                        mo.pow(base, e.unsigned_abs())
                     }
                 };
             }
-            out.extend(self.outputs.iter().map(|&o| v[o]));
+            out.extend(self.outputs.iter().map(|&o| mo.from(v[o])));
         }
         Ok(out)
     }
@@ -1074,6 +1131,23 @@ mod tests {
         // y's row was combined with x's pivot row (row 1): y needs both
         assert_eq!(pivots(P, rows, 3, &[1]), (vec![1, 0], vec![0, 1], vec![1, 0]));
         assert_eq!(pivots(P, vec![vec![(1, P)]], 2, &[0]), (vec![], vec![], vec![]));
+    }
+
+    #[test]
+    fn montgomery_agrees() {
+        let mut s = 0x6a09_e667_f3bc_c908u64;
+        for p in [3u64, 101, 1_000_000_007, P, (1u64 << 63) - 25] {
+            let mo = Mont::new(p);
+            for _ in 0..2000 {
+                s ^= s << 13;
+                s ^= s >> 7;
+                s ^= s << 17;
+                let (a, b) = (s % p, s.rotate_left(29) % p);
+                assert_eq!(mo.from(mo.mul(mo.to(a), mo.to(b))), mulmod(a, b, p));
+                assert_eq!(mo.from(mo.to(a)), a);
+                assert_eq!(mo.from(mo.pow(mo.to(a), 37)), powmod(a, 37, p));
+            }
+        }
     }
 
     #[test]

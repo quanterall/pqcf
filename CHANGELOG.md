@@ -5,6 +5,12 @@ the public API is additive.
 
 ## Unreleased
 
+### Changed
+
+- Programs are evaluated over finite fields in Montgomery arithmetic (`Mont` in `ffslp.rs`: three 64-bit products per
+  multiplication, no 128-bit division, which is a library call on aarch64): a double-box sample 2.86 -> 2.14 ms,
+  the same values.
+
 ## 1.4.0 (8 November 2026)
 
 Reducing large symbolic results, additive under the API freeze (decision record `R1`). Results are reconstructed
