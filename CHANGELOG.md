@@ -15,6 +15,15 @@ the public API is additive.
   evaluated mod p directly, only the needed rows turned into ASTs; Shoup multiplication in the search-based
   eliminations: the harder double-box target's seeds and system 1.12 -> 0.63 s, the whole reduction on one worker
   2.04 -> 1.63 s, the same answers (equal to FIRE's).
+- Reductions use the cores: the systems' identities and their values are generated in parallel chunks (the
+  family's caches computed once and handed to the chunks, `pq_ibp_family:warm/2`, `load/1`); the search-based
+  eliminations update their column index only where a row changes (fill-in, cancellations), which made the
+  learning elimination about 4x faster; a system's solved points are cells that concurrent requests wait on, and
+  its learned elimination is shared by its black boxes; the guessing slices run as parallel tasks. Two double-box
+  targets with four numerators each: 9.4 s on one core before, now 6.3 s on one and 4.4 s on 20 (the harder single
+  target 1.14 s on 20); answers unchanged (equal to FIRE's). Reconstructing the masters' coefficients concurrently
+  was measured slower than one after another (each then repeats the others' setup, and points are shared anyway),
+  so they stay sequential.
 
 ## 1.4.0 (8 November 2026)
 

@@ -1681,7 +1681,7 @@ fn horner_count<'a>(env: Env<'a>, prep: ResourceArc<HornerRes>, order: Vec<usize
 
 /// A straight-line program prepared for evaluation over prime fields (ffslp.rs; R1), with the cache its linear-system
 /// black boxes share.
-pub struct FfRes(ffslp::BlackBox, ffslp::LinCache);
+pub struct FfRes(ffslp::BlackBox, ffslp::LinCache, ffslp::Plans);
 
 #[rustler::resource_impl]
 impl rustler::Resource for FfRes {}
@@ -1713,7 +1713,7 @@ fn ff_prepare<'a>(env: Env<'a>, ninputs: usize, ops: Vec<Term<'a>>, outputs: Vec
     }
     let p = ffslp::Program { ops: prog, outputs, ninputs };
     Ok(match p.check() {
-        Ok(()) => (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Prog(p), ffslp::LinCache::default()))).encode(env),
+        Ok(()) => (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Prog(p), ffslp::LinCache::default(), ffslp::Plans::default()))).encode(env),
         Err(_) => bad_shape(env, "ff program"),
     })
 }
@@ -1803,7 +1803,12 @@ fn ff_linsys<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, n: usize, m: usize, wan
             let pattern = std::sync::Arc::new((pattern, bpattern));
             let cache = prog.1.clone();
             let scale = std::sync::Arc::new(scale);
-            (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Lin { prog: pr.clone(), n, m, want, col, pattern, cache: cache.clone(), scale, plan: ffslp::PlanSlot::default() }, cache))).encode(env)
+            // the system's learned elimination, shared with its other black boxes
+            let plan = match prog.2.lock() {
+                Ok(mut plans) => plans.entry((n, m, want)).or_default().clone(),
+                Err(_) => ffslp::PlanSlot::default(),
+            };
+            (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Lin { prog: pr.clone(), n, m, want, col, pattern, cache: cache.clone(), scale, plan }, cache, prog.2.clone()))).encode(env)
         }
         _ => bad_shape(env, "linear system: n rows of increasing columns < n and right-hand sides < m, one output per entry, a scale factor per input"),
     })

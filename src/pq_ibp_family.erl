@@ -16,7 +16,7 @@
 -module(pq_ibp_family).
 -export([new/1, example/1, identities/2, zero/2, seeds/3, canon/2, derivative/3, vars/1, size/1, kin/3]).
 %% for pq_ibp: the identities with their coefficients as polynomials (Exponents => {N, D})
--export([identities_poly/2]).
+-export([identities_poly/2, warm/2, load/1]).
 -export_type([family/0, integral/0]).
 
 -type family() :: #{id := integer(), loops := [atom()], ext := [atom()], props := [{integer(), [{integer(), atom()}]}],
@@ -88,6 +88,23 @@ example(doublebox) ->
                     {-1, [{1, k2}, {1, p1}]}, {-1, [{1, k1}, {-1, p3}]}],
           kin => #{{p1, p2} => {mul, [{rat, 1, 2}, S]}, {p1, p3} => {mul, [{rat, 1, 2}, T]},
                    {p2, p3} => {mul, [{rat, -1, 2}, {add, [S, T]}]}}}).
+
+%% The family's caches as computed in this process, after computing what identities over these seeds need (the
+%% scalar products, the Symanzik polynomials, every sector's zero test and symmetry class): for load/1 in the
+%% processes that generate identities in parallel, so that none computes them again
+-spec warm(family(), [integral()]) -> [{term(), term()}].
+warm(Fam = #{id := Id, top := Top, props := Props}, _Seeds) ->
+    N = length(Props),
+    _ = sps(Fam),
+    _ = classes(Fam),
+    _ = [zero(Fam, sector_point(N, S)) || S <- subsets(lists:seq(1, N))],
+    _ = [{zero(Fam, sector_point(N, S))} || S <- subsets(Top)],
+    [{K, V} || {{?MODULE, _Tag, Id2, _} = K, V} <- get(), Id2 =:= Id].
+
+%% the caches warm/2 returned, in this process
+-spec load([{term(), term()}]) -> ok.
+load(Entries) ->
+    lists:foreach(fun({K, V}) -> put(K, V) end, Entries).
 
 %% the per-process cache, keyed by the family's id
 memo(Tag, #{id := Id}, Key, Fun) ->
@@ -463,12 +480,22 @@ signature(S, GS) -> {length(S), map_size(GS), lists:sort(maps:values(GS))}.
 
 %% the bijections S -> R carrying GS onto GR
 matches(S, GS, R, GR) ->
+    Terms = [{list_to_tuple(E), C} || E := C <- GS],
     [Perm || Perm <- perms(R),
              begin
                  %% the exponent of R's k-th index is that of the S index mapped to it
                  Pos = maps:from_list(lists:zip(Perm, lists:seq(1, length(S)))),
-                 maps:from_list([{[lists:nth(maps:get(Rk, Pos), E) || Rk <- R], C} || E := C <- GS]) =:= GR
+                 Idx = [maps:get(Rk, Pos) || Rk <- R],
+                 same_terms(Terms, Idx, GR)
              end].
+
+%% every term, its exponents permuted, a term of GR with the same coefficient (the sizes are equal: the signature)
+same_terms([], _, _) -> true;
+same_terms([{Et, C} | Rest], Idx, GR) ->
+    case maps:find([element(I, Et) || I <- Idx], GR) of
+        {ok, C} -> same_terms(Rest, Idx, GR);
+        _ -> false
+    end.
 
 perms([]) -> [[]];
 perms(L) -> [[X | P] || X <- L, P <- perms(L -- [X])].

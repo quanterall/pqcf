@@ -14,6 +14,7 @@
 -define(TERMINATE, 2).
 %% points per line for guessing a denominator (Thiele: degrees of numerator and denominator up to about 45 together)
 -define(GUESS_POINTS, 48).
+
 -define(MAX_DEGREE, 1000).
 -define(CHECK_PRIME, 65).
 
@@ -131,6 +132,9 @@ component(Prog, Vars, NP, M, W, Opts) ->
                           true -> guess_denominators(Prog, Vars, NP, M, W, NonZero, Opts);
                           false -> #{}
                       end,
+            %% one right-hand side after another: each reuses the points the earlier ones solved (the system's
+            %% cache), and the parallelism is within each reconstruction's stages (running them concurrently was
+            %% measured slower: R1)
             Cols = [case lists:member(C, Zeros) of
                         true -> {C, {ok, Zero}};
                         false -> {C, column(Prog, Vars, NP, M, W, C, maps:get(C, Guesses, none), Opts)}
@@ -199,12 +203,15 @@ guess_denominators(Prog, Vars, NP, M, W, Cols, Opts) ->
     case with_job(Prog, length(Vars) - 1, Opts, {linsys, NP, M, W, 0},
                   fun(#{bb := BB, run := Run, seed := Seed}) ->
                           P = pq_ff:prime(1),
-                          Lines = [begin
+                          Specs = [begin
                                        Base = rnd_list(P, length(Vars), {Seed, guess, I}),
-                                       Ts = distinct(P, ?GUESS_POINTS, {Seed, guess_t, I}),
-                                       [{ok, Rows}] = Run([{linsys_all, BB, P, [setnth(I, Base, T) || T <- Ts]}]),
-                                       {I, Base, lists:zip(Ts, Rows)}
+                                       {I, Base, distinct(P, ?GUESS_POINTS, {Seed, guess_t, I})}
                                    end || I <- lists:seq(1, length(Vars))],
+                          %% every line's points as tasks of 8 points, run together
+                          Chunks = [{I, Part} || {I, Base, Ts} <- Specs, Part <- chunks([setnth(I, Base, T) || T <- Ts], 8)],
+                          Results = Run([{linsys_all, BB, P, Part} || {_, Part} <- Chunks]),
+                          RowsOf = fun(I) -> lists:append([Rows || {{J, _}, {ok, Rows}} <- lists:zip(Chunks, Results), J =:= I]) end,
+                          Lines = [{I, Base, lists:zip(Ts, RowsOf(I))} || {I, Base, Ts} <- Specs],
                           maps:from_list([{C, guess_column(P, Alpha, Lines, C)} || C <- Cols])
                   end) of
         {ok, Guesses} -> Guesses;
@@ -639,3 +646,8 @@ powm(B, E, P) when E band 1 =:= 1 -> B * powm(B * B rem P, E bsr 1, P) rem P;
 powm(B, E, P) -> powm(B * B rem P, E bsr 1, P).
 
 mod(A, M) -> ((A rem M) + M) rem M.
+
+chunks([], _) -> [];
+chunks(L, N) when length(L) =< N -> [L];
+chunks(L, N) -> {A, B} = lists:split(N, L), [A | chunks(B, N)].
+

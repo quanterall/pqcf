@@ -368,31 +368,41 @@ impl Plan {
                 let (rq, rr) = (std::mem::take(&mut rows[q]), &rows[r]);
                 let mut merged = Vec::with_capacity(rq.len() + rr.len());
                 let (mut i, mut j) = (0, 0);
+                // the column index changes only where the row does: fill-in added, cancellations and the zeros the
+                // rows started with removed
                 while i < rq.len() || j < rr.len() {
-                    let (c, v) = if j >= rr.len() || (i < rq.len() && rq[i].0 < rr[j].0) {
+                    if j >= rr.len() || (i < rq.len() && rq[i].0 < rr[j].0) {
                         i += 1;
-                        rq[i - 1]
+                        let (c, v) = rq[i - 1];
+                        if v != 0 {
+                            merged.push((c, v));
+                        } else if c < n {
+                            col_rows[c].remove(&q);
+                        }
                     } else if i >= rq.len() || rr[j].0 < rq[i].0 {
                         j += 1;
-                        (rr[j - 1].0, (p - shoup_mul(rr[j - 1].1, f, fp, p)) % p)
+                        let (c, v) = (rr[j - 1].0, (p - shoup_mul(rr[j - 1].1, f, fp, p)) % p);
+                        if v != 0 {
+                            merged.push((c, v));
+                            if c < n {
+                                col_rows[c].insert(q);
+                            }
+                        }
                     } else {
                         i += 1;
                         j += 1;
-                        (rq[i - 1].0, (rq[i - 1].1 + p - shoup_mul(rr[j - 1].1, f, fp, p)) % p)
-                    };
-                    if v != 0 || c != k {
-                        merged.push((c, v));
-                    }
-                    if v == 0 && c < n {
-                        col_rows[c].remove(&q);
-                    }
-                }
-                for &(c, v) in &merged {
-                    if c < n && v != 0 {
-                        col_rows[c].insert(q);
+                        let (c, v) = (rq[i - 1].0, (rq[i - 1].1 + p - shoup_mul(rr[j - 1].1, f, fp, p)) % p);
+                        if v != 0 {
+                            merged.push((c, v));
+                            if rq[i - 1].1 == 0 && c < n {
+                                col_rows[c].insert(q);
+                            }
+                        } else if c < n {
+                            col_rows[c].remove(&q);
+                        }
                     }
                 }
-                rows[q] = merged.into_iter().filter(|e| e.1 != 0).collect();
+                rows[q] = merged;
             }
         }
         let w = n - want;
@@ -496,9 +506,13 @@ fn scale_at(p: u64, scale: &[(Vec<i64>, i64, u32)], pt: &[u64]) -> Option<u64> {
 /// The solutions at the points already solved, shared by the black boxes of one program (one per right-hand side):
 /// keyed by (n, m, want, p, point), every right-hand side's non-zero values (None where A is singular). One
 /// elimination gives every right-hand side, and the reconstructions of different right-hand sides sample mostly the
-/// same points, so each point is eliminated once. The values are those a fresh elimination gives: the cache changes
-/// no result.
-pub type LinCache = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<LinKey, Solved>>>;
+/// same points, so each point is eliminated once -- also when they run concurrently: a point being solved is a cell
+/// the others wait on. The values are those a fresh elimination gives: the cache changes no result.
+pub type LinCache = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<LinKey, std::sync::Arc<std::sync::OnceLock<Solved>>>>>;
+
+/// The learned eliminations of a program's linear systems, by (n, m, want): one per system, shared by its black boxes
+/// (one per right-hand side) like the cache
+pub type Plans = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<(usize, usize, usize), PlanSlot>>>;
 
 /// (n, m, want, p, point)
 pub type LinKey = (usize, usize, usize, u64, Vec<u64>);
@@ -592,27 +606,29 @@ pub fn solve_aug(p: u64, mut rows: Vec<Vec<(usize, u64)>>, n: usize, m: usize, w
             let (rq, rr) = (std::mem::take(&mut rows[q]), &rows[r]);
             let mut merged = Vec::with_capacity(rq.len() + rr.len());
             let (mut i, mut j) = (0, 0);
+            // the column index changes only where the row does (fill-in added, cancellations removed)
             while i < rq.len() || j < rr.len() {
-                let (c, v) = if j >= rr.len() || (i < rq.len() && rq[i].0 < rr[j].0) {
+                if j >= rr.len() || (i < rq.len() && rq[i].0 < rr[j].0) {
                     i += 1;
-                    rq[i - 1]
+                    merged.push(rq[i - 1]);
                 } else if i >= rq.len() || rr[j].0 < rq[i].0 {
                     j += 1;
-                    (rr[j - 1].0, (p - shoup_mul(rr[j - 1].1, f, fp, p)) % p)
+                    let (c, v) = (rr[j - 1].0, (p - shoup_mul(rr[j - 1].1, f, fp, p)) % p);
+                    if v != 0 {
+                        merged.push((c, v));
+                        if c < n {
+                            col_rows[c].insert(q);
+                        }
+                    }
                 } else {
                     i += 1;
                     j += 1;
-                    (rq[i - 1].0, (rq[i - 1].1 + p - shoup_mul(rr[j - 1].1, f, fp, p)) % p)
-                };
-                if v != 0 {
-                    merged.push((c, v));
-                } else if c < n {
-                    col_rows[c].remove(&q);
-                }
-            }
-            for &(c, _) in &merged {
-                if c < n {
-                    col_rows[c].insert(q);
+                    let (c, v) = (rq[i - 1].0, (rq[i - 1].1 + p - shoup_mul(rr[j - 1].1, f, fp, p)) % p);
+                    if v != 0 {
+                        merged.push((c, v));
+                    } else if c < n {
+                        col_rows[c].remove(&q);
+                    }
                 }
             }
             rows[q] = merged;
@@ -693,26 +709,29 @@ pub fn pivots(p: u64, mut rows: Vec<Vec<(usize, u64)>>, n: usize, targets: &[usi
             let (rq, rr) = (std::mem::take(&mut rows[q]), &rows[r]);
             let mut merged = Vec::with_capacity(rq.len() + rr.len());
             let (mut i, mut j) = (0, 0);
+            // the column index changes only where the row does: a new entry (fill-in) is added, a cancelled one
+            // removed; an entry the row already had stays where it is
             while i < rq.len() || j < rr.len() {
-                let (c, v) = if j >= rr.len() || (i < rq.len() && rq[i].0 < rr[j].0) {
+                if j >= rr.len() || (i < rq.len() && rq[i].0 < rr[j].0) {
                     i += 1;
-                    rq[i - 1]
+                    merged.push(rq[i - 1]);
                 } else if i >= rq.len() || rr[j].0 < rq[i].0 {
                     j += 1;
-                    (rr[j - 1].0, (p - shoup_mul(rr[j - 1].1, f, fp, p)) % p)
+                    let (c, v) = (rr[j - 1].0, (p - shoup_mul(rr[j - 1].1, f, fp, p)) % p);
+                    if v != 0 {
+                        merged.push((c, v));
+                        col_rows[c].insert(q);
+                    }
                 } else {
                     i += 1;
                     j += 1;
-                    (rq[i - 1].0, (rq[i - 1].1 + p - shoup_mul(rr[j - 1].1, f, fp, p)) % p)
-                };
-                if v != 0 {
-                    merged.push((c, v));
-                } else {
-                    col_rows[c].remove(&q);
+                    let (c, v) = (rq[i - 1].0, (rq[i - 1].1 + p - shoup_mul(rr[j - 1].1, f, fp, p)) % p);
+                    if v != 0 {
+                        merged.push((c, v));
+                    } else {
+                        col_rows[c].remove(&q);
+                    }
                 }
-            }
-            for &(c, _) in &merged {
-                col_rows[c].insert(q);
             }
             rows[q] = merged;
         }
@@ -758,37 +777,36 @@ impl BlackBox {
     fn lin_sparse(&self, p: u64, points: &[u64]) -> Result<Vec<Solved>, FfError> {
         let BlackBox::Lin { prog, n, m, want, pattern, cache, plan, .. } = self else { return Err(FfError::Shape) };
         let k = prog.ninputs.max(1);
-        let key = |pt: &[u64]| (*n, *m, *want, p, pt.to_vec());
-        let mut out: Vec<Option<Solved>> = {
-            let c = cache.lock().map_err(|_| FfError::Shape)?;
-            points.chunks(k).map(|pt| c.get(&key(pt)).cloned()).collect()
-        };
-        let miss: Vec<usize> = out.iter().enumerate().filter(|(_, o)| o.is_none()).map(|(i, _)| i).collect();
-        if !miss.is_empty() {
-            let pts: Vec<u64> = miss.iter().flat_map(|&i| points[i * k..(i + 1) * k].iter().copied()).collect();
-            let vals = prog.eval(p, &pts)?;
-            let solved: Vec<Solved> = vals
-                .chunks(prog.outputs.len())
-                .map(|row| {
-                    if row.contains(&BAD) {
-                        return None;
-                    }
+        let mut out = Vec::with_capacity(points.len() / k);
+        for pt in points.chunks(k) {
+            // the point's cell, created by the first to ask; whoever initialises it solves the point, the others wait
+            let cell = {
+                let mut c = cache.lock().map_err(|_| FfError::Shape)?;
+                c.entry((*n, *m, *want, p, pt.to_vec())).or_default().clone()
+            };
+            let mut failed = None;
+            let r = cell.get_or_init(|| match prog.eval(p, pt) {
+                Err(e) => {
+                    failed = Some(e);
+                    None
+                }
+                Ok(row) if row.contains(&BAD) => None,
+                Ok(row) => {
                     // the learned elimination, learned at the first point (the search-based one if that failed)
-                    let learned = plan.get_or_init(|| Plan::learn(p, row, pattern, *n, *m, *want));
+                    let learned = plan.get_or_init(|| Plan::learn(p, &row, pattern, *n, *m, *want));
                     match learned {
-                        Some(pl) => pl.replay(p, row),
-                        None => solve_aug(p, aug_rows(p, row, pattern, *n, None), *n, *m, *want),
+                        Some(pl) => pl.replay(p, &row),
+                        None => solve_aug(p, aug_rows(p, &row, pattern, *n, None), *n, *m, *want),
                     }
                     .map(|u| u.into_iter().enumerate().filter(|e| e.1 != 0).map(|(t, v)| (t as u32, v)).collect())
-                })
-                .collect();
-            let mut c = cache.lock().map_err(|_| FfError::Shape)?;
-            for (&i, r) in miss.iter().zip(solved) {
-                c.insert(key(&points[i * k..(i + 1) * k]), r.clone());
-                out[i] = Some(r);
+                }
+            });
+            if let Some(e) = failed {
+                return Err(e);
             }
+            out.push(r.clone());
         }
-        Ok(out.into_iter().map(|o| o.flatten()).collect())
+        Ok(out)
     }
 
     pub fn ninputs(&self) -> usize {

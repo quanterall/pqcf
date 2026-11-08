@@ -146,7 +146,12 @@ system(Fam, Seeds, Targets, Opts) ->
     Vars = pq_ibp_family:vars(Fam),
     %% the coefficients as exact polynomials (Exponents => {N, D}): evaluated mod ?P directly, and only the needed
     %% rows turned into ASTs
-    Eqs = [E || E <- pq_ibp_family:identities_poly(Fam, Seeds), map_size(E) > 0],
+    %% in parallel chunks of the seeds, concatenated in order (the same equations in the same order as one process),
+    %% the family's caches computed once here and handed to the chunks
+    Warm = pq_ibp_family:warm(Fam, Seeds),
+    Eqs = [E || E <- lists:append(pmap(fun(Chunk) -> ok = pq_ibp_family:load(Warm), pq_ibp_family:identities_poly(Fam, Chunk) end,
+                                       chunks(Seeds, max(64, length(Seeds) div (4 * erlang:system_info(schedulers_online)) + 1)))),
+                map_size(E) > 0],
     Ints = lists:usort(lists:append([maps:keys(E) || E <- Eqs])),
     case [T || T <- Targets, not lists:member(T, Ints)] of
         [] -> ok;
@@ -157,7 +162,8 @@ system(Fam, Seeds, Targets, Opts) ->
     Index = maps:from_list(lists:zip(Cols, lists:seq(0, length(Cols) - 1))),
     Point = point(Vars, {1, 1, 1}),
     PointList = [maps:get(V, Point) || V <- Vars],
-    Num = [lists:sort([{maps:get(I, Index), polymod(C, PointList)} || I := C <- E]) || E <- Eqs],
+    Num = lists:append(pmap(fun(Part) -> [lists:sort([{maps:get(I, Index), polymod(C, PointList)} || I := C <- E]) || E <- Part] end,
+                            chunks(Eqs, max(256, length(Eqs) div (4 * erlang:system_info(schedulers_online)) + 1)))),
     TCols = [maps:get(T, Index) || T <- Targets],
     {PR, PC, Needed} = pq_nif:ff_pivots(?P, Num, length(Cols), TCols),
     PivotCol = maps:from_list(lists:zip(PR, PC)),
@@ -241,3 +247,27 @@ rational(Ast, Vars) ->
     {ok, Prog} = pq_symbolic:compile([Ast], Vars, ?COMPILE),
     {ok, ND} = pq_recon:rational(Prog, Vars, #{}),
     ND.
+
+%% F over the list, each element in a process of its own, the results in the list's order (an exception in one is
+%% raised in the caller, with its class); each worker sends its outcome, the monitor catches a worker that dies
+pmap(F, L) ->
+    Self = self(),
+    Jobs = [begin
+                Tag = make_ref(),
+                {Pid, Mon} = spawn_monitor(fun() -> Self ! {Tag, try {ok, F(X)} catch C:R:St -> {raise, C, R, St} end} end),
+                {Tag, Pid, Mon}
+            end || X <- L],
+    [receive
+         {Tag, Outcome} ->
+             erlang:demonitor(Mon, [flush]),
+             case Outcome of
+                 {ok, V} -> V;
+                 {raise, C, R, St} -> erlang:raise(C, R, St)
+             end;
+         {'DOWN', Mon, process, Pid, Why} -> error({pmap, Why})
+     end || {Tag, Pid, Mon} <- Jobs].
+
+chunks([], _) -> [];
+chunks(L, N) when length(L) =< N -> [L];
+chunks(L, N) -> {A, B} = lists:split(N, L), [A | chunks(B, N)].
+
