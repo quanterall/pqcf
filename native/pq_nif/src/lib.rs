@@ -1803,7 +1803,7 @@ fn ff_linsys<'a>(env: Env<'a>, prog: ResourceArc<FfRes>, n: usize, m: usize, wan
             let pattern = std::sync::Arc::new((pattern, bpattern));
             let cache = prog.1.clone();
             let scale = std::sync::Arc::new(scale);
-            (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Lin { prog: pr.clone(), n, m, want, col, pattern, cache: cache.clone(), scale }, cache))).encode(env)
+            (atoms::ok(), ResourceArc::new(FfRes(ffslp::BlackBox::Lin { prog: pr.clone(), n, m, want, col, pattern, cache: cache.clone(), scale, plan: ffslp::PlanSlot::default() }, cache))).encode(env)
         }
         _ => bad_shape(env, "linear system: n rows of increasing columns < n and right-hand sides < m, one output per entry, a scale factor per input"),
     })

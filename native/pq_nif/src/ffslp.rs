@@ -39,6 +39,20 @@ pub fn mulmod(a: u64, b: u64, p: u64) -> u64 {
     ((a as u128 * b as u128) % p as u128) as u64
 }
 
+/// Shoup's multiplication by a fixed w < p (p < 2^63): w' = floor(w 2^64 / p) once, then w x mod p for any x < p
+/// with two 64-bit products and one high product -- no 128-bit division, which on aarch64 is a library call
+#[inline]
+pub fn shoup_pre(w: u64, p: u64) -> u64 {
+    (((w as u128) << 64) / p as u128) as u64
+}
+
+#[inline]
+pub fn shoup_mul(x: u64, w: u64, wp: u64, p: u64) -> u64 {
+    let q = ((x as u128 * wp as u128) >> 64) as u64;
+    let r = x.wrapping_mul(w).wrapping_sub(q.wrapping_mul(p));
+    if r >= p { r - p } else { r }
+}
+
 pub fn powmod(mut a: u64, mut e: u64, p: u64) -> u64 {
     let mut r = 1 % p;
     a %= p;
@@ -53,8 +67,21 @@ pub fn powmod(mut a: u64, mut e: u64, p: u64) -> u64 {
 }
 
 /// the inverse of a mod p (p prime), None for 0
+/// the inverse mod p (prime) by the extended Euclidean algorithm: 64-bit divisions only (Fermat's a^(p-2) costs
+/// about 126 multiplications, each a 128-bit remainder, a library call on aarch64)
 pub fn invmod(a: u64, p: u64) -> Option<u64> {
-    if a.is_multiple_of(p) { None } else { Some(powmod(a, p - 2, p)) }
+    let a = a % p;
+    if a == 0 {
+        return None;
+    }
+    let (mut r0, mut r1) = (p, a);
+    let (mut t0, mut t1) = (0i128, 1i128);
+    while r1 != 0 {
+        let q = r0 / r1;
+        (r0, r1) = (r1, r0 - q * r1);
+        (t0, t1) = (t1, t0 - q as i128 * t1);
+    }
+    (r0 == 1).then(|| t0.rem_euclid(p as i128) as u64)
 }
 
 /// a number given as 64-bit limbs (least significant first) mod p, by Horner's rule from the top limb
@@ -181,7 +208,210 @@ pub fn tvandermonde(p: u64, nodes: &[u64], values: &[u64]) -> Option<Vec<u64>> {
 /// (`solve_aug`); the value is component `want` of the solution for right-hand side `col` (bad where A is singular).
 pub enum BlackBox {
     Prog(Program),
-    Lin { prog: Program, n: usize, m: usize, want: usize, col: usize, pattern: Patterns, cache: LinCache, scale: Scale },
+    Lin { prog: Program, n: usize, m: usize, want: usize, col: usize, pattern: Patterns, cache: LinCache, scale: Scale, plan: PlanSlot },
+}
+
+/// The learned elimination of a linear-system black box: learned at its first point, replayed at the others
+/// (None if the first point was singular: the search-based elimination then serves every point).
+pub type PlanSlot = std::sync::Arc<std::sync::OnceLock<Option<Plan>>>;
+
+/// A learned elimination (R1). The elimination's sequence of operations depends only on the system's structure, not
+/// on the point (but for accidental zeros, probability about its size / p, which the reconstruction's final checks
+/// catch): learned once, it is replayed on a flat array of slots, one for every (row, column) the elimination ever
+/// touches, with no search for pivots, no sets and no merging. The wanted component then comes from the transposed
+/// triangular system: z^T U = e_want (one scalar per unknown), u_want = sum_k z_k y_k over the eliminated right-hand
+/// sides -- instead of every unknown as a vector over the right-hand sides.
+pub struct Plan {
+    m: usize,
+    slots: usize,
+    /// the slot of each program output (A's entries row by row, then B's)
+    init: Vec<u32>,
+    ops: Vec<PlanOp>,
+    pairs: Vec<(u32, u32)>,
+    /// for each unknown k >= want: the slot of U_kk, the entries U_jk (j - want, slot) for want <= j < k, and the
+    /// right-hand sides (t, slot) of its pivot row
+    diag: Vec<u32>,
+    upper: Vec<Vec<(u32, u32)>>,
+    rhs: Vec<Vec<(u32, u32)>>,
+}
+
+enum PlanOp {
+    /// the pivot of the next column: its slot (its inverse is used by the eliminations that follow)
+    Pivot(u32),
+    /// row -= f * pivot row: the slot of f (the row's entry in the pivot column), and the range of (destination,
+    /// source) slot pairs
+    Elim(u32, u32, u32),
+}
+
+impl Plan {
+    /// learn from a point's program outputs (the search-based elimination of solve_aug, recorded)
+    pub fn learn(p: u64, vals: &[u64], pattern: &(Vec<Vec<u32>>, Vec<Vec<u32>>), n: usize, m: usize, want: usize) -> Option<Plan> {
+        use std::collections::{BTreeSet, HashMap};
+        let (pa, pb) = pattern;
+        let mut slot: HashMap<(usize, usize), u32> = HashMap::new();
+        let alloc = |r: usize, c: usize, slot: &mut HashMap<(usize, usize), u32>| -> u32 {
+            let next = slot.len() as u32;
+            *slot.entry((r, c)).or_insert(next)
+        };
+        // the rows with every entry the pattern gives (zeros too, so that each output has a slot)
+        let mut init = Vec::with_capacity(vals.len());
+        let mut rows: Vec<Vec<(usize, u64)>> = Vec::with_capacity(n);
+        let nnz: usize = pa.iter().map(Vec::len).sum();
+        let (mut at, mut bt) = (0, nnz);
+        let mut binit = Vec::new();
+        for (r, (ca, cb)) in pa.iter().zip(pb).enumerate() {
+            let mut row = Vec::with_capacity(ca.len() + cb.len());
+            for (&c, &v) in ca.iter().zip(&vals[at..at + ca.len()]) {
+                init.push(alloc(r, c as usize, &mut slot));
+                row.push((c as usize, v % p));
+            }
+            for (&t, &v) in cb.iter().zip(&vals[bt..bt + cb.len()]) {
+                binit.push(alloc(r, n + t as usize, &mut slot));
+                row.push((n + t as usize, v % p));
+            }
+            at += ca.len();
+            bt += cb.len();
+            rows.push(row);
+        }
+        init.extend(binit);
+        let mut col_rows: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); n];
+        for (r, row) in rows.iter().enumerate() {
+            for &(c, _) in row {
+                if c < n {
+                    col_rows[c].insert(r);
+                }
+            }
+        }
+        let (mut ops, mut pairs) = (Vec::new(), Vec::new());
+        let mut pivot = vec![usize::MAX; n];
+        let mut done = vec![false; rows.len()];
+        for k in 0..n {
+            let r = if k < rows.len() && col_rows[k].contains(&k) && !done[k] { k } else { *col_rows[k].iter().find(|&&q| !done[q])? };
+            done[r] = true;
+            pivot[k] = r;
+            for &(c, _) in &rows[r] {
+                if c < n {
+                    col_rows[c].remove(&r);
+                }
+            }
+            let ark = rows[r].iter().find(|e| e.0 == k).map(|e| e.1)?;
+            let inv = invmod(ark, p)?;
+            ops.push(PlanOp::Pivot(slot[&(r, k)]));
+            let others: Vec<usize> = col_rows[k].iter().copied().filter(|&q| !done[q]).collect();
+            for q in others {
+                let aqk = rows[q].iter().find(|e| e.0 == k).map(|e| e.1).unwrap_or(0);
+                let start = pairs.len() as u32;
+                for &(c, _) in rows[r].iter().filter(|e| e.0 != k) {
+                    let d = alloc(q, c, &mut slot);
+                    pairs.push((d, slot[&(r, c)]));
+                }
+                ops.push(PlanOp::Elim(slot[&(q, k)], start, pairs.len() as u32));
+                let f = mulmod(aqk, inv, p);
+                let (rq, rr) = (std::mem::take(&mut rows[q]), &rows[r]);
+                let mut merged = Vec::with_capacity(rq.len() + rr.len());
+                let (mut i, mut j) = (0, 0);
+                while i < rq.len() || j < rr.len() {
+                    let (c, v) = if j >= rr.len() || (i < rq.len() && rq[i].0 < rr[j].0) {
+                        i += 1;
+                        rq[i - 1]
+                    } else if i >= rq.len() || rr[j].0 < rq[i].0 {
+                        j += 1;
+                        (rr[j - 1].0, (p - mulmod(f, rr[j - 1].1, p)) % p)
+                    } else {
+                        i += 1;
+                        j += 1;
+                        (rq[i - 1].0, (rq[i - 1].1 + p - mulmod(f, rr[j - 1].1, p)) % p)
+                    };
+                    if v != 0 || c != k {
+                        merged.push((c, v));
+                    }
+                    if v == 0 && c < n {
+                        col_rows[c].remove(&q);
+                    }
+                }
+                for &(c, v) in &merged {
+                    if c < n && v != 0 {
+                        col_rows[c].insert(q);
+                    }
+                }
+                rows[q] = merged.into_iter().filter(|e| e.1 != 0).collect();
+            }
+        }
+        let w = n - want;
+        let mut diag = vec![0u32; w];
+        let mut upper: Vec<Vec<(u32, u32)>> = vec![Vec::new(); w];
+        let mut rhs: Vec<Vec<(u32, u32)>> = vec![Vec::new(); w];
+        for k in want..n {
+            let r = pivot[k];
+            for &(c, _) in &rows[r] {
+                let sl = slot[&(r, c)];
+                if c == k {
+                    diag[k - want] = sl;
+                } else if c < n {
+                    upper[c - want].push(((k - want) as u32, sl));
+                } else {
+                    rhs[k - want].push(((c - n) as u32, sl));
+                }
+            }
+        }
+        Some(Plan { m, slots: slot.len(), init, ops, pairs, diag, upper, rhs })
+    }
+
+    /// the wanted component for every right-hand side at a point (its program outputs); None if a pivot vanishes
+    pub fn replay(&self, p: u64, vals: &[u64]) -> Option<Vec<u64>> {
+        debug_assert!(self.diag.iter().all(|&d| (d as usize) < self.slots));
+        let mut v = vec![0u64; self.slots];
+        for (&s, &x) in self.init.iter().zip(vals) {
+            v[s as usize] = x % p;
+        }
+        let mut inv = 0;
+        // each pivot's inverse, kept: the triangular factor's diagonal is the pivots, in column order
+        let mut invs = Vec::with_capacity(self.diag.len());
+        let first = self.ops.iter().filter(|o| matches!(o, PlanOp::Pivot(_))).count() - self.diag.len();
+        let mut k = 0;
+        for op in &self.ops {
+            match *op {
+                PlanOp::Pivot(s) => {
+                    inv = invmod(v[s as usize], p)?;
+                    if k >= first {
+                        invs.push(inv);
+                    }
+                    k += 1;
+                }
+                PlanOp::Elim(f, a, b) => {
+                    let fac = mulmod(v[f as usize], inv, p);
+                    if fac != 0 {
+                        let fp = shoup_pre(fac, p);
+                        for &(d, s) in &self.pairs[a as usize..b as usize] {
+                            let t = shoup_mul(v[s as usize], fac, fp, p);
+                            let x = v[d as usize];
+                            v[d as usize] = if x >= t { x - t } else { x + p - t };
+                        }
+                    }
+                    v[f as usize] = 0;
+                }
+            }
+        }
+        // z^T U = e_want, then u_want = sum_k z_k y_k
+        let w = self.diag.len();
+        let mut z = vec![0u64; w];
+        let mut out = vec![0u64; self.m];
+        for c in 0..w {
+            let mut acc = if c == 0 { 1 } else { 0 };
+            for &(j, s) in &self.upper[c] {
+                acc = (acc + p - mulmod(z[j as usize], v[s as usize], p)) % p;
+            }
+            z[c] = mulmod(acc, invs[c], p);
+            if z[c] != 0 {
+                let zp = shoup_pre(z[c], p);
+                for &(t, s) in &self.rhs[c] {
+                    let x = out[t as usize] + shoup_mul(v[s as usize], z[c], zp, p);
+                    out[t as usize] = if x >= p { x - p } else { x };
+                }
+            }
+        }
+        Some(out)
+    }
 }
 
 /// A product of linear factors (coefficients per input, constant, power) that eval1 multiplies a linear system's
@@ -466,7 +696,7 @@ impl BlackBox {
 
     /// a linear system's solution at each point, every right-hand side's non-zero values, through the cache
     fn lin_sparse(&self, p: u64, points: &[u64]) -> Result<Vec<Solved>, FfError> {
-        let BlackBox::Lin { prog, n, m, want, pattern, cache, .. } = self else { return Err(FfError::Shape) };
+        let BlackBox::Lin { prog, n, m, want, pattern, cache, plan, .. } = self else { return Err(FfError::Shape) };
         let k = prog.ninputs.max(1);
         let key = |pt: &[u64]| (*n, *m, *want, p, pt.to_vec());
         let mut out: Vec<Option<Solved>> = {
@@ -483,8 +713,13 @@ impl BlackBox {
                     if row.contains(&BAD) {
                         return None;
                     }
-                    solve_aug(p, aug_rows(p, row, pattern, *n, None), *n, *m, *want)
-                        .map(|u| u.into_iter().enumerate().filter(|e| e.1 != 0).map(|(t, v)| (t as u32, v)).collect())
+                    // the learned elimination, learned at the first point (the search-based one if that failed)
+                    let learned = plan.get_or_init(|| Plan::learn(p, row, pattern, *n, *m, *want));
+                    match learned {
+                        Some(pl) => pl.replay(p, row),
+                        None => solve_aug(p, aug_rows(p, row, pattern, *n, None), *n, *m, *want),
+                    }
+                    .map(|u| u.into_iter().enumerate().filter(|e| e.1 != 0).map(|(t, v)| (t as u32, v)).collect())
                 })
                 .collect();
             let mut c = cache.lock().map_err(|_| FfError::Shape)?;
@@ -787,8 +1022,8 @@ mod tests {
         let p = 101u64;
         let dense = std::sync::Arc::new((vec![vec![0, 1], vec![0, 1]], vec![vec![0], vec![0]]));
         let cache = LinCache::default();
-        let bb0 = BlackBox::Lin { prog: prog.clone(), n: 2, m: 1, want: 0, col: 0, pattern: dense.clone(), cache: cache.clone(), scale: Scale::default() };
-        let bb1 = BlackBox::Lin { prog, n: 2, m: 1, want: 1, col: 0, pattern: dense, cache, scale: Scale::default() };
+        let bb0 = BlackBox::Lin { prog: prog.clone(), n: 2, m: 1, want: 0, col: 0, pattern: dense.clone(), cache: cache.clone(), scale: Scale::default(), plan: PlanSlot::default() };
+        let bb1 = BlackBox::Lin { prog, n: 2, m: 1, want: 1, col: 0, pattern: dense, cache, scale: Scale::default(), plan: PlanSlot::default() };
         let inv = |a: u64| invmod(a, p).unwrap();
         // at (3, 5): det 14; and (1, 1): singular
         assert_eq!(bb0.eval1(p, &[3, 5, 1, 1]).unwrap(), vec![mulmod(5, inv(14), p), BAD]);
@@ -805,7 +1040,7 @@ mod tests {
         };
         let p = 101u64;
         let pattern = std::sync::Arc::new((vec![vec![0, 1], vec![1]], vec![vec![0], vec![0]]));
-        let bb = BlackBox::Lin { prog, n: 2, m: 1, want: 0, col: 0, pattern, cache: LinCache::default(), scale: Scale::default() };
+        let bb = BlackBox::Lin { prog, n: 2, m: 1, want: 0, col: 0, pattern, cache: LinCache::default(), scale: Scale::default(), plan: PlanSlot::default() };
         assert_eq!(bb.eval1(p, &[3, 5, 0, 5]).unwrap(), vec![invmod(3, p).unwrap(), BAD]);
         assert_eq!(bb.eval_all(p, &[3, 5]).unwrap(), vec![Some(vec![invmod(3, p).unwrap()])]);
     }
@@ -820,7 +1055,7 @@ mod tests {
         };
         let pattern = std::sync::Arc::new((vec![vec![0, 1], vec![1]], vec![vec![0], vec![0]]));
         let scale = std::sync::Arc::new(vec![(vec![1, 0], 0, 1)]);
-        let bb = BlackBox::Lin { prog, n: 2, m: 1, want: 0, col: 0, pattern, cache: LinCache::default(), scale };
+        let bb = BlackBox::Lin { prog, n: 2, m: 1, want: 0, col: 0, pattern, cache: LinCache::default(), scale, plan: PlanSlot::default() };
         assert_eq!(bb.eval1(101, &[3, 5, 7, 2, 0, 5]).unwrap(), vec![1, 1, BAD]);
     }
 
@@ -839,6 +1074,62 @@ mod tests {
         // y's row was combined with x's pivot row (row 1): y needs both
         assert_eq!(pivots(P, rows, 3, &[1]), (vec![1, 0], vec![0, 1], vec![1, 0]));
         assert_eq!(pivots(P, vec![vec![(1, P)]], 2, &[0]), (vec![], vec![], vec![]));
+    }
+
+    #[test]
+    fn inverts() {
+        for p in [3u64, 101, 1_000_000_007, P, (1u64 << 63) - 25] {
+            for a in [1u64, 2, p - 1, p / 2 + 1, 0x1234_5678 % p] {
+                if a % p != 0 {
+                    assert_eq!(mulmod(invmod(a, p).unwrap(), a, p), 1, "p {p} a {a}");
+                }
+            }
+            assert_eq!(invmod(0, p), None);
+            assert_eq!(invmod(p, p), None);
+        }
+    }
+
+    #[test]
+    fn shoup_multiplication_agrees() {
+        let mut s = 0x2545_f491_4f6c_dd1du64;
+        for p in [P, 3, 1_000_000_007, (1u64 << 63) - 25] {
+            for _ in 0..2000 {
+                s ^= s << 13;
+                s ^= s >> 7;
+                s ^= s << 17;
+                let (w, x) = (s % p, s.rotate_left(17) % p);
+                assert_eq!(shoup_mul(x, w, shoup_pre(w, p), p), mulmod(w, x, p));
+            }
+        }
+    }
+
+    #[test]
+    fn replays_the_learned_elimination() {
+        let p = P;
+        let mut s = 0x9e37_79b9_7f4a_7c15u64;
+        let mut next = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            s
+        };
+        for n in [1usize, 2, 5, 12, 30, 60] {
+            let m = 4usize;
+            // a fixed sparsity pattern: the diagonal and about a quarter of the rest; B about half full
+            let pa: Vec<Vec<u32>> = (0..n).map(|r| (0..n).filter(|&c| c == r || next() % 4 == 0).map(|c| c as u32).collect()).collect();
+            let pb: Vec<Vec<u32>> = (0..n).map(|_| (0..m).filter(|_| next() % 2 == 0).map(|t| t as u32).collect()).collect();
+            let pattern = (pa, pb);
+            let nnz: usize = pattern.0.iter().chain(&pattern.1).map(Vec::len).sum();
+            for want in [0, n / 2, n - 1] {
+                let learn_vals: Vec<u64> = (0..nnz).map(|_| next() % p).collect();
+                let plan = Plan::learn(p, &learn_vals, &pattern, n, m, want).unwrap();
+                for _ in 0..3 {
+                    let vals: Vec<u64> = (0..nnz).map(|_| next() % p).collect();
+                    let expect = solve_aug(p, aug_rows(p, &vals, &pattern, n, None), n, m, want);
+                    assert_eq!(plan.replay(p, &vals), expect, "n {n} want {want}");
+                }
+            }
+        }
     }
 
     #[test]

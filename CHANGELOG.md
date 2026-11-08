@@ -65,7 +65,12 @@ the public API is additive.
     on one line per variable matched against the factor alphabet, F * D reconstructed as a polynomial through a
     scaled black box (`pq_nif:ff_linsys/8`), falling back to the rational reconstruction when the guess fails its
     check; bit-identical results; the double box I(1,1,1,1,1,1,1,-2,-1) 32 -> 9 s reconstruction, whole runs on one
-    core 3.16 s and 11.87 s against FIRE's 8.10 s and 12.21 s; three executors
+    core 3.16 s and 11.87 s against FIRE's 8.10 s and 12.21 s;
+  - a learned elimination for linear systems (`Plan` in `ffslp.rs`: recorded at the first point, replayed on a
+    flat array at the others, the wanted component through the transposed triangular system), `invmod` by the
+    extended Euclidean algorithm instead of Fermat (every inversion in PQCF), Shoup multiplication in the replay:
+    a double-box sample point 31 -> 2.9 ms, bit-identical results; whole runs on one core 1.21 s and 3.73 s against
+    FIRE's 7.99 s and 11.99 s (6.6x and 3.2x); three executors
     behind one task interface (this node, Erlang nodes, FVLLMP federation peers), from a single node to 100+.
 
 ## 1.3.0 (7 November 2026)

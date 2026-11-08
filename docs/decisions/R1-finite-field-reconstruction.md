@@ -657,3 +657,50 @@ alone, one core: 32.0 → **9.0 s** on I(1,1,1,1,1,1,1,−2,−1), and 3.3 → 2
 - **What remains is the elimination per point** (0.031 s on the harder target). A learned elimination, recorded
   once and replayed per point without the search for pivots and the set bookkeeping, is the next lever. After
   that comes spreading the points over cores and nodes, which neither program has been given here.
+
+## A learned elimination, and the real bottleneck: inversion (8 Nov 2026)
+
+On the harder target a sample point cost 31 ms: building the rows 0.8 ms, forward elimination 19 ms, back
+substitution 9 ms. Only 54,000 entries remain after the elimination, so the time was bookkeeping, and then
+something else.
+
+**A learned elimination** (`Plan` in `ffslp.rs`, used by the linear-system black box from its second point on):
+- **Learned once.** At the first point it records the elimination: a fixed slot for every (row, column) the
+  elimination ever touches, and the operations in order as (destination, source) slot pairs. On the harder target
+  that's 101,507 slots, 35,137 operations and 87,796 pairs.
+- **Replayed at every other point** on a flat array: no search for pivots, no sets, no merging.
+- **Back substitution through the transpose.** Only the target's component is needed: z^T U = e_want, one scalar
+  per unknown, then u_want = Σ z_k y_k over the eliminated right-hand sides. That replaces every unknown as a
+  sparse vector over 1,424 right-hand sides.
+- **The same operations in the same order give the same results.** If the first point is singular, the
+  search-based elimination serves every point. A test checks the replay against it at random points, for several
+  sizes and wanted components.
+
+The replay halved the cost per point (31 → 16 ms). Shoup's multiplication by a fixed factor, which avoids the
+128-bit remainder (a library call on aarch64), changed little. Measuring the replay showed why: **the time went
+into the 9,895 pivot inversions**, each Fermat's a^(p−2) at about 126 multiplications, done once in the forward pass
+and again in the back substitution.
+- **`invmod` is now the extended Euclidean algorithm** (64-bit divisions only). This speeds up every inversion in
+  PQCF.
+- **The replay keeps each pivot's inverse** for the back substitution, since the triangular factor's diagonal is
+  the pivots.
+
+**A point now costs 2.9 ms, against 31 ms, 11× less;** 2.1 ms of it is evaluating the program. The results are
+bit-identical (the same hashes), and the full suite passes.
+
+| one core | before (morning) | now |
+| --- | --- | --- |
+| reconstruction, I(1,1,1,1,1,1,1,−2,−1) | 32.0 s | **1.12 s** (2.79 s without guessing) |
+| reconstruction, I(1,1,1,1,1,1,1,−1,−1) | 3.3 s | **0.35 s** |
+
+**Whole runs, one core, back to back with FIRE 6.5.2 (FLINT) on the same core:**
+
+| double box target | PQCF | FIRE | |
+| --- | --- | --- | --- |
+| I(1,1,1,1,1,1,1,−1,−1) | **1.21 s** | 7.99 s | 6.6× |
+| I(1,1,1,1,1,1,1,−2,−1) | **3.73 s** | 11.99 s | 3.2× |
+
+The answers are those checked equal to FIRE's. Where PQCF's time goes now, on the harder target: automatic seeds
+about 1 s, the system 1.1 s, the reconstruction 1.2 s (more than half of it evaluating the program). The next steps
+are a cheaper program evaluation per point (the entries of A share most of their subexpressions), and the points
+spread over cores and nodes.
