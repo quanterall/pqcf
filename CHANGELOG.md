@@ -23,8 +23,12 @@ the public API is additive.
   integral of the sector, numerators included, then expands into integrals of the representative and its
   subsectors. Such sectors get no identities of their own, and a target in one is defined by its expansion. The
   kite's identities 2,274 -> 1,579; the double box 7,296 -> 6,807 and 18,366 -> 16,967, answers unchanged (equal to
-  FIRE's). Symmetries that would also have to move the external momenta are not used beyond the scalar mapping:
-  changing the loop momenta is always valid, moving external ones is not in general.
+  FIRE's). The maps may also move the external momenta (p1 <-> p2 and the like), when the move preserves every
+  scalar product of the kinematics: the double box has 31 sector maps, its example target needs 3,018 equations
+  (0.27 s on one core, FIRE 8.0 s). A sector whose dotted integrals expand into ones its representative's
+  identities do not reduce is handled by the `sector_maps => false` option (every sector's identities, scalar
+  symmetries only), which the automatic seeds try after `true` at each budget: I(1,1,1,1,1,1,1,-2,-1) takes
+  1.28 s on one core this way (18,366 equations; FIRE 12.0 s).
 - **Large systems: Laporta's elimination equation by equation** (`pq_nif:ff_pivots/4`): the equations from the
   simplest to the most complex, each reduced only while its leading integral already has a pivot, its other entries
   left as they are, the redundant ones dropped at once. The pivot columns (the masters) are the same; mark and

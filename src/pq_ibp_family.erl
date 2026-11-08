@@ -17,12 +17,13 @@
 -module(pq_ibp_family).
 -export([new/1, example/1, identities/2, zero/2, seeds/3, canon/2, derivative/3, vars/1, size/1, kin/3]).
 %% for pq_ibp: the identities with their coefficients as polynomials (Exponents => {N, D})
--export([identities_poly/2, warm/2, load/1, expand/2, mapped/2, qpone/1, qpneg/1]).
+-export([identities_poly/2, warm/2, load/1, expand/2, mapped/2, without_sector_maps/1, qpone/1, qpneg/1]).
 -export_type([family/0, integral/0]).
 
 -type family() :: #{id := integer(), loops := [atom()], ext := [atom()], props := [{integer(), [{integer(), atom()}]}],
                     masses := [term()],
-                    kin := #{{atom(), atom()} => term()}, vars := [atom()], top := [pos_integer()], symmetries := boolean()}.
+                    kin := #{{atom(), atom()} => term()}, vars := [atom()], top := [pos_integer()], symmetries := boolean(),
+                    sector_maps => boolean()}.
 -type integral() :: tuple().
 
 -define(P, 1000000007).
@@ -246,8 +247,7 @@ identities_poly(Fam = #{loops := Ls, ext := Es, vars := Vars}, Seeds0) ->
                                                       true -> [];
                                                       false -> expand_or_canon(Fam, I, One)
                                                   end end) end,
-    %% no identities from the sectors that map onto another one: their integrals are expanded instead
-    Seeds = [A || A <- Seeds0, not mapped(Fam, A)],
+    Seeds = Seeds0,
     Eqs = [lists:foldl(fun({I, C}, M) ->
                                lists:foldl(fun({J, Cj}, M2) ->
                                                    Cc = qpmul(C, Cj),
@@ -623,8 +623,14 @@ diff({mul, Es}, V) ->
 %%% of its own. A symmetry with no such change (it would need to move the external momenta) keeps the scalar
 %%% mapping only.
 
+%% the family with the scalar symmetries only (no sector expanded into another), as a family of its own (its own
+%% caches)
+-spec without_sector_maps(family()) -> family().
+without_sector_maps(Fam = #{id := Id}) -> Fam#{sector_maps => false, id => erlang:phash2({without_sector_maps, Id})}.
+
 %% does the integral's sector map onto another one?
 -spec mapped(family(), integral()) -> boolean().
+mapped(#{sector_maps := false}, _) -> false;
 mapped(Fam = #{symmetries := true}, A) ->
     is_map_key([J || {J, X} <- lists:enumerate(tuple_to_list(A)), X > 0], sector_maps(Fam));
 mapped(_, _) -> false.
@@ -638,13 +644,47 @@ sector_maps(Fam) ->
 
 first_transform(_Fam, _S, []) -> {none, none};
 first_transform(Fam, S, [Perm | Perms]) ->
-    case transform(Fam, S, Perm) of
+    case first_ext(Fam, S, Perm, ext_maps(Fam)) of
         none -> first_transform(Fam, S, Perms);
         T -> {Perm, T}
     end.
 
-%% {A, B} with Momentum_i(A k + B p) = eps_i Momentum_sigma(i)(k) for i in S, some signs eps, or none
-transform(#{loops := Ls, ext := Es, props := Props}, S, Perm) ->
+first_ext(_Fam, _S, _Perm, []) -> none;
+first_ext(Fam, S, Perm, [C | Cs]) ->
+    case transform(Fam, S, Perm, C) of
+        none -> first_ext(Fam, S, Perm, Cs);
+        {A, B} -> {A, B, C}
+    end.
+
+%% The maps of the external momenta that keep every external scalar product (squares included) the same polynomial
+%% in the invariants: under one, every integral of the family keeps its value. Each p_e goes to +-p_f or to
+%% +-(the dependent momentum -sum p), as a row of coefficients over the independent ones; the identity first.
+%% (memoised)
+ext_maps(Fam = #{ext := Es, vars := Vars}) ->
+    memo(ext_maps, Fam, all, fun() ->
+            E = length(Es),
+            Unit = fun(F) -> [case G of F -> 1; _ -> 0 end || G <- lists:seq(1, E)] end,
+            Images = lists:append([[Unit(F), [-X || X <- Unit(F)]] || F <- lists:seq(1, E)])
+                     ++ case E > 1 of true -> [lists:duplicate(E, -1), lists:duplicate(E, 1)]; false -> [] end,
+            Identity = [Unit(F) || F <- lists:seq(1, E)],
+            Kin = fun(Ra, Rb) ->
+                          qpoly({add, [0 | [{mul, [Ca * Cb, kin(Fam, Pa, Pb)]} || {Ca, Pa} <- lists:zip(Ra, Es), Ca =/= 0,
+                                                                                  {Cb, Pb} <- lists:zip(Rb, Es), Cb =/= 0]]}, Vars)
+                  end,
+            Keeps = fun(C) ->
+                            lists:all(fun({I, J}) -> Kin(lists:nth(I, C), lists:nth(J, C)) =:= Kin(lists:nth(I, Identity), lists:nth(J, Identity)) end,
+                                      [{I, J} || I <- lists:seq(1, E), J <- lists:seq(I, E)])
+                    end,
+            Cands = [C || C <- choices(E, Images), C =/= Identity, Keeps(C)],
+            [Identity | Cands]
+    end).
+
+choices(0, _) -> [[]];
+choices(K, Images) -> [[I | Rest] || I <- Images, Rest <- choices(K - 1, Images)].
+
+%% {A, B} with Momentum_i(A k + B p, C p) = eps_i Momentum_sigma(i)(k, p) for i in S, some signs eps, or none (C
+%% the externals' map, rows of coefficients)
+transform(#{loops := Ls, ext := Es, props := Props}, S, Perm, Cmap) ->
     Coef = fun(Mom, Q) -> lists:sum([C || {C, Q1} <- Mom, Q1 =:= Q]) end,
     Mom = fun(J) -> element(2, lists:nth(J, Props)) end,
     L = length(Ls), E = length(Es),
@@ -659,7 +699,8 @@ transform(#{loops := Ls, ext := Es, props := Props}, S, Perm) ->
                            Eps * Coef(Mom(R), lists:nth(Lj, Ls)))
                        || Lj <- lists:seq(1, L)]
                       ++ [row(NU, [{Ub(Li, Ee), Coef(Mom(I), lists:nth(Li, Ls))} || Li <- lists:seq(1, L)],
-                              Eps * Coef(Mom(R), lists:nth(Ee, Es)) - Coef(Mom(I), lists:nth(Ee, Es)))
+                              Eps * Coef(Mom(R), lists:nth(Ee, Es))
+                              - lists:sum([Coef(Mom(I), lists:nth(Ef, Es)) * lists:nth(Ee, lists:nth(Ef, Cmap)) || Ef <- lists:seq(1, E)]))
                           || Ee <- lists:seq(1, E)]
                       || {{I, R}, Eps} <- lists:zip(Pairs, Signs)]),
             %% where the conditions leave freedom: the identity (a = 1 on the diagonal, the rest 0)
@@ -764,15 +805,17 @@ expand(Fam = #{props := Props, masses := Masses, vars := Vars}, A) ->
     end).
 
 %% D_j(A k + B p) as #{j | const => Poly}: the momentum moved, squared through the scalar products, the mass
-moved(Fam = #{loops := Ls, ext := Es, vars := Vars}, _J, {A, B}, {Sign, Mom}, M2) ->
+moved(Fam = #{loops := Ls, ext := Es, vars := Vars}, _J, {A, B, C}, {Sign, Mom}, M2) ->
     %% the moved momentum as [{Coefficient, q}]: each loop l -> sum_j a_lj k_j + sum_e b_le p_e
     Moved = lists:append([case lists:member(Q, Ls) of
                               true ->
                                   Li = index(Q, Ls),
-                                  [{C * X, Lj} || {Lj, X} <- lists:zip(Ls, lists:nth(Li, A)), X =/= 0]
-                                  ++ [{C * X, Pe} || {Pe, X} <- lists:zip(Es, lists:nth(Li, B)), X =/= 0];
-                              false -> [{C, Q}]
-                          end || {C, Q} <- Mom]),
+                                  [{Co * X, Lj} || {Lj, X} <- lists:zip(Ls, lists:nth(Li, A)), X =/= 0]
+                                  ++ [{Co * X, Pe} || {Pe, X} <- lists:zip(Es, lists:nth(Li, B)), X =/= 0];
+                              false ->
+                                  %% an external momentum goes to its image under the externals' map
+                                  [{Co * X, Pe} || {Pe, X} <- lists:zip(Es, lists:nth(index(Q, Es), C)), X =/= 0]
+                          end || {Co, Q} <- Mom]),
     Terms = [{qpscale(P, {Sign * C1 * C2, 1}), K} || {C1, Q1} <- Moved, {C2, Q2} <- Moved, {P, K} <- dot_poly(Fam, Q1, Q2)]
             ++ [{qpscale(qpoly(M2, Vars), {-Sign, 1}), const} || M2 =/= 0],
     lists:foldl(fun({P, K}, Acc) -> Acc#{K => qpadd(maps:get(K, Acc, #{}), P)} end, #{}, Terms).

@@ -25,7 +25,9 @@
 %%% Reduction
 
 %% Opts: seeds => auto (default) | {dots, D, S} | {R, S} (Kira's r and s) | [Seed]; order => numerators (default) |
-%% dots (which integrals become masters, weight/2); and pq_recon's options (executor, workers, guess, ...).
+%% dots (which integrals become masters, weight/2); sector_maps => true (default) | false (with given seeds: whether
+%% the sectors that map onto another one are expanded into it instead of contributing identities); and pq_recon's
+%% options (executor, workers, guess).
 %% {ok, #{Target => [{Master, {N, D}}]}, Info}: a zero target maps to [], a target that is a master to itself;
 %% Info: #{seeds, equations, integrals, needed, masters}.
 -spec reduce(pq_ibp_family:family(), [integral()], map()) -> {ok, #{integral() => [{integral(), ratfun()}]}, map()} | {error, term()}.
@@ -70,7 +72,8 @@ reduce_live(Fam, Live, Opts) ->
                      {master, _} -> [{T, One}];
                      _ -> [{M, ND} || {C, ND = {Nu, _}} <- maps:get(TI, Reduced), map_size(Nu) > 0, {M, _} <- [lists:nth(C + 1, Masters)]]
                  end} || {T, TI} <- TIs]),
-    {Red, #{seeds => SeedSpec, equations => NEqs, integrals => NInts, needed => length(A), masters => length(Masters)}}.
+    {Red, #{seeds => SeedSpec, sector_maps => maps:get(sector_maps, Sys, maps:get(sector_maps, Opts, true)),
+            equations => NEqs, integrals => NInts, needed => length(A), masters => length(Masters)}}.
 
 %%% Seeds
 
@@ -92,12 +95,14 @@ auto_seeds(Fam, Targets, Opts) ->
     St = lists:max([lists:sum([-X || X <- tuple_to_list(T), X < 0]) || T <- Targets]),
     Candidates = lists:sort(fun({D1, S1}, {D2, S2}) -> {D1 + S1, D1} =< {D2 + S2, D2} end,
                             [{D, S} || D <- lists:seq(Dt, Dt + 2), S <- lists:seq(St, St + 2)]),
-    auto_seeds(Fam, Targets, Opts, Candidates).
+    %% for each budget: with the sector maps first (the smallest system), then without (a mapped sector's integrals
+    %% with dots expand into dotted integrals that the representative's identities may not reduce)
+    auto_seeds(Fam, Targets, Opts, [{D, S, M} || {D, S} <- Candidates, M <- [true, false]]).
 
 auto_seeds(_Fam, _Targets, _Opts, []) -> throw({pq_ibp, no_seeds_reduce_the_targets});
-auto_seeds(Fam, Targets, Opts, [{D, S} | More]) ->
+auto_seeds(Fam, Targets, Opts, [{D, S, Mapped} | More]) ->
     Seeds = pq_ibp_family:seeds(Fam, {dots, D}, S),
-    Result = try system(Fam, Seeds, Targets, Opts) of
+    Result = try system(Fam, Seeds, Targets, Opts#{sector_maps => Mapped}) of
                  Sys ->
                      SeedSet = sets:from_list([pq_ibp_family:canon(Fam, X) || X <- Seeds], [{version, 2}]),
                      case lists:all(fun(M) -> sets:is_element(M, SeedSet) end, nonzero_masters(Fam, Sys)) of
@@ -108,7 +113,7 @@ auto_seeds(Fam, Targets, Opts, [{D, S} | More]) ->
                  throw:{pq_ibp, {targets_not_in_system, _}} -> incomplete
              end,
     case Result of
-        {ok, Sys2} -> {{dots, D, S}, Sys2};
+        {ok, Sys2} -> {{dots, D, S}, Sys2#{sector_maps => Mapped}};
         incomplete -> auto_seeds(Fam, Targets, Opts, More)
     end.
 
@@ -142,8 +147,14 @@ nonzero_masters(Fam, #{a := A, bs := Bs, masters := Masters, targets := TIs}) ->
 %% the equations the targets need. Those, in the pivot order of their columns, are the square system; its unknowns
 %% stay in Laporta order, so that eliminating column k on row k repeats the learned elimination.
 -spec system(pq_ibp_family:family(), [integral()], [integral()], map()) -> map().
-system(Fam, Seeds, Targets, Opts) ->
-    Vars = pq_ibp_family:vars(Fam),
+system(Fam0, Seeds0, Targets, Opts) ->
+    Vars = pq_ibp_family:vars(Fam0),
+    %% sector_maps => true (default): the sectors that map onto another one contribute no identities, their integrals
+    %% expanded into the representative's; false: every sector's identities, the scalar symmetries only
+    {Fam, Seeds} = case maps:get(sector_maps, Opts, true) of
+                       true -> {Fam0, [A || A <- Seeds0, not pq_ibp_family:mapped(Fam0, A)]};
+                       false -> {pq_ibp_family:without_sector_maps(Fam0), Seeds0}
+                   end,
     %% the coefficients as exact polynomials (Exponents => {N, D}): evaluated mod ?P directly, and only the needed
     %% rows turned into ASTs
     %% in parallel chunks of the seeds, concatenated in order (the same equations in the same order as one process),

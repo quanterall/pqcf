@@ -732,7 +732,14 @@ The IBP machinery moved from the benchmark scripts (`comparison/form/ibp.erl`, `
   and it needs no identities of its own. A test compares mapped reductions with unmapped ones, master by master;
   that test found a bug in `canon/2`, which ignored `symmetries => false`.
   - The kite's identities: 2,274 → 1,579; the double box's: 7,296 → 6,807.
-  - Symmetries that would also move the external momenta stay scalar-only.
+  - **External momenta too.** A map may also move the external momenta (p₁ ↔ p₂ and the like) when the move
+    preserves every scalar product of the kinematics: k → A k + B p, p → C p. The double box has 31 sector maps;
+    FIRE's example target then needs 3,018 equations (0.27 s on one core, FIRE 8.0 s).
+  - **When a map hurts.** A mapped sector's integrals with dots expand into dotted integrals of the representative
+    that its own identities, at the same budget, may not reduce. I(1,1,1,1,1,1,1,−2,−1) then needs more: keeping
+    the mapped sectors' identities *and* expanding them took 18,366 equations and 3.81 s. Better is not to map
+    at all for such a target: `sector_maps => false` (every sector's identities, the scalar symmetries only)
+    takes 1.28 s on the same core (FIRE 12.0 s). The automatic seeds try `true` and then `false` at each budget.
 - **Large systems.** A double-box target with a dot and four numerator powers, I(1,1,1,1,1,1,2,−2,−2), needs seeds
   with dots: 194,739 equations over 113,393 integrals.
   - **FIRE beat us first:** 12.8 s on one thread and 6.9 s on 20, against 46 s and 41 s for PQCF.
@@ -754,5 +761,8 @@ The IBP machinery moved from the benchmark scripts (`comparison/form/ibp.erl`, `
   sequential: the learning elimination (3.2 s) runs on one thread. FIRE's example targets take 0.31 s and 0.79 s on
   one core (FIRE: 8.0 s and 12.2 s). The target needs 18,543 equations instead of 67,663. Peak memory is
   1.9–3.7 GB, and every answer equals FIRE's.
-- **Next for large systems:** a parallel learning elimination (by sectors, or by blocks of independent equations),
-  and seeds chosen per sector instead of one dot budget for all.
+- **Tried and reverted:** a batched parallel learning elimination (blocks of equations reduced against the pivots
+  in parallel, then merged) gave no gain: the merge serialises what the blocks saved, and most equations depend on
+  pivots found in the same block. Reconstructing the columns concurrently was 4× slower (the shared cache's points
+  are already computed in parallel; concurrent columns only contend for them).
+- **Still open:** seeds chosen per sector instead of one dot budget for all.
