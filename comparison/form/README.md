@@ -35,8 +35,10 @@ A run fails if the native and bridge results differ in any way, or if the term c
 
 ## Running it
 
-- **Every Monday:** `.github/workflows/form-comparison.yml` runs on GitHub's x86_64 runner and commits the results.
-  It can also be started by hand, from the Actions tab.
+- **Every Saturday, 04:30:** a cron job on the development machine (dev-aarch64-shared, core 8) runs `run.sh`; the
+  results are committed by hand after a look. `.github/workflows/form-comparison.yml` is meant to do the same every
+  Monday on GitHub's x86_64 runner, but it has not committed a run yet (every row of `history.csv` is from the
+  development machine). It can also be started by hand, from the Actions tab.
 - **As a check:** on every push that touches the symbolic engine, the bridge or this directory, the same workflow
   runs without committing.
 - **On another machine:** `COMPARISON_MACHINE=<label> CPUSET=<core> sh comparison/form/run.sh`.

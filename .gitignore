@@ -11,3 +11,5 @@ s5_s8.json
 s5_pad.json
 s5_s8_errors.json
 s6.json
+bench/results/ibp.log
+comparison/form/run.log
