@@ -5,6 +5,19 @@ the public API is additive.
 
 ## Unreleased
 
+### Added
+
+- Feynman-integral families with **massive propagators** and **any number of loops** (`pq_ibp_family`):
+  - a propagator may be `{Sign, Momentum, MassSquared}`, D = Sign (q^2 - m^2), the mass squared an expression in
+    the family's variables; the masses enter the scalar products' constants and the Symanzik polynomial F (zero
+    sectors and symmetries see them);
+  - U and F by determinant and adjugate for any number of loops (the two-loop special case is gone);
+  - derivatives in a variable of the masses (the propagator's index raised), and vacuum families (no external
+    momenta);
+  - tests: the massive tadpole's I(2) = (d - 2)/(2 m^2) I(1) and its differential equation in m^2, a bubble with
+    one massive line (zero sectors), and the three-loop massless banana (four lines, five numerators), whose
+    differential equation in s is (3d/2 - 4)/s as dimensional analysis requires.
+
 ### Documentation
 
 - After an external review of the repository (8 Nov 2026):

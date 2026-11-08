@@ -78,3 +78,43 @@ differential_equation_test_() ->
                                           {pow, t(), -1}, {pow, {add, [s(), t()]}, -1}]}),
         ?assertMatch({error, {masters_incomplete, _}}, pq_ibp:differential_equation(Box, [hd(Masters)], t, #{}))
     end}.
+
+%% massive propagators: the tadpole's I(2) = (d - 2) / (2 m^2) I(1), and its differential equation in m^2
+massive_tadpole_test_() ->
+    {timeout, 120, fun() ->
+        M2 = {sym, msq},
+        Tad = pq_ibp_family:new(#{loops => [k], ext => [], vars => [d, msq], props => [{1, [{1, k}], M2}]}),
+        ?assertNot(pq_ibp_family:zero(Tad, {1})),
+        {ok, #{{2} := [{{1}, C}]}, _} = pq_ibp:reduce(Tad, [{2}], #{}),
+        Expected = {mul, [{rat, 1, 2}, {add, [d(), -2]}, {pow, M2, -1}]},
+        same(C, Expected),
+        {ok, [[E]]} = pq_ibp:differential_equation(Tad, [{1}], msq, #{}),
+        same(E, Expected)
+    end}.
+
+%% a bubble with one massive line: the massless tadpole is scaleless, the massive one isn't
+massive_bubble_test() ->
+    Bub = pq_ibp_family:new(#{loops => [k], ext => [p], vars => [d, s, msq], kin => #{{p, p} => s()},
+                              props => [{1, [{1, k}], {sym, msq}}, {1, [{1, k}, {1, p}]}]}),
+    ?assert(pq_ibp_family:zero(Bub, {0, 1})),
+    ?assertNot(pq_ibp_family:zero(Bub, {1, 0})),
+    ?assertNot(pq_ibp_family:zero(Bub, {1, 1})).
+
+%% three loops: the massless banana (four lines, five numerators); by dimensional analysis its master obeys
+%% d I / ds = (3d/2 - 4) / s I
+three_loop_banana_test_() ->
+    {timeout, 300, fun() ->
+        K = fun(L) -> L end,
+        Fam = pq_ibp_family:new(#{loops => [k1, k2, k3], ext => [p], vars => [d, s], kin => #{{p, p} => s()},
+                                  top => [1, 2, 3, 4],
+                                  props => [{1, K([{1, k1}])}, {1, [{1, k2}]}, {1, [{1, k3}]},
+                                            {1, [{1, p}, {-1, k1}, {-1, k2}, {-1, k3}]},
+                                            {1, [{1, k1}, {-1, k2}]}, {1, [{1, k1}, {-1, k3}]}, {1, [{1, k2}, {-1, k3}]},
+                                            {1, [{1, k1}, {-1, p}]}, {1, [{1, k2}, {-1, p}]}]}),
+        Banana = {1, 1, 1, 1, 0, 0, 0, 0, 0},
+        ?assertNot(pq_ibp_family:zero(Fam, Banana)),
+        ?assert(pq_ibp_family:zero(Fam, {1, 1, 1, 0, 0, 0, 0, 0, 0})),
+        {ok, [[E]]} = pq_ibp:differential_equation(Fam, [pq_ibp_family:canon(Fam, Banana)], s, #{}),
+        same(E, {mul, [{add, [{mul, [{rat, 3, 2}, d()]}, -4]}, {pow, s(), -1}]})
+    end}.
+

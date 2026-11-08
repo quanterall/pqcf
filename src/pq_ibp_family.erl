@@ -4,7 +4,8 @@
 %% with respect to the invariants (for the masters' differential equations). pq_ibp builds and solves the systems.
 %%
 %% A family (new/1): loops and ext, the loop and the independent external momenta (atoms); props, the propagators
-%% [{Sign, Momentum}], Momentum = [{IntegerCoefficient, q}] over them, D_a = Sign_a * Momentum_a^2 (numerators
+%% [{Sign, Momentum} | {Sign, Momentum, MassSquared}], Momentum = [{IntegerCoefficient, q}] over them, D_a =
+%% Sign_a * (Momentum_a^2 - MassSquared_a), the mass squared an AST in the variables, 0 if absent (numerators
 %% included: they must span every scalar product with a loop momentum, as many as there are); kin, the external
 %% scalar products #{{Pa, Pb} => Ast} in the invariants (a missing pair is 0); vars, the variables of the results (the
 %% dimension d first, then the invariants); top, the indices that can be positive (default: all); symmetries
@@ -20,6 +21,7 @@
 -export_type([family/0, integral/0]).
 
 -type family() :: #{id := integer(), loops := [atom()], ext := [atom()], props := [{integer(), [{integer(), atom()}]}],
+                    masses := [term()],
                     kin := #{{atom(), atom()} => term()}, vars := [atom()], top := [pos_integer()], symmetries := boolean()}.
 -type integral() :: tuple().
 
@@ -37,13 +39,16 @@ new(Spec) ->
     N = length(Props),
     Moms = Loops ++ Ext,
     ok = check(is_list(Loops) andalso Loops =/= [] andalso lists:all(fun is_atom/1, Moms), loops),
-    ok = check(lists:all(fun({S, Mom}) -> (S =:= 1 orelse S =:= -1) andalso Mom =/= []
-                                              andalso lists:all(fun({C, Q}) -> is_integer(C) andalso lists:member(Q, Moms) end, Mom);
-                            (_) -> false end, Props), props),
+    Prop = fun({S, Mom}) -> {S, Mom, 0}; ({S, Mom, M2}) -> {S, Mom, M2}; (X) -> X end,
+    Props3 = [Prop(P) || P <- Props],
+    ok = check(lists:all(fun({S, Mom, _}) -> (S =:= 1 orelse S =:= -1) andalso Mom =/= []
+                                                 andalso lists:all(fun({C, Q}) -> is_integer(C) andalso lists:member(Q, Moms) end, Mom);
+                            (_) -> false end, Props3), props),
     ok = check(lists:all(fun is_atom/1, Vars) andalso lists:member(d, Vars), vars),
     Kin = maps:from_list([{pair_key(A, B), X} || {A, B} := X <- Kin0]),
     ok = check(lists:all(fun({A, B}) -> lists:member(A, Ext) andalso lists:member(B, Ext) end, maps:keys(Kin)), kin),
-    Fam0 = #{loops => Loops, ext => Ext, props => Props, kin => Kin, vars => Vars,
+    Fam0 = #{loops => Loops, ext => Ext, props => [{S, Mom} || {S, Mom, _} <- Props3], masses => [M2 || {_, _, M2} <- Props3],
+             kin => Kin, vars => Vars,
              top => maps:get(top, Spec, lists:seq(1, N)), symmetries => maps:get(symmetries, Spec, true)},
     Fam = Fam0#{id => erlang:phash2(Fam0)},
     ok = check(length(sp_keys(Fam)) =:= N, {not_a_basis, length(sp_keys(Fam)), N}),
@@ -140,15 +145,15 @@ index(X, L) -> length(lists:takewhile(fun(Y) -> Y =/= X end, L)) + 1.
 
 %% every scalar product with a loop momentum as [{Rational, j}] (D_j) plus a constant Ast: #{Key => {Ds, Const}};
 %% memoised per family
-sps(Fam = #{props := Props}) ->
+sps(Fam = #{props := Props, masses := Masses}) ->
     memo(sps, Fam, all, fun() ->
             Keys = sp_keys(Fam),
-            %% D_a = sum_k M_ak sp_k + c_a
+            %% D_a = sum_k M_ak sp_k + c_a, the mass in the constant: c_a = Sign_a (P_a^2 - m_a^2)
             Rows = [begin
                         Terms = [{Sign * C1 * C2, pair(Fam, Q1, Q2)} || {C1, Q1} <- Mom, {C2, Q2} <- Mom],
                         {[lists:sum([C || {C, {sp, K1}} <- Terms, K1 =:= K]) || K <- Keys],
-                         {add, [0 | [{mul, [C, X]} || {C, {const, X}} <- Terms]]}}
-                    end || {Sign, Mom} <- Props],
+                         {add, [0, {mul, [-Sign, M2]} | [{mul, [C, X]} || {C, {const, X}} <- Terms]]}}
+                    end || {{Sign, Mom}, M2} <- lists:zip(Props, Masses)],
             Inv = inverse([[{C, 1} || C <- R] || {R, _} <- Rows]),
             Consts = [C || {_, C} <- Rows],
             %% sp_k = sum_a Inv_ka (D_a - c_a)
@@ -367,7 +372,7 @@ scaleless(Fam, Sec) ->
     end.
 
 %% U and F mod p as maps Exponents => coefficient (memoised)
-symanzik(Fam = #{loops := Ls, props := Props, vars := Vars}) ->
+symanzik(Fam = #{loops := Ls, props := Props, masses := Masses, vars := Vars}) ->
     memo(symanzik, Fam, all, fun() ->
             N = length(Props),
             Point = point(Vars, {7, 7, 7}),
@@ -381,20 +386,35 @@ symanzik(Fam = #{loops := Ls, props := Props, vars := Vars}) ->
                   || Lj <- Ls] || Li <- Ls],
             Js = [[{X(J, Sign * Coef(Mom, Li) * C), Q} || {J, {Sign, Mom}} <- lists:enumerate(Props), {C, Q} <- Ext(Mom)]
                   || Li <- Ls],
+            MassAt = fun(M2) -> {ok, V} = pq_symbolic:evaluate(M2, Point, #{exact => true}), modq(V) end,
             J0 = padd([X(J, Sign * C1 * C2 * KinAt(Q1, Q2)) || {J, {Sign, Mom}} <- lists:enumerate(Props),
-                                                              {C1, Q1} <- Ext(Mom), {C2, Q2} <- Ext(Mom)]),
+                                                              {C1, Q1} <- Ext(Mom), {C2, Q2} <- Ext(Mom)]
+                      ++ [X(J, -Sign * MassAt(M2)) || {J, {{Sign, _}, M2}} <- lists:enumerate(lists:zip(Props, Masses)), M2 =/= 0]),
             JJ = fun(Ji, Jj) -> padd([pscale(pmul(P1, P2), KinAt(Q1, Q2)) || {P1, Q1} <- Ji, {P2, Q2} <- Jj]) end,
-            {U, Adj} = case M of
-                           [[M11]] -> {M11, [[#{lists:duplicate(N, 0) => 1}]]};
-                           [[M11, M12], [_, M22]] ->
-                               {padd([pmul(M11, M22), pscale(pmul(M12, M12), ?P - 1)]),
-                                [[M22, pscale(M12, ?P - 1)], [pscale(M12, ?P - 1), M11]]};
-                           _ -> error({not_supported, more_than_two_loops})
-                       end,
+            One = #{lists:duplicate(N, 0) => 1},
+            U = det(M, One),
+            Adj = adjugate(M, One),
             F = padd([pmul(Aij, JJ(Ji, Jj)) || {Ji, AdjRow} <- lists:zip(Js, Adj), {Jj, Aij} <- lists:zip(Js, AdjRow)]
                      ++ [pscale(pmul(J0, U), ?P - 1)]),
             {U, F}
     end).
+
+%% the determinant and the adjugate of a square matrix of polynomials mod p (Laplace expansion: the matrices are
+%% L x L, L the number of loops)
+det([[A]], _One) -> A;
+det([Row | _] = M, One) ->
+    padd([pscale(pmul(A, det(minor(M, 1, J), One)), case J rem 2 of 1 -> 1; 0 -> ?P - 1 end)
+          || {J, A} <- lists:enumerate(Row), map_size(A) > 0]).
+
+adjugate([[_]], One) -> [[One]];
+adjugate(M, One) ->
+    L = length(M),
+    [[pscale(det(minor(M, J, I), One), case (I + J) rem 2 of 0 -> 1; 1 -> ?P - 1 end) || J <- lists:seq(1, L)]
+     || I <- lists:seq(1, L)].
+
+%% M without row I and column J
+minor(M, I, J) ->
+    [[X || {Jx, X} <- lists:enumerate(Row), Jx =/= J] || {Ix, Row} <- lists:enumerate(M), Ix =/= I].
 
 modq(N) when is_integer(N) -> (N rem ?P + ?P) rem ?P;
 modq({rat, N, D}) -> modq(N) * pq_ff:inv(modq(D), ?P) rem ?P.
@@ -508,9 +528,14 @@ perms(L) -> [[X | P] || X <- L, P <- perms(L -- [X])].
 
 %% d I(A) / d Var as [{Integral, CoefficientAst}], zero integrals dropped, equal ones merged (the symmetries too)
 -spec derivative(family(), integral(), atom()) -> [{integral(), term()}].
-derivative(Fam, A, Var) ->
+derivative(Fam = #{props := Props, masses := Masses}, A, Var) ->
     Cs = operator(Fam, Var),
-    Terms = lists:append([[{I, {mul, [C, X]}} || {I, X} <- ext_op(Fam, A, Pi, Pj)] || {{Pi, Pj}, C} <- Cs]),
+    Terms0 = lists:append([[{I, {mul, [C, X]}} || {I, X} <- ext_op(Fam, A, Pi, Pj)] || {{Pi, Pj}, C} <- Cs]),
+    %% the masses: d D_k^-a / dVar = a Sign_k (d m_k^2 / dVar) D_k^(-a-1)
+    MassTerms = [{setelement(K, A, Ak + 1), {mul, [Ak * Sign, Dm]}}
+                 || {K, {{Sign, _}, M2}} <- lists:enumerate(lists:zip(Props, Masses)), M2 =/= 0,
+                    Ak <- [element(K, A)], Ak =/= 0, Dm <- [diff(M2, Var)], Dm =/= 0],
+    Terms = Terms0 ++ MassTerms,
     maps:to_list(lists:foldl(fun({I, C}, M) ->
                                      case zero(Fam, I) of
                                          true -> M;
@@ -529,6 +554,7 @@ ext_op(Fam = #{props := Props}, A, Pi, Pj) ->
        end || {K, {Sign, Mom}} <- lists:enumerate(Props), element(K, A) =/= 0]).
 
 %% [{{Pi, Pj}, CoefficientAst}]: sum c_ij O_ij = d/dVar on the scalar products of the externals (memoised)
+operator(#{ext := []}, _Var) -> [];
 operator(Fam = #{ext := Es, vars := Vars}, Var) ->
     memo(operator, Fam, Var, fun() ->
             Pairs = [{A, B} || {I, A} <- lists:enumerate(Es), {J, B} <- lists:enumerate(Es), I =< J],
@@ -576,6 +602,7 @@ diff({rat, _, _}, _) -> 0;
 diff({sym, X}, X) -> 1;
 diff({sym, _}, _) -> 0;
 diff({add, Es}, V) -> {add, [diff(E, V) || E <- Es]};
+diff({pow, B, K}, V) when is_integer(K) -> {mul, [K, {pow, B, K - 1}, diff(B, V)]};
 diff({mul, Es}, V) ->
     {add, [{mul, [diff(E, V) | [F || {J, F} <- lists:enumerate(Es), J =/= I]]} || {I, E} <- lists:enumerate(Es)]}.
 
