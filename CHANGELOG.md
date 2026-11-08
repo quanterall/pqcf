@@ -5,6 +5,15 @@ the public API is additive.
 
 ## Unreleased
 
+## 1.4.0 (8 November 2026)
+
+Reducing large symbolic results, additive under the API freeze (decision record `R1`). Results are reconstructed
+exactly from evaluations modulo primes, spread over local workers or Erlang nodes with the same answer on any of
+them. Feynman integrals reduce to master integrals through `pq_ibp`; on FIRE's own two-loop double box, PQCF is
+3-7x faster than FIRE 6.5.2 on one core (1.21 s against 7.99, 3.73 s against 11.99), with answers checked equal
+master by master. Results are simplified by verified rewriting (`pq_simplify`), and master-integral differential
+equations are derived exactly.
+
 ### Added
 
 - **Feynman-integral reduction as part of the library** (`pq_ibp`, `pq_ibp_family`; R1):

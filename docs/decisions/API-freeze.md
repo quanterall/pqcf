@@ -99,6 +99,22 @@ Frozen by the same rule (decision records `K1`, `K2`, `H1`–`H4`):
 - **Not frozen (internal):** `pq_sym_cse`, `pq_sym_search`, the Rust kernels (`polymul.rs`, `rpoly.rs`,
   `hcount.rs`) and their NIFs, the `{rpoly, ...}` handles inside `pq_sym_poly`.
 
+## Added in 1.4.0 (8 November 2026)
+
+Frozen by the same rule (decision record `R1`):
+
+- **`pq_ff`:** `prime/1`, `is_prime/1`, `prepare/1`, `eval/3`, `inv/2`, `crt/2`, `ratrecon/2`.
+- **`pq_recon`:** `polynomial/3`, `rational/3`, `linear/4`. A's and B's rows are lists or sparse maps. The options
+  are `executor => local | {nodes, Nodes}`, `workers`, `per_node`, `batch`, `seed`, `components`, `rhs`,
+  `guess => boolean()`, and the expression limits of the symbolic calls.
+- **`pq_simplify`:** `rational/4`, `polynomial/3`, `alphabet/1`, `adds/1`, `verify/4`, `format/1`, `divide/2`.
+- **`pq_ibp_family`:** `new/1`, `example/1`, `identities/2`, `zero/2`, `seeds/3`, `canon/2`, `derivative/3`,
+  `vars/1`, `size/1`, `kin/3`. A family's map is opaque beyond the keys `new/1` takes.
+- **`pq_ibp`:** `reduce/3`, `system/4`, `seeds/3`, `auto_seeds/3`, `differential_equation/4`. The system's map is
+  for inspection, and its keys may grow.
+- **Not frozen (internal):** `pq_rexec`, `pq_rstore`, the finite-field NIFs (`ff_*`) and `ffslp.rs`, among them
+  the learned elimination.
+
 ## Not frozen
 
 - **Internal modules:** the `pq_sym_*` modules, `pq_job`, `pq_worker`, the supervisors, `pq_node_registry`,

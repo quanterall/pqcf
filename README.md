@@ -100,6 +100,24 @@ top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust 
   AddressSanitizer runs.
 - The user guide `docs/guide.md`, whose examples run as tests; the API review and freeze.
 
+## 1.4.0: reducing large results
+
+Reducing results by reconstruction over finite fields (`CHANGELOG.md`, decision record R1):
+
+- **Reconstruction:** polynomials, rational functions and linear systems from evaluations modulo primes
+  (`pq_recon`), the samples spread over workers or nodes (`pq_rexec`, `pq_rstore`), the same answer on any of them.
+- **Feynman integrals** (`pq_ibp`, `pq_ibp_family`):
+  - IBP identities, scaleless sectors, sector symmetries;
+  - automatically chosen seeds; only the equations the targets need (mark and sweep);
+  - denominator guessing; a learned, replayed elimination;
+  - the masters' differential equations.
+- **Against FIRE 6.5.2** on its own double box, one core: 1.21 s against 7.99, and 3.73 s against 11.99 for a
+  harder target, the same answers (`comparison/fire`).
+- **Simplification** by verified rewriting (`pq_simplify`).
+- **A negative result,** recorded: a physics-informed neural network evaluating the box's masters from their
+  differential equation reached 1e-4 after 52 s of training, against a classical solver's 1e-13 in 19 ms
+  (`comparison/pinn`).
+
 ## 1.3.0: the symbolic engine against FORM
 
 The symbolic engine against FORM 5 (`CHANGELOG.md`, `docs/decisions/` K1, K2, H1–H4):
