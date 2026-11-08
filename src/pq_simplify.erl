@@ -7,7 +7,7 @@
 %% Polynomials are pq_recon's maps (rational/3, linear/4); the result is an AST: content * prod f_i^e_i * rest, the
 %% rest the cofactor no candidate divides, kept expanded.
 -module(pq_simplify).
--export([rational/4, polynomial/3, alphabet/1, adds/1, verify/4, format/1]).
+-export([rational/4, polynomial/3, alphabet/1, adds/1, verify/4, format/1, divide/2]).
 
 -type poly() :: #{[integer()] => {integer(), pos_integer()}}.
 -export_type([poly/0]).
@@ -174,8 +174,10 @@ divide_all(P, F, E) ->
         _ -> {E, P}
     end.
 
-%% exact division over the rationals: {ok, P / F} or false. With a lexicographic order, F divides P only if F's
+%% exact division over the rationals: {ok, P / F} or false (polynomials as maps Exponents => {N, D}, the form
+%% pq_recon works in). With a lexicographic order, F divides P only if F's
 %% leading term divides P's; subtracting keeps the remainder divisible, so the division is exact iff it never stops.
+-spec divide(poly(), poly()) -> {ok, poly()} | false.
 divide(P, F) ->
     {Ef, Cf} = lead(F),
     divide(P, F, Ef, Cf, #{}).

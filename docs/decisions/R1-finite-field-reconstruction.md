@@ -616,3 +616,44 @@ masters) stays the place for learning.
 the double box. The dot-free seeds the automatic choice picks contain no dotted integrals to swap in. It still
 shrinks the needed system (3,717 equations instead of 4,044). A different basis needs seeds with dots, chosen
 together with the order: the next step for the basis search.
+
+## Guessing the denominators: level with FIRE on the harder target (8 Nov 2026)
+
+On I(1,1,1,1,1,1,1,−2,−1) the reconstruction took 30 of PQCF's 32 s: about 1,000 sample points at 0.031 s each,
+almost all of it elimination (the program costs 0.002 s). Two measurements decided the fix:
+- **Dropping the zero right-hand sides doesn't help.** Keeping only the 8 non-zero of 1,424 right-hand sides saves
+  5% (0.0297 s against 0.0313 s): the cost is the elimination itself.
+- **So, fewer points.** A rational function in three variables is reconstructed along lines, numerator and
+  denominator together. A polynomial the size of these numerators needs far fewer points.
+
+**Denominator guessing** (`pq_recon`, `guess => true` by default), as the reduction programs do it:
+1. For every variable, a random line along it, 48 points. Every non-zero right-hand side's values come from the
+   same eliminations, through the linear system's cache.
+2. On each line, each right-hand side's univariate denominator by Thiele's continued fraction. A candidate factor's
+   power is how often its root on that line divides the denominator; the candidates are `pq_simplify:alphabet/1`:
+   the variables, small linear forms, x ± y.
+3. The guess stands only if the factors found account for the whole univariate denominator on every line.
+   Otherwise the column falls back to the rational reconstruction.
+4. **F·D as a polynomial.** The linear-system black box multiplies its value by the guess (a `Scale` of linear
+   factors in `ffslp.rs`; `pq_nif:ff_linsys/8`; the scale travels in the store's pattern blob, so a remote node
+   applies it too). Zippel reconstructs F·D as a polynomial, from cached, unscaled solutions.
+5. **N / D reduced and checked.** Each factor is divided out of the numerator as often as it goes (exact division,
+   `pq_simplify:divide/2`), and D is normalised as before. A wrong guess fails the polynomial's final check at a
+   fresh point in a fresh prime, and the column falls back to the rational reconstruction: the result stays exact.
+
+**The results are bit-identical with and without guessing** (the same coefficients, the same hash). Reconstruction
+alone, one core: 32.0 → **9.0 s** on I(1,1,1,1,1,1,1,−2,−1), and 3.3 → 2.4 s on I(1,1,1,1,1,1,1,−1,−1).
+
+**Whole runs** (automatic seeds, system, reconstruction, simplification), one core, back to back with FIRE 6.5.2
+(FLINT) on the same core:
+
+| double box target | PQCF | FIRE |
+| --- | --- | --- |
+| I(1,1,1,1,1,1,1,−1,−1) | **3.16 s** | 8.10 s |
+| I(1,1,1,1,1,1,1,−2,−1) | **11.87 s** | 12.21 s |
+
+- **PQCF is now level with FIRE on the harder target and 2.6× faster on the other,** core for core, with answers
+  checked equal to FIRE's.
+- **What remains is the elimination per point** (0.031 s on the harder target). A learned elimination, recorded
+  once and replayed per point without the search for pivots and the set bookkeeping, is the next lever. After
+  that comes spreading the points over cores and nodes, which neither program has been given here.

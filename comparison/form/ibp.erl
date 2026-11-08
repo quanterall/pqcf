@@ -151,7 +151,7 @@ nonzero_masters(#{a := A, bs := Bs, masters := Masters, target := TI, vars := Va
     SA = [Sp(R) || R <- A], SB = [Sp(R) || R <- Bs],
     {ok, Prog} = pq_symbolic:compile([E || Row <- SA ++ SB, {_, E} <- Row], Vars, ?LIMITS#{exact_constants => true}),
     {ok, {ff, Ref, _, _}} = pq_ff:prepare(Prog),
-    {ok, Lin} = pq_nif:ff_linsys(Ref, length(A), length(Masters), TI, 0, [[C || {C, _} <- R] || R <- SA], [[C || {C, _} <- R] || R <- SB]),
+    {ok, Lin} = pq_nif:ff_linsys(Ref, length(A), length(Masters), TI, 0, [[C || {C, _} <- R] || R <- SA], [[C || {C, _} <- R] || R <- SB], []),
     {ok, [Vals]} = pq_nif:ff_linsys_all(Lin, ?P, [rand:uniform(?P - 1) || _ <- Vars]),
     [M || {{M, _}, V} <- lists:zip(Masters, Vals), V =/= 0].
 

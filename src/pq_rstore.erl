@@ -107,8 +107,8 @@ fetch(Key, Home) ->
 
 %% the black box of a task prepared for pq_ff, once per node: a program by its key, or
 %% {linsys, Key, PatternKey, N, M, Want, Col}, the program's outputs solved as A u = B at each point (A's sparsity
-%% and B's sparsity patterns a blob of their own, {APattern, BPattern}), u[Want] for right-hand side Col its value
-%% (R1 phase 5)
+%% and B's sparsity patterns a blob of their own, {APattern, BPattern} or {APattern, BPattern, Scale}), u[Want] for
+%% right-hand side Col its value, times the scale if there is one (R1)
 -spec prepared(binary() | {linsys, binary(), binary(), pos_integer(), pos_integer(), non_neg_integer(), non_neg_integer()},
                node()) -> {ok, tuple()} | {error, term()}.
 prepared({linsys, Key, PKey, N, M, Want, Col} = BB, Home) ->
@@ -117,8 +117,9 @@ prepared({linsys, Key, PKey, N, M, Want, Col} = BB, Home) ->
         [{_, FF}] -> {ok, FF};
         [] ->
             case {prepared(Key, Home), fetch(PKey, Home)} of
-                {{ok, {ff, Ref, Inputs, _}}, {ok, {Pattern, BPattern}}} ->
-                    case pq_nif:ff_linsys(Ref, N, M, Want, Col, Pattern, BPattern) of
+                {{ok, {ff, Ref, Inputs, _}}, {ok, Blob}} when tuple_size(Blob) =:= 2; tuple_size(Blob) =:= 3 ->
+                    {Pattern, BPattern, Scale} = case Blob of {Pa, Pb} -> {Pa, Pb, []}; _ -> Blob end,
+                    case pq_nif:ff_linsys(Ref, N, M, Want, Col, Pattern, BPattern, Scale) of
                         {ok, R} -> FF = {ff, R, Inputs, 1}, ets:insert(?PREPARED, {BB, FF}), {ok, FF};
                         Error -> Error
                     end;

@@ -12,6 +12,8 @@
 -export([polynomial/3, rational/3, linear/4]).
 
 -define(TERMINATE, 2).
+%% points per line for guessing a denominator (Thiele: degrees of numerator and denominator up to about 45 together)
+-define(GUESS_POINTS, 48).
 -define(MAX_DEGREE, 1000).
 -define(CHECK_PRIME, 65).
 
@@ -124,9 +126,14 @@ component(Prog, Vars, NP, M, W, Opts) ->
     Zero = {#{}, #{{[], []} => {q, {1, 1}, {0, 1}}}},
     case zero_columns(Prog, Vars, NP, M, W, Opts) of
         {ok, Zeros} ->
+            NonZero = [C || C <- lists:seq(0, M - 1), not lists:member(C, Zeros)],
+            Guesses = case maps:get(guess, Opts, true) of
+                          true -> guess_denominators(Prog, Vars, NP, M, W, NonZero, Opts);
+                          false -> #{}
+                      end,
             Cols = [case lists:member(C, Zeros) of
                         true -> {C, {ok, Zero}};
-                        false -> {C, with_job(Prog, length(Vars) - 1, Opts, {linsys, NP, M, W, C}, fun(Job) -> rational_job(Job, Vars) end)}
+                        false -> {C, column(Prog, Vars, NP, M, W, C, maps:get(C, Guesses, none), Opts)}
                     end || C <- lists:seq(0, M - 1)],
             case [E || {_, {error, _} = E} <- Cols] of
                 [] -> {ok, [{C, R} || {C, {ok, R}} <- Cols]};
@@ -134,6 +141,130 @@ component(Prog, Vars, NP, M, W, Opts) ->
             end;
         Error -> Error
     end.
+
+%% One right-hand side's solution: with a guessed denominator D, F * D reconstructed as a polynomial (far fewer
+%% points than a rational function) and the factors it still contains divided out; without one, or if that fails
+%% its final check, as a rational function
+column(Prog, Vars, NP, M, W, C, none, Opts) ->
+    with_job(Prog, length(Vars) - 1, Opts, {linsys, NP, M, W, C}, fun(Job) -> rational_job(Job, Vars) end);
+column(Prog, Vars, {N, {PA, PB}} = NP, M, W, C, {ok, Factors}, Opts) ->
+    Scale = [{Cs, C0, E} || {{Cs, C0}, E} <- Factors],
+    case with_job(Prog, length(Vars), Opts, {linsys, {N, {PA, PB, Scale}}, M, W, C}, fun(Job) -> scaled_job(Job, Vars, Factors) end) of
+        {ok, _} = Ok -> Ok;
+        {error, _} -> column(Prog, Vars, NP, M, W, C, none, Opts)
+    end.
+
+%% F * D as a polynomial (Zippel, as polynomial/3, on the scaled black box), then N / D reduced: each factor of D
+%% divided out of the numerator as often as it goes; D normalised as unshift/6 does (its last monomial's coefficient 1)
+scaled_job(#{bb := BB} = Job, Vars, Factors) ->
+    Poly = Job#{key => BB, outs => 1, task => fun(P, R, NM, SKey, Suffix) -> {column, BB, P, R, NM, SKey, Suffix} end},
+    [{Support, Rat}] = solve(Poly),
+    ok = check_poly(Poly, Support, Rat),
+    Num0 = maps:from_list([{S, C} || {S, C} <- lists:zip(Support, hd(Rat)), C =/= {0, 1}]),
+    {Num, Den} = lists:foldl(fun({{Cs, C0}, E}, {Nu, De}) ->
+                                     F = linear_poly(Cs, C0),
+                                     {Nu2, Left} = divide_times(Nu, F, E),
+                                     {Nu2, lists:foldl(fun(_, A) -> pmul_q(A, F) end, De, lists:seq(1, Left))}
+                             end, {Num0, #{lists:duplicate(length(Vars), 0) => {1, 1}}}, Factors),
+    {_, Lead} = lists:max(maps:to_list(Den)),
+    Inv = pq_sym_exact:rinv(Lead),
+    {to_map(Vars, pscale_q(Num, Inv)), to_map(Vars, pscale_q(Den, Inv))}.
+
+linear_poly(Cs, C0) ->
+    N = length(Cs),
+    Unit = fun(I) -> [case J of I -> 1; _ -> 0 end || J <- lists:seq(1, N)] end,
+    maps:from_list([{Unit(I), {C, 1}} || {I, C} <- lists:enumerate(Cs), C =/= 0] ++ [{lists:duplicate(N, 0), {C0, 1}} || C0 =/= 0]).
+
+%% {P / F^k, E - k}: F divided out of P as often as it goes, at most E times
+divide_times(P, _F, 0) -> {P, 0};
+divide_times(P, F, E) ->
+    case map_size(P) > 0 andalso pq_simplify:divide(P, F) of
+        {ok, Q} -> divide_times(Q, F, E - 1);
+        _ -> {P, E}
+    end.
+
+pmul_q(A, B) ->
+    lists:foldl(fun(T, Acc) -> padd_q(Acc, T) end, #{},
+                [#{[X + Y || {X, Y} <- lists:zip(Ka, Kb)] => pq_sym_exact:rmul(Va, Vb)} || Ka := Va <- A, Kb := Vb <- B]).
+
+%% Guessing denominators (as in the reduction programs' denominator guessing): every non-zero right-hand side's
+%% univariate denominator on one random line per variable (Thiele, all right-hand sides from the same points,
+%% through the linear system's cache), matched against an alphabet of candidate factors (pq_simplify:alphabet/1):
+%% each factor's multiplicity is how often its root on the line divides the denominator there. A guess stands only if
+%% the factors found account for the whole univariate denominator on every line; otherwise the column has none.
+%% #{Column => {ok, [{{Coefficients, Constant}, Power}]} | none}
+guess_denominators(_Prog, _Vars, _NP, _M, _W, [], _Opts) -> #{};
+guess_denominators(Prog, Vars, NP, M, W, Cols, Opts) ->
+    Alpha = [linear_form(A, Vars) || A <- pq_simplify:alphabet(Vars)],
+    case with_job(Prog, length(Vars) - 1, Opts, {linsys, NP, M, W, 0},
+                  fun(#{bb := BB, run := Run, seed := Seed}) ->
+                          P = pq_ff:prime(1),
+                          Lines = [begin
+                                       Base = rnd_list(P, length(Vars), {Seed, guess, I}),
+                                       Ts = distinct(P, ?GUESS_POINTS, {Seed, guess_t, I}),
+                                       [{ok, Rows}] = Run([{linsys_all, BB, P, [setnth(I, Base, T) || T <- Ts]}]),
+                                       {I, Base, lists:zip(Ts, Rows)}
+                                   end || I <- lists:seq(1, length(Vars))],
+                          maps:from_list([{C, guess_column(P, Alpha, Lines, C)} || C <- Cols])
+                  end) of
+        {ok, Guesses} -> Guesses;
+        {error, _} -> #{}
+    end.
+
+guess_column(P, Alpha, Lines, C) ->
+    PerLine = [line_factors(P, Alpha, I, Base, [{T, lists:nth(C + 1, Row)} || {T, Row} <- Pts, Row =/= bad]) || {I, Base, Pts} <- Lines],
+    case lists:member(none, PerLine) of
+        true -> none;
+        false ->
+            Max = lists:foldl(fun(Ms, Acc) -> maps:fold(fun(F, E, A) -> A#{F => max(E, maps:get(F, A, 0))} end, Acc, Ms) end, #{}, PerLine),
+            {ok, [{F, E} || F := E <- Max, E > 0]}
+    end.
+
+%% the alphabet's factors in the univariate denominator along variable I through Base: #{Factor => Power} or none
+line_factors(P, Alpha, I, Base, Pts) ->
+    case thiele_fit(P, Pts, {[], []}, 0) of
+        none -> none;
+        {Xs, As} ->
+            {_, Q} = convergent(P, Xs, As),
+            Dq = pdeg(Q),
+            Ms = maps:from_list([{F, root_power(P, Q, mod(-B * pq_ff:inv(A, P), P))}
+                                 || {Cs, C0} = F <- Alpha,
+                                    A <- [mod(lists:nth(I, Cs), P)], A =/= 0,
+                                    B <- [mod(C0 + lists:sum([Cj * Xj || {J, Cj, Xj} <- lists:zip3(lists:seq(1, length(Cs)), Cs, Base), J =/= I]), P)]]),
+            case lists:sum(maps:values(Ms)) =:= Dq of
+                true -> Ms;
+                false -> none
+            end
+    end.
+
+%% Thiele's continued fraction through the points until it predicts ?TERMINATE + 1 in a row
+thiele_fit(_P, _Pts, _State, Quiet) when Quiet > ?TERMINATE -> none;
+thiele_fit(_P, [], _State, _Quiet) -> none;
+thiele_fit(P, [{T, Y} | Rest], State, Quiet) ->
+    case predict(P, State, T) of
+        Y when Quiet >= ?TERMINATE -> State;
+        Y -> thiele_fit(P, Rest, State, Quiet + 1);
+        _ -> thiele_fit(P, Rest, thiele_add(P, State, T, Y), 0)
+    end.
+
+%% how often (x - R) divides the polynomial Q (coefficients from x^0 up, mod P)
+root_power(P, Q, R) ->
+    case pdeg(Q) < 1 of
+        true -> 0;
+        false ->
+            %% synthetic division: Q = (x - R) Q2 + Rem
+            [Lead | Rev] = lists:reverse(lists:sublist(Q, pdeg(Q) + 1)),
+            {Q2Rev, Rem} = lists:foldl(fun(Ck, {Acc, Carry}) -> V = mod(Ck + Carry * R, P), {[Carry | Acc], V} end, {[], Lead}, Rev),
+            case Rem of
+                0 -> 1 + root_power(P, Q2Rev, R);
+                _ -> 0
+            end
+    end.
+
+linear_form(Ast, Vars) ->
+    Zero = maps:from_list([{V, 0} || V <- Vars]),
+    {ok, C0} = pq_symbolic:evaluate(Ast, Zero, #{exact => true}),
+    {[begin {ok, X} = pq_symbolic:evaluate(Ast, Zero#{V => 1}, #{exact => true}), X - C0 end || V <- Vars], C0}.
 
 %% the right-hand sides whose solution component W is 0 at three random points of the first prime (a rational
 %% function that isn't 0 vanishes there with probability about its degree / p, 10^-17)
@@ -383,6 +514,11 @@ thiele_add(P, {Xs, As} = S, T, Y) ->
 
 %% the degrees of the last convergent P_k / Q_k: P_k = a_k P_{k-1} + (t - x_{k-1}) P_{k-2}, likewise Q
 convergent_degrees(P, Xs, As) ->
+    {Pk, Qk} = convergent(P, Xs, As),
+    {pdeg(Pk), pdeg(Qk)}.
+
+%% the continued fraction's numerator and denominator polynomials (coefficients from x^0 up, mod P)
+convergent(P, Xs, As) ->
     {Pk, Qk, _, _} = lists:foldl(fun({I, A}, {P1, Q1, P2, Q2}) ->
                                          case I of
                                              0 -> {[A], [1], [1], [0]};
@@ -392,7 +528,7 @@ convergent_degrees(P, Xs, As) ->
                                                  {padd(P, pscale(P, P1, A), pmul(P, Lin, P2)), padd(P, pscale(P, Q1, A), pmul(P, Lin, Q2)), P1, Q1}
                                          end
                                  end, {[0], [1], [1], [0]}, lists:enumerate(0, As)),
-    {pdeg(Pk), pdeg(Qk)}.
+    {Pk, Qk}.
 
 padd(P, A, B) -> [(X + Y) rem P || {X, Y} <- lists:zip(pad(A, length(B)), pad(B, length(A)))].
 pscale(P, A, C) -> [X * C rem P || X <- A].

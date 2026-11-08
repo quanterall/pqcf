@@ -60,7 +60,12 @@ the public API is additive.
     against direct Feynman-parameter integration; a physics-informed neural network on it
     (`comparison/pinn/pinn_box.py`, after TechUPGRADE's PINN-PONN, in its JAX image): 1e-4 accuracy after 52 s of
     training against an ODE solver's 1e-13 in 19 ms, and 0.3-5.7% as a surrogate over unseen dimensions; recorded in
-    R1 with what was positive and what was negative; `ibp:system/4` with `order => numerators | dots`; three executors
+    R1 with what was positive and what was negative; `ibp:system/4` with `order => numerators | dots`;
+  - denominator guessing in `pq_recon:linear/4` (default on, `guess => false` to turn off): univariate denominators
+    on one line per variable matched against the factor alphabet, F * D reconstructed as a polynomial through a
+    scaled black box (`pq_nif:ff_linsys/8`), falling back to the rational reconstruction when the guess fails its
+    check; bit-identical results; the double box I(1,1,1,1,1,1,1,-2,-1) 32 -> 9 s reconstruction, whole runs on one
+    core 3.16 s and 11.87 s against FIRE's 8.10 s and 12.21 s; three executors
     behind one task interface (this node, Erlang nodes, FVLLMP federation peers), from a single node to 100+.
 
 ## 1.3.0 (7 November 2026)

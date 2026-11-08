@@ -181,7 +181,28 @@ pub fn tvandermonde(p: u64, nodes: &[u64], values: &[u64]) -> Option<Vec<u64>> {
 /// (`solve_aug`); the value is component `want` of the solution for right-hand side `col` (bad where A is singular).
 pub enum BlackBox {
     Prog(Program),
-    Lin { prog: Program, n: usize, m: usize, want: usize, col: usize, pattern: Patterns, cache: LinCache },
+    Lin { prog: Program, n: usize, m: usize, want: usize, col: usize, pattern: Patterns, cache: LinCache, scale: Scale },
+}
+
+/// A product of linear factors (coefficients per input, constant, power) that eval1 multiplies a linear system's
+/// value by: F * D for a guessed denominator D is a polynomial, reconstructed as one (R1). Empty: no scaling.
+pub type Scale = std::sync::Arc<Vec<(Vec<i64>, i64, u32)>>;
+
+/// the scale's value at a point, or None where a factor vanishes (the function has a pole there)
+fn scale_at(p: u64, scale: &[(Vec<i64>, i64, u32)], pt: &[u64]) -> Option<u64> {
+    let m = |c: i64| -> u64 { c.rem_euclid(p as i64) as u64 };
+    let mut acc = 1u64;
+    for (cs, c0, e) in scale {
+        let mut v = m(*c0);
+        for (c, x) in cs.iter().zip(pt) {
+            v = (v + mulmod(m(*c), *x % p, p)) % p;
+        }
+        if v == 0 {
+            return None;
+        }
+        acc = mulmod(acc, powmod(v, *e as u64, p), p);
+    }
+    Some(acc)
 }
 
 /// The solutions at the points already solved, shared by the black boxes of one program (one per right-hand side):
@@ -489,15 +510,21 @@ impl BlackBox {
                 let vals = prog.eval(p, points)?;
                 Ok(vals.iter().step_by(prog.outputs.len().max(1)).copied().collect())
             }
-            // one right-hand side: every one is solved (and cached for the others), this one kept
-            BlackBox::Lin { col, .. } => Ok(self
-                .lin_sparse(p, points)?
-                .into_iter()
-                .map(|r| match r {
-                    None => BAD,
-                    Some(sparse) => sparse.binary_search_by_key(&(*col as u32), |e| e.0).map_or(0, |i| sparse[i].1),
-                })
-                .collect()),
+            // one right-hand side: every one is solved (and cached for the others), this one kept, times the scale
+            BlackBox::Lin { col, scale, prog, .. } => {
+                let k = prog.ninputs.max(1);
+                Ok(self
+                    .lin_sparse(p, points)?
+                    .into_iter()
+                    .zip(points.chunks(k))
+                    .map(|(r, pt)| match (r, scale_at(p, scale, pt)) {
+                        (None, _) | (_, None) => BAD,
+                        (Some(sparse), Some(f)) => {
+                            mulmod(sparse.binary_search_by_key(&(*col as u32), |e| e.0).map_or(0, |i| sparse[i].1), f, p)
+                        }
+                    })
+                    .collect())
+            }
         }
     }
 }
@@ -760,8 +787,8 @@ mod tests {
         let p = 101u64;
         let dense = std::sync::Arc::new((vec![vec![0, 1], vec![0, 1]], vec![vec![0], vec![0]]));
         let cache = LinCache::default();
-        let bb0 = BlackBox::Lin { prog: prog.clone(), n: 2, m: 1, want: 0, col: 0, pattern: dense.clone(), cache: cache.clone() };
-        let bb1 = BlackBox::Lin { prog, n: 2, m: 1, want: 1, col: 0, pattern: dense, cache };
+        let bb0 = BlackBox::Lin { prog: prog.clone(), n: 2, m: 1, want: 0, col: 0, pattern: dense.clone(), cache: cache.clone(), scale: Scale::default() };
+        let bb1 = BlackBox::Lin { prog, n: 2, m: 1, want: 1, col: 0, pattern: dense, cache, scale: Scale::default() };
         let inv = |a: u64| invmod(a, p).unwrap();
         // at (3, 5): det 14; and (1, 1): singular
         assert_eq!(bb0.eval1(p, &[3, 5, 1, 1]).unwrap(), vec![mulmod(5, inv(14), p), BAD]);
@@ -778,9 +805,23 @@ mod tests {
         };
         let p = 101u64;
         let pattern = std::sync::Arc::new((vec![vec![0, 1], vec![1]], vec![vec![0], vec![0]]));
-        let bb = BlackBox::Lin { prog, n: 2, m: 1, want: 0, col: 0, pattern, cache: LinCache::default() };
+        let bb = BlackBox::Lin { prog, n: 2, m: 1, want: 0, col: 0, pattern, cache: LinCache::default(), scale: Scale::default() };
         assert_eq!(bb.eval1(p, &[3, 5, 0, 5]).unwrap(), vec![invmod(3, p).unwrap(), BAD]);
         assert_eq!(bb.eval_all(p, &[3, 5]).unwrap(), vec![Some(vec![invmod(3, p).unwrap()])]);
+    }
+
+    #[test]
+    fn scales_a_linear_system() {
+        // [[x, 1], [0, y]] u = [1, 0]: u_0 = 1 / x; times (x + 0 y + 0)^1 it is 1, and bad where x = 0
+        let prog = Program {
+            ops: vec![Op::Input(0), Op::Const(1, vec![1], vec![1]), Op::Input(1), Op::Const(1, vec![0], vec![1])],
+            outputs: vec![0, 1, 2, 1, 3],
+            ninputs: 2,
+        };
+        let pattern = std::sync::Arc::new((vec![vec![0, 1], vec![1]], vec![vec![0], vec![0]]));
+        let scale = std::sync::Arc::new(vec![(vec![1, 0], 0, 1)]);
+        let bb = BlackBox::Lin { prog, n: 2, m: 1, want: 0, col: 0, pattern, cache: LinCache::default(), scale };
+        assert_eq!(bb.eval1(101, &[3, 5, 7, 2, 0, 5]).unwrap(), vec![1, 1, BAD]);
     }
 
     #[test]
