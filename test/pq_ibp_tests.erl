@@ -183,3 +183,29 @@ choose_masters_test_() ->
         Direct = maps:from_list([{M, V(C)} || {M, C} <- New]),
         ?assertEqual(Direct, maps:filter(fun(_, X) -> X =/= 0 end, Composed))
     end}.
+
+%% a line with an insertion (power index + epsilon, Forcer's notation): the one-loop bubble's IBP gives the ratio of
+%% G-functions exactly, G(a + 1, 1) / G(a, 1) = (a + 1 - d/2)(d - a - 2) / (a (d/2 - a - 1)) with a = 1 + epsilon;
+%% the reduction is exact in d, so compared at points
+insertion_test_() ->
+    {timeout, 120, fun() ->
+        Fam = pq_ibp_family:new(#{loops => [k], ext => [q], vars => [d], kin => #{{q, q} => 1},
+                                  props => [{1, [{1, k}]}, {1, [{1, k}, {1, q}]}], eps => #{1 => 1}}),
+        ?assertNot(pq_ibp_family:zero(Fam, {0, 1})),
+        ?assert(pq_ibp_family:zero(Fam, {1, 0})),
+        {ok, #{{2, 1} := [{{0, 1}, C}]}, _} = pq_ibp:reduce(Fam, [{2, 1}], #{}),
+        %% (2 + eps, 1) = r(1 + eps) r(eps) (eps, 1), eps = (4 - d)/2
+        R = fun(A) -> {mul, [{add, [A, 1, {mul, [{rat, -1, 2}, d()]}]}, {add, [d(), {mul, [-1, A]}, -2]},
+                             {pow, {mul, [A, {add, [{mul, [{rat, 1, 2}, d()]}, {mul, [-1, A]}, -1]}]}, -1}]} end,
+        Eps = {mul, [{rat, 1, 2}, {add, [4, {mul, [-1, d()]}]}]},
+        Expected = {mul, [R({add, [1, Eps]}), R(Eps)]},
+        [?assertEqual(pq_symbolic:evaluate(Expected, #{d => D}, #{exact => true}),
+                      pq_symbolic:evaluate({mul, [pq_sym_norm:to_ast(element(1, C)), {pow, pq_sym_norm:to_ast(element(2, C)), -1}]},
+                                           #{d => D}, #{exact => true})) || D <- [7, 13, -5]]
+    end}.
+
+%% a numerator scalar product written in the family's integrals: in the box, k.p1 = (D2 - D1)/2
+numerator_test() ->
+    Box = pq_ibp_family:example(box),
+    R = maps:from_list(pq_ibp_family:numerator(Box, {1, 1, 1, 1}, [{[{1, k}], [{1, p1}]}])),
+    ?assertEqual(#{{1, 0, 1, 1} => {rat, 1, 2}, {0, 1, 1, 1} => {rat, -1, 2}}, R).

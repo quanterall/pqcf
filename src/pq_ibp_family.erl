@@ -15,7 +15,7 @@
 %% zero sectors, the symmetry classes and the derivative operators. Random points are drawn from local states,
 %% never the caller's.
 -module(pq_ibp_family).
--export([new/1, example/1, identities/2, zero/2, seeds/3, canon/2, derivative/3, vars/1, size/1, kin/3]).
+-export([new/1, example/1, identities/2, zero/2, seeds/3, canon/2, derivative/3, vars/1, size/1, kin/3, numerator/3]).
 %% for pq_ibp: the identities with their coefficients as polynomials (Exponents => {N, D})
 -export([identities_poly/2, warm/2, load/1, expand/2, mapped/2, without_sector_maps/1, qpone/1, qpneg/1]).
 -export_type([family/0, integral/0]).
@@ -23,7 +23,7 @@
 -type family() :: #{id := integer(), loops := [atom()], ext := [atom()], props := [{integer(), [{integer(), atom()}]}],
                     masses := [term()],
                     kin := #{{atom(), atom()} => term()}, vars := [atom()], top := [pos_integer()], symmetries := boolean(),
-                    sector_maps => boolean()}.
+                    sector_maps => boolean(), eps => #{pos_integer() => pos_integer()}}.
 -type integral() :: tuple().
 
 -define(P, 1000000007).
@@ -48,9 +48,15 @@ new(Spec) ->
     ok = check(lists:all(fun is_atom/1, Vars) andalso lists:member(d, Vars), vars),
     Kin = maps:from_list([{pair_key(A, B), X} || {A, B} := X <- Kin0]),
     ok = check(lists:all(fun({A, B}) -> lists:member(A, Ext) andalso lists:member(B, Ext) end, maps:keys(Kin)), kin),
+    %% eps => #{Line => M}: the line's power is its index plus M epsilon (d = 4 - 2 epsilon), as a one-loop insertion
+    %% leaves it (Forcer's notation, https://arxiv.org/abs/1704.06650); such a line is in every sector, and the
+    %% symmetries, which would have to respect the insertions, are off
+    Eps = maps:get(eps, Spec, #{}),
+    Top = maps:get(top, Spec, lists:seq(1, N)),
+    ok = check(lists:all(fun({J, M}) -> lists:member(J, Top) andalso is_integer(M) andalso M > 0 end, maps:to_list(Eps)), eps),
     Fam0 = #{loops => Loops, ext => Ext, props => [{S, Mom} || {S, Mom, _} <- Props3], masses => [M2 || {_, _, M2} <- Props3],
-             kin => Kin, vars => Vars,
-             top => maps:get(top, Spec, lists:seq(1, N)), symmetries => maps:get(symmetries, Spec, true)},
+             kin => Kin, vars => Vars, eps => Eps,
+             top => Top, symmetries => maps:get(symmetries, Spec, true) andalso map_size(Eps) =:= 0},
     Fam = Fam0#{id => erlang:phash2(Fam0)},
     ok = check(length(sp_keys(Fam)) =:= N, {not_a_basis, length(sp_keys(Fam)), N}),
     Fam.
@@ -176,6 +182,18 @@ dot(Fam, V, Q) ->
         {sp, K} -> {Ds, C} = maps:get(K, sps(Fam)), [{rat(R), J} || {R, J} <- Ds] ++ [{C, const}]
     end.
 
+%% The integral A times a product of scalar products u.v (u, v momenta as [{Integer, Momentum}]), as integrals of the
+%% family: [{Integral, CoefficientAst}], each scalar product written in the D's (a numerator D_j lowers index j)
+-spec numerator(family(), integral(), [{[{integer(), atom()}], [{integer(), atom()}]}]) -> [{integral(), term()}].
+numerator(Fam, A, Sps) ->
+    Expand = fun({U, V}) -> [{{mul, [Cu * Cv, X]}, Y} || {Cu, Qu} <- U, {Cv, Qv} <- V, {X, Y} <- dot(Fam, Qu, Qv)] end,
+    Terms = lists:foldl(fun(Sp, Acc) ->
+                                [{{mul, [C, X]}, case Y of const -> I; _ -> setelement(Y, I, element(Y, I) - 1) end}
+                                 || {C, I} <- Acc, {X, Y} <- Expand(Sp)]
+                        end, [{1, A}], Sps),
+    Merged = lists:foldl(fun({C, I}, M) -> maps:update_with(I, fun(C0) -> {add, [C0, C]} end, C, M) end, #{}, Terms),
+    [{I, C} || I := C0 <- Merged, {ok, C} <- [pq_symbolic:canonicalise(C0)], C =/= 0].
+
 %% the inverse of a square matrix of rationals {N, D} (Gauss-Jordan)
 inverse(M) ->
     N = length(M),
@@ -203,16 +221,22 @@ qinv({A, B}) -> qnorm({B, A}).
 
 %% d/dl . v of the seed A (a tuple): [{Integral, CoefficientAst}], before merging
 identity(Fam = #{props := Props}, A, L, V) ->
+    Eps = maps:get(eps, Fam, #{}),
     Div = case L =:= V of true -> [{A, d()}]; false -> [] end,
     Deriv = lists:append(
               [begin
                    Aj = element(J, A),
                    Raised = setelement(J, A, Aj + 1),
                    CL = lists:sum([C || {C, Q} <- Mom, Q =:= L]),
+                   %% the power a_j: the index, plus M epsilon on a line with an insertion
+                   Pow = case Eps of
+                             #{J := M} -> {add, [Aj, {mul, [M, {rat, 1, 2}, {add, [4, {mul, [-1, d()]}]}]}]};
+                             _ -> Aj
+                         end,
                    %% -a_j D_j^(-a_j-1) dD_j/dl.v, dD_j/dl = 2 Sign_j CL Mom_j
-                   [term(Raised, {mul, [-2 * Aj * Sign * CL * Cq, X]}, Y)
+                   [term(Raised, {mul, [-2 * Sign * CL * Cq, Pow, X]}, Y)
                     || CL =/= 0, {Cq, Q} <- Mom, {X, Y} <- dot(Fam, V, Q)]
-               end || {J, {Sign, Mom}} <- lists:enumerate(Props), element(J, A) =/= 0]),
+               end || {J, {Sign, Mom}} <- lists:enumerate(Props), element(J, A) =/= 0 orelse is_map_key(J, Eps)]),
     Div ++ Deriv.
 
 term(A, C, const) -> {A, C};
@@ -268,6 +292,7 @@ expand_or_canon(Fam = #{symmetries := true}, I, One) ->
 expand_or_canon(_Fam, I, One) -> [{I, One}].
 
 identity_poly(Fam = #{props := Props, vars := Vars}, A, L, V) ->
+    Eps = maps:get(eps, Fam, #{}),
     Div = case L =:= V of
               true -> [{A, #{[case X of d -> 1; _ -> 0 end || X <- Vars] => {1, 1}}}];
               false -> []
@@ -277,9 +302,15 @@ identity_poly(Fam = #{props := Props, vars := Vars}, A, L, V) ->
                    Aj = element(J, A),
                    Raised = setelement(J, A, Aj + 1),
                    CL = lists:sum([C || {C, Q} <- Mom, Q =:= L]),
-                   [term(Raised, qpscale(X, {-2 * Aj * Sign * CL * Cq, 1}), Y)
-                    || CL =/= 0, {Cq, Q} <- Mom, {X, Y} <- dot_poly(Fam, V, Q)]
-               end || {J, {Sign, Mom}} <- lists:enumerate(Props), element(J, A) =/= 0]),
+                   %% the power a_j: the index, plus M epsilon = M (4 - d) / 2 on a line with an insertion
+                   Pow = case Eps of
+                             #{J := M} -> qpadd(qpconst({Aj + 2 * M, 1}, Vars),
+                                                #{[case X of d -> 1; _ -> 0 end || X <- Vars] => {-M, 2}});
+                             _ -> qpconst({Aj, 1}, Vars)
+                         end,
+                   [term(Raised, qpscale(qpmul(X, Pow), {-2 * Sign * CL * Cq, 1}), Y)
+                    || CL =/= 0, map_size(Pow) > 0, {Cq, Q} <- Mom, {X, Y} <- dot_poly(Fam, V, Q)]
+               end || {J, {Sign, Mom}} <- lists:enumerate(Props), element(J, A) =/= 0 orelse is_map_key(J, Eps)]),
     Div ++ Deriv.
 
 %% dot/3 with polynomial coefficients (memoised per pair)
@@ -329,13 +360,19 @@ qadd({A, B}, {C, D}) -> qnorm({A * D + C * B, B * D}).
 seeds(Fam = #{top := Top, props := Props}, R, S) ->
     N = length(Props),
     Budget = fun(Sec) -> case R of {dots, D} -> length(Sec) + D; _ -> R end end,
-    Sectors = [Sec || Sec <- subsets(Top), Sec =/= [], length(Sec) =< Budget(Sec)],
-    lists:append(
-      [[list_to_tuple(fill(N, Sec, Pos, Others, Neg))
-        || Pos <- compositions(Sec, Budget(Sec)),
-           Neg <- numerators(length(Others), S)]
-       || Sec <- Sectors, Others <- [[J || J <- lists:seq(1, N), not lists:member(J, Sec)]],
-          not zero(Fam, sector_point(N, Sec))]).
+    %% a line with an insertion is in every sector
+    Ins = maps:keys(maps:get(eps, Fam, #{})),
+    Sectors = [Sec || Sec <- subsets(Top), Sec =/= [], length(Sec) =< Budget(Sec), Ins -- Sec =:= []],
+    Plain = lists:append(
+              [[list_to_tuple(fill(N, Sec, Pos, Others, Neg))
+                || Pos <- compositions(Sec, Budget(Sec)),
+                   Neg <- numerators(length(Others), S)]
+               || Sec <- Sectors, Others <- [[J || J <- lists:seq(1, N), not lists:member(J, Sec)]],
+                  not zero(Fam, sector_point(N, Sec))]),
+    %% a line with an insertion stays in the sector at any integer part: also the seeds with it lowered, down to -S
+    lists:usort(lists:foldl(fun(J, Acc) ->
+                                    [setelement(J, T, X) || T <- Acc, X <- lists:seq(-S, element(J, T))]
+                            end, Plain, Ins)).
 
 subsets([]) -> [[]];
 subsets([X | Xs]) -> Rest = subsets(Xs), [[X | Ys] || Ys <- Rest] ++ Rest.
@@ -363,7 +400,8 @@ fill(N, Sec, Pos, Others, Neg) ->
 
 -spec zero(family(), integral()) -> boolean().
 zero(Fam, A) ->
-    Sec = [J || {J, X} <- lists:enumerate(tuple_to_list(A)), X > 0],
+    Eps = maps:get(eps, Fam, #{}),
+    Sec = [J || {J, X} <- lists:enumerate(tuple_to_list(A)), X > 0 orelse is_map_key(J, Eps)],
     memo(zero, Fam, Sec, fun() -> scaleless(Fam, Sec) end).
 
 scaleless(Fam, Sec) ->
@@ -506,16 +544,53 @@ restrict(G, S) ->
 
 signature(S, GS) -> {length(S), map_size(GS), lists:sort(maps:values(GS))}.
 
-%% the bijections S -> R carrying GS onto GR
+%% the bijections S -> R carrying GS onto GR, by backtracking: index i of S can go only to an index k of R with the
+%% same invariant (the coefficients and exponents of the terms containing it), and each assignment must keep the
+%% pairwise invariants with those made before; a complete assignment is then checked on every term. The same maps
+%% as trying every permutation (as this did, 11! for a four-loop top sector), found without enumerating them.
 matches(S, GS, R, GR) ->
-    Terms = [{list_to_tuple(E), C} || E := C <- GS],
-    [Perm || Perm <- perms(R),
-             begin
-                 %% the exponent of R's k-th index is that of the S index mapped to it
-                 Pos = maps:from_list(lists:zip(Perm, lists:seq(1, length(S)))),
-                 Idx = [maps:get(Rk, Pos) || Rk <- R],
-                 same_terms(Terms, Idx, GR)
-             end].
+    N = length(S),
+    Ts = [{list_to_tuple(E), C} || E := C <- GS],
+    Tr = [{list_to_tuple(E), C} || E := C <- GR],
+    One = fun(Terms, I) -> lists:sort([{C, element(I, E)} || {E, C} <- Terms, element(I, E) > 0]) end,
+    Two = fun(Terms, I, J) -> lists:sort([{C, element(I, E), element(J, E)} || {E, C} <- Terms, element(I, E) + element(J, E) > 0]) end,
+    InvR = maps:from_list([{K, One(Tr, K)} || K <- lists:seq(1, N)]),
+    Cands = [{I, [K || K <- lists:seq(1, N), maps:get(K, InvR) =:= One(Ts, I)]} || I <- lists:seq(1, N)],
+    case lists:any(fun({_, Ks}) -> Ks =:= [] end, Cands) of
+        true -> [];
+        false ->
+            Order = [I || {_, I} <- lists:sort([{length(Ks), I} || {I, Ks} <- Cands])],
+            CandMap = maps:from_list(Cands),
+            PairS = fun(I, J) -> memo_pair({s, I, J}, fun() -> Two(Ts, I, J) end) end,
+            PairR = fun(K, L) -> memo_pair({r, K, L}, fun() -> Two(Tr, K, L) end) end,
+            erase_pairs(),
+            Found = assign(Order, CandMap, [], PairS, PairR),
+            erase_pairs(),
+            Rt = list_to_tuple(R),
+            [Perm || Asg <- Found,
+                     Perm <- [[element(maps:get(I, maps:from_list(Asg)), Rt) || I <- lists:seq(1, N)]],
+                     begin
+                         Pos = maps:from_list(lists:zip(Perm, lists:seq(1, N))),
+                         Idx = [maps:get(Rk, Pos) || Rk <- R],
+                         same_terms([{E, C} || {E, C} <- Ts], Idx, GR)
+                     end]
+    end.
+
+assign([], _, Asg, _, _) -> [Asg];
+assign([I | Rest], Cands, Asg, PairS, PairR) ->
+    Used = [K || {_, K} <- Asg],
+    lists:append([assign(Rest, Cands, [{I, K} | Asg], PairS, PairR)
+                  || K <- maps:get(I, Cands), not lists:member(K, Used),
+                     lists:all(fun({J, L}) -> PairS(I, J) =:= PairR(K, L) end, Asg)]).
+
+%% the pair invariants of one matches/4 call, cached in the process dictionary for its duration
+memo_pair(Key, Fun) ->
+    case get({pq_ibp_pair, Key}) of
+        undefined -> V = Fun(), put({pq_ibp_pair, Key}, V), V;
+        V -> V
+    end.
+
+erase_pairs() -> _ = [erase(K) || {{pq_ibp_pair, _} = K, _} <- get()], ok.
 
 %% every term, its exponents permuted, a term of GR with the same coefficient (the sizes are equal: the signature)
 same_terms([], _, _) -> true;
@@ -525,8 +600,6 @@ same_terms([{Et, C} | Rest], Idx, GR) ->
         _ -> false
     end.
 
-perms([]) -> [[]];
-perms(L) -> [[X | P] || X <- L, P <- perms(L -- [X])].
 
 %%% Derivatives with respect to an invariant (for the masters' differential equations). An operator
 %%% O_ij = p_i . d/dp_j (p_i, p_j external) acts on the integrand through the propagators, like an IBP identity; on
