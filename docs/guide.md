@@ -593,5 +593,17 @@ Masters = [pq_ibp_family:canon(Box, M) || M <- [{1, 1, 1, 1}, {1, 0, 1, 0}, {0, 
 %% d Bubble_t / dt = (d - 4) / (2 t) Bubble_t
 ```
 
+**Smaller results.** The size of a reduction depends on the master basis. `pq_ibp:choose_masters/3` searches for
+a basis with smaller coefficients: it swaps each master for a neighbour in its sector (one more dot or numerator),
+reduces again, and keeps the swap when the simplified coefficients get smaller. Every candidate is an exact
+reduction. `reduce/3` takes the result as `masters => Basis`, with the same seeds. `pq_simplify:rational/4` also
+tries partial fractions (`form => partial` forces them), and `pq_simplify:discover/2` finds factors outside the
+alphabet, repeated or shared between coefficients, by exact gcds; pass them as `extra`.
+
+```erlang
+{ok, Basis, #{size_in := 5, size_out := 4, seeds := Seeds}} = pq_ibp:choose_masters(Kite, [{1, 1, 1, 1, 1}], #{}),
+{ok, _, _} = pq_ibp:reduce(Kite, [{1, 1, 1, 1, 1}], #{masters => Basis, seeds => Seeds}).
+```
+
 The method and its measurements, including the comparison with FIRE, are in decision record R1.
 

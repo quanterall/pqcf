@@ -766,3 +766,48 @@ The IBP machinery moved from the benchmark scripts (`comparison/form/ibp.erl`, `
   pivots found in the same block. Reconstructing the columns concurrently was 4× slower (the shared cache's points
   are already computed in parallel; concurrent columns only contend for them).
 - **Still open:** seeds chosen per sector instead of one dot budget for all.
+
+## Smaller results: partial fractions, other factors, the choice of masters (8 Nov 2026)
+
+Three ways to shrink a result, each exact: a candidate is kept only if it is smaller, and every rewritten
+coefficient is still checked against the reconstruction (`verify/4`).
+- **Multivariate partial fractions** (`pq_simplify`, a fourth form beside expanded, factored and collected).
+  - **The method:** Leinartas's decomposition, for denominators whose factors are affine in the chosen variables
+    (as MultivariateApart does). If the factors' linear parts are dependent, Σ λᵢLᵢ = c, the identity
+    1 = (Σ λᵢLᵢ / c)ᴹ, or 1 = (Σ μᵢLᵢ / L_k)ᴹ when c = 0, removes one factor from every term. The exponent is
+    M = Σ(eᵢ − 1) + 1, and the pigeonhole principle guarantees the removal. Then each numerator is rewritten in
+    coordinates where the factors are variables, and their powers cancel.
+  - **The variables:** all of them, d alone, or the kinematics alone. Inside each d-term the kinematics are
+    decomposed again.
+  - **Measured:** on the double box it rarely wins. The coefficients are already products of linear factors over
+    irreducible numerators. The largest target I(1,1,1,1,1,1,2,−2,−2) goes from 105 to 102 additions, and FIRE's
+    second target from 58 to 56. Partial fractions pay off when a numerator's degree in d is high; `form =>
+    partial` forces them for an expansion in ε.
+- **Factors outside the alphabet** (`discover/2`).
+  - **The method:** a repeated factor divides gcd(P, ∂P/∂x), and a factor shared by two coefficients divides
+    their gcd. The gcds are exact (multivariate, by primitive pseudo-remainder sequences), and the pieces are
+    refined into a coprime set.
+  - **Measured:** none on the kite or the double box, in agreement with FORM's complete factorisation, which found
+    those numerators irreducible. The tests build results that need such a factor; it is then found, and the result
+    shrinks.
+- **The master basis** (`choose_masters/3`, `masters => Basis`). As expected in this record, this is where the size
+  is.
+  - **The search:** greedy. Each master is swapped for a neighbour in its sector (one more dot or numerator power),
+    the targets are reduced again on the default reduction's seeds, and the swap is kept when the simplified
+    coefficients get smaller. A trial in which a target equals a master is rejected; so is a target as a candidate,
+    which would make the basis trivially small.
+  - **Correctness:** every trial is an exact reduction. The test checks that the coefficients in the new basis
+    equal the old ones composed with the old masters' reduction to the new basis, exactly at a point.
+
+| target | default basis | searched basis | search, 16 cores |
+| --- | --- | --- | --- |
+| kite I(1,1,1,1,1) | 5 | 4 | 0.1 s |
+| double box I(1,1,1,1,1,1,1,−1,−1) | 18 (expanded 25) | **12** (16) | 12.7 s, 111 reductions |
+| double box I(1,1,1,1,1,1,1,−2,−1) | 56 (79) | **32** (48) | 53 s, 116 reductions |
+
+  In the searched basis, d appears in FIRE's first target only as powers of (d − 4), as (3d − 10)(3d − 8), and
+  in one numerator. For example, I(1,0,0,1,0,1,0,0,0)'s coefficient is −2(3d − 10)(3d − 8) / (s² (d − 4)³),
+  close to a d-factorising basis, found without being told to look for one.
+  - **Next:** a search that a model steers, proposing the swaps most likely to help, or a d-factorising criterion
+    instead of the size.
+

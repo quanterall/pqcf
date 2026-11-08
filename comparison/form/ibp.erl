@@ -6,7 +6,8 @@
 %%   - the two-loop massless propagator "kite", seeds {kite, Pos, Neg}, target I(1,1,1,1,1);
 %%   - FIRE's two-loop double box, seeds {doublebox, R, S} (Kira's r, s), target I(1,1,1,1,1,1,1,-1,-1);
 %%   - {Family, {dots, D}, S}: at most D dots per sector; {auto, Family}, {auto, Family, Target} and
-%%     {auto, Family, Target, SystemOpts}: the smallest complete seeds (pq_ibp:auto_seeds/3).
+%%     {auto, Family, Target, SystemOpts}: the smallest complete seeds (pq_ibp:auto_seeds/3); {basis, Family,
+%%     Target, SystemOpts}: SystemOpts' seeds, and its masters (from pq_ibp:choose_masters/3).
 %%
 %%   erl -pa _build/default/lib/*/ebin -pa <dir> -noshell -eval 'ibp:main("<dir>", [{5, 1}, {kite, 6, 1}, {auto, doublebox}])'
 -module(ibp).
@@ -37,6 +38,9 @@ case_of({auto, F, T}) -> case_of({auto, F, T, #{}});
 case_of({auto, F, T, O}) ->
     {F, auto, T, O, io_lib:format("ibp_~s_auto_~s~s", [F, lists:join("_", [integer_to_list(X) || X <- tuple_to_list(T)]),
                                                        case O of #{order := Ord} -> ["_", atom_to_list(Ord)]; _ -> "" end])};
+case_of({basis, F, T, O = #{seeds := Seeds}}) ->
+    %% a basis from pq_ibp:choose_masters/3, on the seeds it was chosen with
+    {F, Seeds, T, O, io_lib:format("ibp_~s_basis_~s", [F, lists:join("_", [integer_to_list(X) || X <- tuple_to_list(T)])])};
 case_of({F, {dots, D}, S}) -> {F, {dots, D, S}, target(F), #{}, io_lib:format("ibp_~s_d~b_~b", [F, D, S])};
 case_of({doublebox, R, S}) -> {doublebox, {R, S}, target(doublebox), #{}, io_lib:format("ibp_doublebox_~b_~b", [R, S])};
 case_of({F, Pos, Neg}) ->
@@ -70,8 +74,11 @@ main(Dir, Cases) ->
          ok = file:write_file(filename:join(Dir, Name ++ ".answer"),
                               [[io_lib:format("~w", [M]), " ", Nu, " / ", De, "\n"] || {{M, _, _}, {Nu, De, _}} <- lists:zip(NonZero, Answer)]),
          %% the coefficients simplified (pq_simplify), each verified against the reconstruction
+         %% candidates outside the alphabet: the factors the coefficients share or repeat (exact gcds)
+         Extra = pq_simplify:discover([ND || {_, _, ND} <- NonZero], Vars0),
+         io:format("  factors outside the alphabet: ~s~n", [case Extra of [] -> "none"; _ -> lists:join(", ", [pq_simplify:format(E) || E <- Extra]) end]),
          Simple = [begin
-                       {Ast, St} = pq_simplify:rational(Nu, De, Vars0, #{}),
+                       {Ast, St} = pq_simplify:rational(Nu, De, Vars0, #{extra => Extra}),
                        true = pq_simplify:verify(Ast, Nu, De, Vars0),
                        {M, Ast, St}
                    end || {M, _, {Nu, De}} <- NonZero],

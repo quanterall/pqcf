@@ -157,3 +157,29 @@ compare_reductions(Kite, A, B) ->
         ?assertEqual(lists:sort(maps:to_list(Val(A, sym))), lists:sort(maps:to_list(Val(B, nosym)))).
 
 
+%% choosing the masters: the kite's basis searched for smaller coefficients. The new reduction is the old one in the
+%% new basis: T = sum c_old M_old and M_old = sum r M_new give c_new = sum c_old r, exactly at a point
+choose_masters_test_() ->
+    {timeout, 300, fun() ->
+        Kite = pq_ibp_family:example(kite),
+        T = {1, 1, 1, 1, 1},
+        {ok, #{T := Old}, _} = pq_ibp:reduce(Kite, [T], #{}),
+        {ok, B, #{size_in := In, size_out := Out, seeds := Seeds}} = pq_ibp:choose_masters(Kite, [T], #{}),
+        ?assert(Out < In),
+        ?assertNot(lists:member(T, B)),
+        {ok, #{T := New}, _} = pq_ibp:reduce(Kite, [T], #{masters => B, seeds => Seeds}),
+        ?assertEqual(Out, pq_ibp:size_of(#{T => New}, pq_ibp_family:vars(Kite))),
+        OldMs = [M || {M, _} <- Old],
+        {ok, Rm, _} = pq_ibp:reduce(Kite, OldMs, #{masters => B, seeds => Seeds}),
+        Pt = #{d => 7919, s => 104729},
+        V = fun({N, D}) ->
+                    {ok, X} = pq_symbolic:evaluate({mul, [pq_sym_norm:to_ast(N), {pow, pq_sym_norm:to_ast(D), -1}]}, Pt, #{exact => true}),
+                    X
+            end,
+        Add = fun(K, X, Acc) -> {ok, Y} = pq_symbolic:canonicalise({add, [maps:get(K, Acc, 0), X]}), Acc#{K => Y} end,
+        Composed = lists:foldl(fun({M, C}, Acc) ->
+                                       lists:foldl(fun({Mn, R}, A2) -> Add(Mn, {mul, [V(C), V(R)]}, A2) end, Acc, maps:get(M, Rm))
+                               end, #{}, Old),
+        Direct = maps:from_list([{M, V(C)} || {M, C} <- New]),
+        ?assertEqual(Direct, maps:filter(fun(_, X) -> X =/= 0 end, Composed))
+    end}.

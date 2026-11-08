@@ -11,7 +11,7 @@
 %% polynomial maps; pq_simplify:rational/4 writes them in factored form). Masters and targets are integrals as
 %% tuples, named by their canonical image under the family's symmetries (pq_ibp_family:canon/2).
 -module(pq_ibp).
--export([reduce/3, system/4, seeds/3, auto_seeds/3, differential_equation/4]).
+-export([reduce/3, system/4, seeds/3, auto_seeds/3, differential_equation/4, choose_masters/3, size_of/2]).
 
 -define(P, 1000000007).
 -define(LIMITS, #{sym_timeout_ms => 3600000, sym_max_heap_words => 4000000000, max_expr_nodes => 500000000}).
@@ -26,8 +26,9 @@
 
 %% Opts: seeds => auto (default) | {dots, D, S} | {R, S} (Kira's r and s) | [Seed]; order => numerators (default) |
 %% dots (which integrals become masters, weight/2); sector_maps => true (default) | false (with given seeds: whether
-%% the sectors that map onto another one are expanded into it instead of contributing identities); and pq_recon's
-%% options (executor, workers, guess).
+%% the sectors that map onto another one are expanded into it instead of contributing identities); masters =>
+%% [Integral] (preferred masters: each the simplest of its sector, so a master wherever the identities allow; see
+%% choose_masters/3); and pq_recon's options (executor, workers, guess).
 %% {ok, #{Target => [{Master, {N, D}}]}, Info}: a zero target maps to [], a target that is a master to itself;
 %% Info: #{seeds, equations, integrals, needed, masters}.
 -spec reduce(pq_ibp_family:family(), [integral()], map()) -> {ok, #{integral() => [{integral(), ratfun()}]}, map()} | {error, term()}.
@@ -182,7 +183,14 @@ system(Fam0, Seeds0, Targets, Opts) ->
         Missing -> throw({pq_ibp, {targets_not_in_system, Missing}})
     end,
     Order = maps:get(order, Opts, numerators),
-    Cols = [I || {_, I} <- lists:reverse(lists:sort([{weight(I, Order), I} || I <- Ints]))],
+    Prefer = sets:from_list([pq_ibp_family:canon(Fam, M) || M <- maps:get(masters, Opts, [])], [{version, 2}]),
+    Weight = fun(I) ->
+                     case sets:is_element(I, Prefer) of
+                         true -> {length([x || X <- tuple_to_list(I), X > 0]), -1, 0, I};
+                         false -> weight(I, Order)
+                     end
+             end,
+    Cols = [I || {_, I} <- lists:reverse(lists:sort([{Weight(I), I} || I <- Ints]))],
     Index = maps:from_list(lists:zip(Cols, lists:seq(0, length(Cols) - 1))),
     Num = [lists:sort([{maps:get(I, Index), V} || {I, V} <- Vals]) || {_, Vals} <- Pairs],
     TCols = [maps:get(T, Index) || T <- Targets],
@@ -233,6 +241,84 @@ poly_ast(Poly, Vars) ->
     Terms = [{mul, [case D of 1 -> N; _ -> {rat, N, D} end | [{pow, {sym, V}, E} || {V, E} <- lists:zip(Vars, Exps), E > 0]]}
              || {Exps, {N, D}} <- lists:sort(maps:to_list(Poly))],
     case Terms of [T] -> T; _ -> {add, Terms} end.
+
+%%% Choosing the masters
+
+%% A greedy search for a basis that makes the targets' coefficients small: each master in turn replaced by a
+%% neighbour in its sector (one more dot on a line, or one more numerator power), the targets reduced again, and the
+%% change kept when the coefficients' total size (size_of/2: additions after pq_simplify) falls. Every candidate is
+%% an exact reduction, so the basis found is as valid as the default one; only its size is searched.
+%% Opts as for reduce/3, plus rounds => R (default 2: passes over the masters). {ok, Masters, #{size_in, size_out,
+%% tried, reductions}} | {error, _}.
+-spec choose_masters(pq_ibp_family:family(), [integral()], map()) -> {ok, [integral()], map()} | {error, term()}.
+choose_masters(Fam, Targets, Opts) ->
+    Vars = pq_ibp_family:vars(Fam),
+    case reduce(Fam, Targets, Opts) of
+        {error, _} = E -> E;
+        {ok, R0, Info} ->
+            %% every trial on the default reduction's system (its seeds and sector maps): a candidate the system cannot
+            %% make a master just leaves the basis as it is, and each trial costs one reduction
+            Opts1 = Opts#{seeds => maps:get(seeds, Info, maps:get(seeds, Opts, auto)),
+                          sector_maps => maps:get(sector_maps, Info, maps:get(sector_maps, Opts, true))},
+            B0 = basis(R0),
+            S0 = size_of(R0, Vars),
+            %% a target is never a candidate (a basis of the targets themselves is trivially small)
+            Live = [pq_ibp_family:canon(Fam, T) || T <- Targets],
+            {B, S, Tried} = improve(Fam, Targets, Live, Opts1, Vars, B0, S0, maps:get(rounds, Opts, 2), 0),
+            {ok, B, #{size_in => S0, size_out => S, tried => Tried, seeds => maps:get(seeds, Opts1),
+                      sector_maps => maps:get(sector_maps, Opts1)}}
+    end.
+
+basis(Red) -> lists:usort([M || _ := Cs <- Red, {M, _} <- Cs]).
+
+%% the coefficients' total size: additions after pq_simplify:rational/4
+-spec size_of(#{integral() => [{integral(), ratfun()}]}, [atom()]) -> non_neg_integer().
+size_of(Red, Vars) ->
+    lists:sum([pq_simplify:adds(element(1, pq_simplify:rational(N, D, Vars, #{}))) || _ := Cs <- Red, {_, {N, D}} <- Cs]).
+
+improve(_, _, _, _, _, B, S, 0, Tried) -> {B, S, Tried};
+improve(Fam, Targets, Live, Opts, Vars, B0, S0, Rounds, Tried0) ->
+    {B, S, Tried} =
+        lists:foldl(fun(M, {B1, S1, T1}) ->
+                            case lists:member(M, B1) of
+                                false -> {B1, S1, T1};
+                                true ->
+                                    lists:foldl(fun(C, {B2, S2, T2}) ->
+                                                        Try = lists:usort([C | B2 -- [M]]),
+                                                        case catch reduce(Fam, Targets, Opts#{masters => Try}) of
+                                                            {ok, R, _} ->
+                                                                Got = basis(R),
+                                                                %% a target equal to a master (by a symmetry) is no basis
+                                                                Trivial = lists:any(fun(T) -> case maps:get(T, R) of
+                                                                                                  [{_, {Nu, De}}] -> Nu =:= De;
+                                                                                                  _ -> false
+                                                                                              end end, Targets),
+                                                                case lists:member(C, Got) andalso not Trivial andalso size_of(R, Vars) of
+                                                                    S3 when is_integer(S3), S3 < S2 -> {Got, S3, T2 + 1};
+                                                                    _ -> {B2, S2, T2 + 1}
+                                                                end;
+                                                            _ -> {B2, S2, T2 + 1}
+                                                        end
+                                                end, {B1, S1, T1}, neighbours(Fam, M) -- (B1 ++ Live))
+                            end
+                    end, {B0, S0, Tried0}, B0),
+    case S < S0 of
+        true -> improve(Fam, Targets, Live, Opts, Vars, B, S, Rounds - 1, Tried);
+        false -> {B, S, Tried}
+    end.
+
+%% the integrals of M's sector one step away: a dot on one of its lines, or a numerator power on one of the others
+neighbours(Fam, M) ->
+    L = tuple_to_list(M),
+    lists:usort([C || J <- lists:seq(1, length(L)),
+                      C <- [pq_ibp_family:canon(Fam, list_to_tuple(setnth(J, L, case lists:nth(J, L) > 0 of
+                                                                                       true -> lists:nth(J, L) + 1;
+                                                                                       false -> lists:nth(J, L) - 1
+                                                                                   end)))],
+                      not pq_ibp_family:zero(Fam, C)]).
+
+setnth(1, [_ | T], V) -> [V | T];
+setnth(N, [H | T], V) -> [H | setnth(N - 1, T, V)].
 
 point(Vars, Seed) ->
     {L, _} = lists:mapfoldl(fun(V, S) -> {X, S2} = rand:uniform_s(?P - 1, S), {{V, X}, S2} end, rand:seed_s(exsss, Seed), Vars),

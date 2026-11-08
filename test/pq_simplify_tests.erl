@@ -71,3 +71,50 @@ verify_catches_test() ->
     N = recon({add, [d(), s()]}, Vars), D = recon(1, Vars),
     ?assertNot(pq_simplify:verify({add, [d(), s(), 1]}, N, D, Vars)),
     ?assertEqual({0, #{size_in => 0, size_out => 0, form => expanded}}, pq_simplify:rational(#{}, D, Vars, #{})).
+
+%% partial fractions (Leinartas): exact for denominators with dependent affine factors, whichever variables they are
+%% taken in; 1/(s t (s + t)) = 1/(t (s + t)^2) + 1/(s (s + t)^2), two factors per term
+partial_fractions_test_() ->
+    {timeout, 120, fun() ->
+        Vars = [d, s, t],
+        Cases = [{1, {mul, [s(), t(), {add, [s(), t()]}]}},
+                 {{add, [d(), -3]}, {mul, [{pow, {add, [d(), -4]}, 2}, {add, [d(), -6]}, s()]}},
+                 {{add, [{mul, [d(), s()]}, {pow, t(), 2}]}, {mul, [{pow, s(), 2}, {add, [s(), t()]}, {add, [d(), -4]}, {add, [{mul, [2, d()]}, -7]}]}},
+                 {{mul, [s(), t()]}, {mul, [{add, [s(), {mul, [-1, t()]}]}, {add, [s(), t(), -1]}, {add, [s(), 2]}]}}],
+        [begin
+             N = recon(Nu, Vars), D = recon(De, Vars),
+             [begin
+                  {Ast, #{form := Form}} = pq_simplify:rational(N, D, Vars, #{apart => [X], alphabet => [], collect => []}),
+                  ?assert(lists:member(Form, [factored, partial, expanded])),
+                  ?assert(pq_simplify:verify(Ast, N, D, Vars))
+              end || X <- [[d, s, t], [d], [s, t]]]
+         end || {Nu, De} <- Cases],
+        N1 = recon(1, Vars), D1 = recon({mul, [s(), t(), {add, [s(), t()]}]}, Vars),
+        {A1, #{form := partial}} = pq_simplify:rational(N1, D1, Vars, #{apart => [[s, t]], form => partial}),
+        ?assertEqual("(t^(-1)*(s + t)^(-2) + s^(-1)*(s + t)^(-2))", lists:flatten(io_lib:format("~s", [pq_simplify:format(A1)])))
+    end}.
+
+%% factors outside the alphabet, found by exact gcds: a repeated one, one shared by two coefficients
+discover_test_() ->
+    {timeout, 120, fun() ->
+        Vars = [d, s, t],
+        Odd = {add, [{mul, [d(), s()]}, {mul, [-1, {pow, t(), 2}]}, 5]},
+        Other = {add, [{pow, s(), 2}, {mul, [3, d(), t()]}, 1]},
+        Third = {add, [{mul, [d(), {pow, t(), 2}]}, {mul, [-1, s()]}, 2]},
+        One = recon(1, Vars),
+        Has = fun(Found) -> lists:member(canon(Odd), [canon(F) || F <- Found]) end,
+        %% the repeated factor
+        N1 = recon({mul, [{pow, Odd, 2}, Other]}, Vars), D1 = recon({add, [d(), -4]}, Vars),
+        Found1 = pq_simplify:discover([{N1, D1}], Vars),
+        ?assert(Has(Found1)),
+        %% shared by two coefficients' numerators (each alone irreducible to the alphabet)
+        ?assert(Has(pq_simplify:discover([{recon({mul, [Odd, Other]}, Vars), One}, {recon({mul, [Odd, Third]}, Vars), One}], Vars))),
+        ?assertEqual([], pq_simplify:discover([{recon(Other, Vars), One}, {recon(Third, Vars), One}], Vars)),
+        %% the proposals make the result smaller, verified
+        {A, #{size_out := Out}} = pq_simplify:rational(N1, D1, Vars, #{extra => Found1}),
+        ?assert(pq_simplify:verify(A, N1, D1, Vars)),
+        {_, #{size_out := Out0}} = pq_simplify:rational(N1, D1, Vars, #{}),
+        ?assert(Out < Out0)
+    end}.
+
+canon(A) -> {ok, C} = pq_symbolic:canonicalise(A), C.

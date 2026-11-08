@@ -29,6 +29,18 @@ the public API is additive.
   identities do not reduce is handled by the `sector_maps => false` option (every sector's identities, scalar
   symmetries only), which the automatic seeds try after `true` at each budget: I(1,1,1,1,1,1,1,-2,-1) takes
   1.28 s on one core this way (18,366 equations; FIRE 12.0 s).
+- **Smaller results** (decision record R1, "Smaller results"):
+  - `pq_ibp:choose_masters/3`: a greedy search over master bases (each master swapped for a neighbour in its
+    sector, kept when the simplified coefficients shrink), every candidate an exact reduction on the default
+    reduction's seeds; `reduce/3` takes `masters => [Integral]` (preferred masters) and `pq_ibp:size_of/2` measures
+    a reduction. FIRE's double-box targets: 18 -> 12 and 56 -> 32 additions (12.7 s and 53 s of search on 16
+    cores); the expanded coefficients 25 -> 16 and 79 -> 48.
+  - `pq_simplify`: multivariate partial fractions (Leinartas's decomposition for affine denominator factors, then
+    the numerators reduced modulo the denominators; nested: in d, then in the kinematics) as a fourth form, chosen
+    when smaller or forced by `form => partial`; `apart => [[Var]]` the variable sets tried.
+  - `pq_simplify:discover/2` and `gcd_poly/2`: factors outside the alphabet, repeated in a coefficient or shared
+    by several, found by exact multivariate gcds (primitive pseudo-remainder sequences) and a coprime refinement,
+    to pass as `extra`.
 - **Large systems: Laporta's elimination equation by equation** (`pq_nif:ff_pivots/4`): the equations from the
   simplest to the most complex, each reduced only while its leading integral already has a pivot, its other entries
   left as they are, the redundant ones dropped at once. The pivot columns (the masters) are the same; mark and
