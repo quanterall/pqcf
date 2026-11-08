@@ -5,6 +5,20 @@ the public API is additive.
 
 ## Unreleased
 
+### Documentation
+
+- After an external review of the repository (8 Nov 2026):
+  - the user guide's introduction said PQCF was not ready and its API not frozen (stale since 1 Nov); it now
+    states the freeze and the release;
+  - a new guide section, 17, on reducing results: a photonic quantity (the permanent of a symbolic interferometer
+    block) reconstructed over finite fields, a Feynman-integral reduction, a differential equation; every example
+    is a test;
+  - the README says that PQCF is not post-quantum cryptography;
+  - "One computational foundation": the four layers (the symbolic engine, compiled programs, reconstruction over
+    finite fields, execution on the BEAM) that the photonic simulator and the symbolic work share, what each serves
+    on either side, and how each is validated;
+  - "Next" brought up to date.
+
 ### Changed
 
 - Programs are evaluated over finite fields in Montgomery arithmetic (`Mont` in `ffslp.rs`: three 64-bit products per

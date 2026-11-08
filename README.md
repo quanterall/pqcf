@@ -5,7 +5,10 @@ sampling, a symbolic engine for parameterised circuits, and parallel, reproducib
 top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust library loaded as a NIF
 (`pq_nif`, through [Rustler](https://github.com/rusterlium/rustler)).
 
-**Status: 1.3.0 (`CHANGELOG.md`).**
+PQCF stands for *Photonic Quantum Computing Framework*. It is not a post-quantum cryptography library and
+implements no cryptographic algorithms.
+
+**Status: 1.4.0 (`CHANGELOG.md`).**
 
 - The API is frozen (`docs/decisions/API-freeze.md`): changes to the public API are additive only until 2.0.
 - Every functional requirement of the specification is implemented and tested.
@@ -16,9 +19,11 @@ top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust 
   - noise models: partial distinguishability, multi-photon sources, dark counts, thermal loss;
   - GPU offload of permanents and hafnians;
   - photon-number-block storage for density matrices.
-- Beyond the roadmap (1.2):
-  - a JSON service and a Python client (`python/`);
-  - density-matrix gates 5–25 times faster.
+- Beyond the roadmap:
+  - 1.2: a JSON service and a Python client (`python/`); density-matrix gates 5–25 times faster;
+  - 1.3: the symbolic engine measured against FORM 5;
+  - 1.4: reducing large symbolic results by reconstruction over finite fields, with Feynman-integral reduction
+    measured against FIRE (below).
 - Benchmarks are from a provisional reference machine (`bench/HARDWARE.md`).
 
 ## What is done
@@ -100,6 +105,24 @@ top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust 
   AddressSanitizer runs.
 - The user guide `docs/guide.md`, whose examples run as tests; the API review and freeze.
 
+## One computational foundation
+
+PQCF is one framework, not several projects under one name. Its photonic simulator and its symbolic work, Feynman
+integrals included, rest on the same four layers. Each layer has its own checks.
+
+| Layer | What it is | Used by the photonic simulator for | Used by the symbolic work for | How it is validated |
+| --- | --- | --- | --- | --- |
+| **Symbolic engine** (`pq_symbolic`) | Exact canonical expressions, matrices, derivatives | Parameterised circuits: the exact unitary of an interferometer whose angles are symbols, symbolic permanents and Gaussian states, exact gradients | Large expressions: the FORM benchmarks; the coefficients of integration-by-parts identities | Term-for-term agreement with FORM 5, run weekly (`comparison/form`); property tests |
+| **Compiled programs** (`pq_symbolic:compile/3`) | An expression compiled once into a straight-line program, evaluated many times | Evaluating a circuit's symbolic results (amplitudes, probabilities, gradients) under many parameter values, for the user (guide, section 11) | The black boxes that reconstruction samples | Fewer operations than FORM's best level on its resultant benchmarks; values against the expression tree |
+| **Reconstruction over finite fields** (`pq_ff`, `pq_recon`, `pq_simplify`) | Exact results rebuilt from values modulo primes, never building the large intermediate | Exact closed forms of photonic quantities, such as output amplitudes as polynomials of the circuit's parameters (guide, section 17) | Reduced results; linear systems; Feynman integrals (`pq_ibp`) | Checks at fresh points in fresh primes; the double box equal to FIRE's, master by master; textbook reductions in the tests |
+| **Execution on the BEAM** (the job layer for sampling; `pq_rexec` and `pq_rstore` for reconstruction; Rust NIFs) | Two modules on one design: work spread over processes, cores and Erlang nodes, the same result for any number of them, a failed node's work retried elsewhere; numerical kernels in Rust on dirty schedulers | Boson-sampling and Gaussian-sampling shots (`pq_job`, `pq_parallel`) | Reconstruction samples, the order search | The same answer on any number of workers and nodes, and node failures, in the tests; NFR benchmarks (`bench/HARDWARE.md`, provisional) |
+
+Why integral reduction lives here: reducing large exact results is the step after computing them, for photonic
+expressions as for any other. Integral reduction is the field's hardest public benchmark for that machinery. It
+has established tools to measure against (FORM, FIRE), so it tests the shared layers far harder than the photonic
+expressions do today. The photonic simulator itself is validated separately, against The Walrus, Strawberry Fields
+and Piquasso (below).
+
 ## 1.4.0: reducing large results
 
 Reducing results by reconstruction over finite fields (`CHANGELOG.md`, decision record R1):
@@ -136,8 +159,10 @@ The symbolic engine against FORM 5 (`CHANGELOG.md`, `docs/decisions/` K1, K2, H1
 
 ## Next
 
-- The multi-node NFR-02 benchmark on separate machines.
-- The reference hardware for the benchmarks (`bench/HARDWARE.md` is provisional).
+- The multi-node NFR-02 benchmark on separate machines, and the reference hardware for the benchmarks
+  (`bench/HARDWARE.md` is provisional: a shared ARM machine, no x86-64 reference yet).
+- Feynman-integral reduction on larger families (masses, three loops) and spread across many machines.
+- Regular comparisons with PennyLane and Strawberry Fields (Xanadu) and Perceval (Quandela).
 
 ## Documentation
 

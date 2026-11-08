@@ -3,7 +3,8 @@
 This guide covers the Erlang API of the `pq` application. Every example here is also a test,
 `test/guide_examples_tests.erl`, so the examples run as written. If you change one, change the test as well.
 
-PQCF is not ready for use yet and the API may still change. It will be frozen at the end of Phase 3.
+The API has been frozen since 1.0.0-rc.1 (1 November 2026): until 2.0, changes to it are additive only
+(`docs/decisions/API-freeze.md` lists what is frozen, release by release). This guide is for 1.4.0.
 
 ## 1. Setup
 
@@ -545,3 +546,52 @@ with pqcf.connect() as q:                       # starts `erl ... -s pq_service 
   gives a passive circuit's unitary.
 - **Tests:** the package's tests run with the container's test suite, and the converters' tests in the oracle image
   (`python/README.md`).
+
+## 17. Reducing results (1.4)
+
+Large exact results are often far smaller than the computation that produced them. `pq_recon` reconstructs such
+a result exactly from its values modulo large primes, without ever building the large intermediate. A compiled
+program (`pq_symbolic:compile/3` with `exact_constants => true`) is the black box. The values are computed in Rust,
+and the samples spread over the local workers or Erlang nodes (`executor => {nodes, Nodes}`), with the same result
+on any of them.
+
+The same machinery serves photonic results. Here the permanent of a symbolic 3 × 3 interferometer block, the
+amplitude of a three-photon process, is reconstructed from its program:
+
+```erlang
+A = {sym, a}, B = {sym, b}, Cc = {sym, c},
+{ok, Per} = pq_symbolic:permanent({matrix, [[A, B, 0], [B, A, Cc], [0, Cc, A]]}),
+{ok, Prog} = pq_symbolic:compile([Per], [a, b, c], #{exact_constants => true}),
+{ok, Poly} = pq_recon:polynomial(Prog, [a, b, c], #{}),        %% a^3 + a b^2 + a c^2, rebuilt from values mod p
+{Ast, _} = pq_simplify:polynomial(Poly, [a, b, c], #{}).
+```
+
+`pq_recon:rational/3` does the same for rational functions, and `pq_recon:linear/4` for the solution of a linear
+system whose entries are expressions. It solves the system at sample points and never symbolically.
+
+**Feynman integrals** (`pq_ibp`, `pq_ibp_family`). A family of integrals is data: loop and external momenta,
+propagators, the external scalar products. `pq_ibp:reduce/3` reduces any number of target integrals to master
+integrals. It generates the integration-by-parts identities, chooses the seeds automatically, keeps only the
+equations the targets need, and reconstructs each coefficient as above. `pq_simplify` writes the coefficients in
+factored form, and checks every rewrite against the original:
+
+```erlang
+Box = pq_ibp_family:example(box),                    %% the one-loop massless box, in d, s, t
+{ok, #{{2, 1, 1, 1} := Coeffs}, _Info} = pq_ibp:reduce(Box, [{2, 1, 1, 1}], #{}),
+{_, {N, D}} = lists:keyfind({1, 1, 1, 1}, 1, Coeffs),  %% the box's coefficient
+{F, _} = pq_simplify:rational(N, D, [d, s, t], #{}),
+"(-1)*(d - 5)*s^(-1)" = lists:flatten(io_lib:format("~s", [pq_simplify:format(F)])).
+```
+
+`pq_ibp:differential_equation(Family, Masters, Var, Opts)` gives the masters' differential equation in an
+invariant, every entry an exact rational function. Masters and targets are tuples of indices, named by their
+canonical image under the family's symmetries (`pq_ibp_family:canon/2`).
+
+```erlang
+Masters = [pq_ibp_family:canon(Box, M) || M <- [{1, 1, 1, 1}, {1, 0, 1, 0}, {0, 1, 0, 1}]],
+{ok, [_RowBox, _RowBubbleS, [_, _, {Nt, Dt}]]} = pq_ibp:differential_equation(Box, Masters, t, #{}).
+%% d Bubble_t / dt = (d - 4) / (2 t) Bubble_t
+```
+
+The method and its measurements, including the comparison with FIRE, are in decision record R1.
+

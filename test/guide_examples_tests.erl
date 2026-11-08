@@ -8,7 +8,8 @@ close(A, B) -> abs(A - B) < 1.0e-9.
 guide_test_() ->
     {setup, fun() -> {ok, _} = application:ensure_all_started(pq) end, fun(_) -> ok end,
      [fun hom/0, fun determinism/0, fun squeezed/0, fun parameters/0, fun gradient/0, fun symbolic/0, fun json/0,
-      fun loss/0, fun postselection/0, fun jobs/0, fun symbolic_gaussian/0, fun feed_forward/0, fun errors/0]}.
+      fun loss/0, fun postselection/0, fun jobs/0, fun symbolic_gaussian/0, fun feed_forward/0, fun errors/0,
+      {timeout, 120, fun reducing/0}]}.
 
 %% 1. Hong-Ou-Mandel
 hom() ->
@@ -201,4 +202,26 @@ feed_forward() ->
     {ok, #result{measured = [0, 1, 2], samples = S}} = pq_api:sample(C, #{shots => 1000, seed => 1}),
     ?assertEqual(1000, length(S)),
     ?assert(lists:member([0, 0, 1], S)).
+
+%% 17. Reducing results
+reducing() ->
+    A = {sym, a}, B = {sym, b}, Cc = {sym, c},
+    {ok, Per} = pq_symbolic:permanent({matrix, [[A, B, 0], [B, A, Cc], [0, Cc, A]]}),
+    {ok, Prog} = pq_symbolic:compile([Per], [a, b, c], #{exact_constants => true}),
+    {ok, Poly} = pq_recon:polynomial(Prog, [a, b, c], #{}),
+    {Ast, _} = pq_simplify:polynomial(Poly, [a, b, c], #{}),
+    Pt = #{a => 3, b => 5, c => 7},
+    ?assertEqual({ok, 3 * 3 * 3 + 3 * 5 * 5 + 3 * 7 * 7}, pq_symbolic:evaluate(Ast, Pt, #{exact => true})),
+    ?assertEqual(pq_symbolic:evaluate(Per, Pt, #{exact => true}), pq_symbolic:evaluate(Ast, Pt, #{exact => true})),
+    Box = pq_ibp_family:example(box),
+    {ok, #{{2, 1, 1, 1} := Coeffs}, _Info} = pq_ibp:reduce(Box, [{2, 1, 1, 1}], #{}),
+    {_, {N, D}} = lists:keyfind({1, 1, 1, 1}, 1, Coeffs),
+    {F, _} = pq_simplify:rational(N, D, [d, s, t], #{}),
+    "(-1)*(d - 5)*s^(-1)" = lists:flatten(io_lib:format("~s", [pq_simplify:format(F)])),
+    Masters = [pq_ibp_family:canon(Box, M) || M <- [{1, 1, 1, 1}, {1, 0, 1, 0}, {0, 1, 0, 1}]],
+    {ok, [_RowBox, _RowBubbleS, [_, _, {Nt, Dt}]]} = pq_ibp:differential_equation(Box, Masters, t, #{}),
+    Lhs = {mul, [pq_sym_norm:to_ast(Nt), {pow, pq_sym_norm:to_ast(Dt), -1}]},
+    P2 = #{d => 7, s => 11, t => 13},
+    ?assertEqual(pq_symbolic:evaluate({mul, [{rat, 1, 2}, {add, [{sym, d}, -4]}, {pow, {sym, t}, -1}]}, P2, #{exact => true}),
+                 pq_symbolic:evaluate(Lhs, P2, #{exact => true})).
 
