@@ -25,6 +25,14 @@ the public API is additive.
   kite's identities 2,274 -> 1,579; the double box 7,296 -> 6,807 and 18,366 -> 16,967, answers unchanged (equal to
   FIRE's). Symmetries that would also have to move the external momenta are not used beyond the scalar mapping:
   changing the loop momenta is always valid, moving external ones is not in general.
+- **Large systems: Laporta's elimination equation by equation** (`pq_nif:ff_pivots/4`): the equations from the
+  simplest to the most complex, each reduced only while its leading integral already has a pivot, its other entries
+  left as they are, the redundant ones dropped at once. The pivot columns (the masters) are the same; mark and
+  sweep is unchanged. The column-by-column elimination it replaces carried every row along: on a double-box system
+  of 194,739 equations (I(1,1,1,1,1,1,2,-2,-2): seeds with a dot and four numerators), 8.8 billion merged entries
+  against a final 654,082, 31 s; now 3.2 s, and the target needs 18,543 equations instead of 67,663. That reduction:
+  10.7 s on one core (FIRE 6.5.2: 12.8 s on one thread), 9.6 s on 20 (FIRE: 6.9 s on 20 threads), peak memory
+  1.9-3.7 GB; FIRE's example targets 0.31 s and 0.79 s on one core (FIRE 8.0 s and 12.2 s), answers equal to FIRE's.
 - Fixed: `pq_ibp_family:canon/2` mapped integrals even in a family with `symmetries => false`; the automatic seeds
   could then never be complete for such a family. Found by the sector-map test, which compares mapped reductions
   with unmapped ones, master by master.

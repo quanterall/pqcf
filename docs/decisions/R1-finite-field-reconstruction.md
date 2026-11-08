@@ -720,3 +720,39 @@ The IBP machinery moved from the benchmark scripts (`comparison/form/ibp.erl`, `
 - **Tests** (`pq_ibp_tests`): family validation; zero sectors and symmetries; the box's textbook reduction,
   I(2,1,1,1) = −(d − 5)/s · Box + 4(d − 5)(d − 3)/(s t²(d − 6)) · Bubble_t, checked exactly at random points;
   several targets against one; and the box's differential equation.
+
+## Larger families and larger systems (8 Nov 2026)
+
+- **Masses and loops.** A propagator may be `{Sign, Momentum, MassSquared}`. U and F are computed by determinant
+  and adjugate for any number of loops, derivatives are taken in a mass variable, and vacuum families work. The tests
+  check the massive tadpole (I(2) = (d − 2)/(2m²) I(1), and its equation in m²) and the three-loop massless banana
+  (its equation in s is (3d/2 − 4)/s, as dimensional analysis requires).
+- **Symmetries with numerators.** A sector equivalent to its representative maps onto it by a change of the loop
+  momenta, k → A k + B p with det A = ±1. Its integrals, numerators included, then expand into the representative's,
+  and it needs no identities of its own. A test compares mapped reductions with unmapped ones, master by master;
+  that test found a bug in `canon/2`, which ignored `symmetries => false`.
+  - The kite's identities: 2,274 → 1,579; the double box's: 7,296 → 6,807.
+  - Symmetries that would also move the external momenta stay scalar-only.
+- **Large systems.** A double-box target with a dot and four numerator powers, I(1,1,1,1,1,1,2,−2,−2), needs seeds
+  with dots: 194,739 equations over 113,393 integrals.
+  - **FIRE beat us first:** 12.8 s on one thread and 6.9 s on 20, against 46 s and 41 s for PQCF.
+  - **The cause:** the learning elimination went column by column and reduced every row it touched, the redundant
+    equations included: 31 million row updates and 8.8 billion merged entries, for a final echelon form of 654,082
+    entries.
+  - **The fix: Laporta's own order, equation by equation.** Each equation is reduced only while its leading integral
+    has a pivot, and redundant equations vanish at once. The masters are unchanged, since the leading columns of
+    any echelon basis are the same.
+  - **Now:**
+
+| I(1,1,1,1,1,1,2,−2,−2) | 1 core | 20 cores |
+| --- | --- | --- |
+| FIRE 6.5.2 | 12.8 s | 6.9 s |
+| PQCF, column-by-column learning | 46 s | 41 s |
+| PQCF, equation by equation | **10.7 s** | 9.6 s |
+
+  On one core PQCF is now 1.2× faster than FIRE; on 20, FIRE is 1.4× faster. PQCF's system build is mostly
+  sequential: the learning elimination (3.2 s) runs on one thread. FIRE's example targets take 0.31 s and 0.79 s on
+  one core (FIRE: 8.0 s and 12.2 s). The target needs 18,543 equations instead of 67,663. Peak memory is
+  1.9–3.7 GB, and every answer equals FIRE's.
+- **Next for large systems:** a parallel learning elimination (by sectors, or by blocks of independent equations),
+  and seeds chosen per sector instead of one dot budget for all.

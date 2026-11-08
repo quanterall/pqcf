@@ -663,79 +663,80 @@ pub fn solve_aug(p: u64, mut rows: Vec<Vec<(usize, u64)>>, n: usize, m: usize, w
     Some(out)
 }
 
-/// The pivots of a sparse m x n matrix mod p (rows of (column, value), sorted by column): Gaussian elimination
-/// column by column, 0 to n-1, each column's pivot the shortest remaining row that holds it, the lowest of equals (a
-/// deterministic choice that keeps the fill-in low);
+/// row - f * pivot, both sorted by column, zeros dropped
+fn sub_row(row: &[(usize, u64)], piv: &[(usize, u64)], f: u64, p: u64) -> Vec<(usize, u64)> {
+    let fp = shoup_pre(f, p);
+    let mut out = Vec::with_capacity(row.len() + piv.len());
+    let (mut i, mut j) = (0, 0);
+    while i < row.len() || j < piv.len() {
+        if j >= piv.len() || (i < row.len() && row[i].0 < piv[j].0) {
+            out.push(row[i]);
+            i += 1;
+        } else if i >= row.len() || piv[j].0 < row[i].0 {
+            let v = (p - shoup_mul(piv[j].1, f, fp, p)) % p;
+            if v != 0 {
+                out.push((piv[j].0, v));
+            }
+            j += 1;
+        } else {
+            let v = (row[i].1 + p - shoup_mul(piv[j].1, f, fp, p)) % p;
+            if v != 0 {
+                out.push((row[i].0, v));
+            }
+            i += 1;
+            j += 1;
+        }
+    }
+    out
+}
+
+/// The pivots of a sparse m x n matrix mod p (rows of (column, value), sorted by column; column 0 the most complex):
 /// (pivot rows, pivot columns) in column order, and the rows that `targets` need. The columns without a pivot are the
-/// dependent ones: in a Laporta reduction, columns ordered most complex first, they are the master integrals.
+/// dependent ones: in a Laporta reduction they are the master integrals.
 ///
-/// Mark and sweep (as in FiniteFlow): a pivot row is final once chosen, and every row records the pivot rows it was
-/// combined with. A target column needs its pivot row; a needed row needs the rows it was combined with (its forward
-/// elimination) and the pivot row of every other non-master column left in it (back substitution). The other rows
-/// never touch the targets: the needed rows, in the pivot order of their columns, solve for them alone, by the same
-/// elimination. Sorted by pivot column; empty without targets.
+/// Laporta's elimination, equation by equation (as FIRE and Kira do it): the equations from the simplest (their
+/// leading, most complex, column last) to the most complex, shorter ones first among equals, then by index (a
+/// deterministic order). Each is reduced only while its leading column already has a pivot; then it becomes that
+/// column's pivot, its other entries left as they are, or it vanishes (a redundant equation, dropped at once). The
+/// pivot columns are those of any echelon form (the greedy set in column order), so the masters are what a full
+/// elimination gives; but no row is reduced beyond its leading column, and the redundant equations cost only their
+/// own reduction -- an eager elimination column by column had to carry every row along (on a double-box system of
+/// 194,739 equations, 8.8 billion merged entries against a final 654,082).
+///
+/// Mark and sweep (as in FiniteFlow): a pivot row is final once stored, and every row records the pivot rows it was
+/// reduced by. A target column needs its pivot row; a needed row needs the rows it was reduced by and the pivot row
+/// of every other non-master column left in it (back substitution). The other rows never touch the targets: the
+/// needed rows, in the pivot order of their columns, solve for them alone. Sorted by pivot column; empty without
+/// targets.
 pub fn pivots(p: u64, mut rows: Vec<Vec<(usize, u64)>>, n: usize, targets: &[usize]) -> (Vec<usize>, Vec<usize>, Vec<usize>) {
-    use std::collections::BTreeSet;
-    let mut col_rows: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); n];
-    for (r, row) in rows.iter_mut().enumerate() {
+    for row in rows.iter_mut() {
         row.retain(|e| e.1 % p != 0);
         for e in row.iter_mut() {
             e.1 %= p;
-            col_rows[e.0].insert(r);
         }
     }
-    let (mut prow, mut pcol) = (Vec::new(), Vec::new());
-    let mut deps: Vec<Vec<u32>> = vec![Vec::new(); rows.len()];
+    let mut order: Vec<usize> = (0..rows.len()).filter(|&r| !rows[r].is_empty()).collect();
+    order.sort_by_key(|&r| (std::cmp::Reverse(rows[r][0].0), rows[r].len(), r));
     let mut pivot_of = vec![usize::MAX; n];
-    for k in 0..n {
-        // the shortest row holding the column (the lowest index among equals): the least fill-in
-        let Some(r) = col_rows[k].iter().copied().min_by_key(|&q| (rows[q].len(), q)) else { continue };
-        prow.push(r);
-        pcol.push(k);
-        pivot_of[k] = r;
-        for &(c, _) in &rows[r] {
-            col_rows[c].remove(&r);
-        }
-        let inv = match rows[r].iter().find(|e| e.0 == k).and_then(|e| invmod(e.1, p)) {
-            Some(i) => i,
-            None => continue,
-        };
-        let others: Vec<usize> = col_rows[k].iter().copied().collect();
-        for q in others {
-            let aqk = rows[q].iter().find(|e| e.0 == k).map_or(0, |e| e.1);
-            let f = mulmod(aqk, inv, p);
-                let fp = shoup_pre(f, p);
-            deps[q].push(r as u32);
-            let (rq, rr) = (std::mem::take(&mut rows[q]), &rows[r]);
-            let mut merged = Vec::with_capacity(rq.len() + rr.len());
-            let (mut i, mut j) = (0, 0);
-            // the column index changes only where the row does: a new entry (fill-in) is added, a cancelled one
-            // removed; an entry the row already had stays where it is
-            while i < rq.len() || j < rr.len() {
-                if j >= rr.len() || (i < rq.len() && rq[i].0 < rr[j].0) {
-                    i += 1;
-                    merged.push(rq[i - 1]);
-                } else if i >= rq.len() || rr[j].0 < rq[i].0 {
-                    j += 1;
-                    let (c, v) = (rr[j - 1].0, (p - shoup_mul(rr[j - 1].1, f, fp, p)) % p);
-                    if v != 0 {
-                        merged.push((c, v));
-                        col_rows[c].insert(q);
-                    }
-                } else {
-                    i += 1;
-                    j += 1;
-                    let (c, v) = (rq[i - 1].0, (rq[i - 1].1 + p - shoup_mul(rr[j - 1].1, f, fp, p)) % p);
-                    if v != 0 {
-                        merged.push((c, v));
-                    } else {
-                        col_rows[c].remove(&q);
-                    }
-                }
+    let mut pinv = vec![0u64; n];
+    let mut deps: Vec<Vec<u32>> = vec![Vec::new(); rows.len()];
+    for r in order {
+        let mut row = std::mem::take(&mut rows[r]);
+        while let Some(&(c, v)) = row.first() {
+            let q = pivot_of[c];
+            if q == usize::MAX {
+                pivot_of[c] = r;
+                pinv[c] = invmod(v, p).expect("a non-zero residue mod a prime");
+                break;
             }
-            rows[q] = merged;
+            deps[r].push(q as u32);
+            let f = mulmod(v, pinv[c], p);
+            row = sub_row(&row, &rows[q], f, p);
         }
+        rows[r] = row;
     }
+    let pcol: Vec<usize> = (0..n).filter(|&c| pivot_of[c] != usize::MAX).collect();
+    let prow: Vec<usize> = pcol.iter().map(|&c| pivot_of[c]).collect();
     // the sweep: the rows the targets need
     let mut needed = vec![false; rows.len()];
     let mut stack: Vec<usize> = targets.iter().filter(|&&t| t < n && pivot_of[t] != usize::MAX).map(|&t| pivot_of[t]).collect();
@@ -1139,15 +1140,15 @@ mod tests {
 
     #[test]
     fn finds_pivots() {
-        // rows x+y, 2x+2y, y, z over columns x, y, z, w: x pivots on row 0 (the first of two equally short), y on
-        // row 2 (row 1 is then 0), z on row 3; w has none
+        // rows x+y, 2x+2y, y, z over columns x, y, z, w: z pivots on row 3, y on row 2, x on row 0 (the first of two
+        // equally short); row 1 then reduces to 0; w has none
         let rows = vec![vec![(0, 1), (1, 1)], vec![(0, 2), (1, 2)], vec![(1, 1)], vec![(2, 5)]];
         assert_eq!(pivots(P, rows.clone(), 4, &[]), (vec![0, 2, 3], vec![0, 1, 2], vec![]));
         // y needs only its own row; x needs row 0 and, for the y left in it, row 2; z needs row 3
         assert_eq!(pivots(P, rows.clone(), 4, &[1]).2, vec![2]);
         assert_eq!(pivots(P, rows.clone(), 4, &[0]).2, vec![0, 2]);
         assert_eq!(pivots(P, rows, 4, &[2]).2, vec![3]);
-        // x in a long row and a short one: the short one pivots
+        // x in a long row and a short one: the short one pivots, the long one reduces to y
         let rows = vec![vec![(0, 1), (1, 1), (2, 1)], vec![(0, 1), (2, 1)]];
         // y's row was combined with x's pivot row (row 1): y needs both
         assert_eq!(pivots(P, rows, 3, &[1]), (vec![1, 0], vec![0, 1], vec![1, 0]));
