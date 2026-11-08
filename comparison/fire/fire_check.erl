@@ -1,7 +1,7 @@
 %% PQCF's reduction of the double box against FIRE's (decision record R1): both give target = sum c_j M_j, but the
 %% programs may pick different masters, and FIRE's example doesn't apply every sector symmetry (12 masters, PQCF 8).
 %% The comparison is in FIRE's basis: each PQCF master is one of FIRE's (up to a symmetry), or FIRE reduces it
-%% (a tables file of its own); FIRE masters equal by a symmetry (ibp_family:canon/2) are merged. At a random point
+%% (a tables file of its own); FIRE masters equal by a symmetry (pq_ibp_family:canon/2) are merged. At a random point
 %% mod p, sum_j c_j [M_j in FIRE's masters] must equal FIRE's coefficients, master by master.
 %%
 %%   fire_check:run("<dir>/ibp_doublebox_7_2.answer", "<FIRE's doublebox1.tables>", [{Master, "<FIRE's tables>"}])
@@ -12,8 +12,8 @@
 
 run(AnswerFile, TablesFile, Reduced) ->
     {ok, _} = application:ensure_all_started(pq),
-    Fam = ibp_family:family(doublebox),
-    Canon = fun(F) -> ibp_family:canon(Fam, F) end,
+    Fam = pq_ibp_family:example(doublebox),
+    Canon = fun(F) -> pq_ibp_family:canon(Fam, F) end,
     Point = #{d => 1234577, s => 7654337, t => 3456791},
     Ours = [{M, value(Ast, Point)} || {M, Ast} <- answer(AnswerFile)],
     Fire = [{F, value(Ast, Point)} || {F, Ast} <- fire_target(TablesFile)],

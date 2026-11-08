@@ -7,6 +7,18 @@ the public API is additive.
 
 ### Added
 
+- **Feynman-integral reduction as part of the library** (`pq_ibp`, `pq_ibp_family`; R1):
+  - `pq_ibp_family:new/1`: a family as data (loop and external momenta, propagators with numerators, external
+    scalar products as a map, variables, top sector), validated; `example/1` gives the benchmarks' box, kite and
+    FIRE's double box; identities, scaleless sectors (Lee-Pak), sector symmetries (Pak), seeds and derivatives with
+    respect to the invariants, cached per process by the family's hash, random points from local states;
+  - `pq_ibp:reduce/3`: several targets at once, seeds automatic (`seeds => auto`, the default) or given
+    (`{dots, D, S}`, Kira's `{R, S}`, a list), the masters' order (`order => numerators | dots`), pq_recon's options
+    (executors, denominator guessing); a zero target maps to `[]`, a master to itself; `system/4`, `seeds/3` and
+    `auto_seeds/3` for the system itself; `differential_equation/4`: the masters' equation in an invariant;
+  - the double box's two targets in one call: 2.7 s on one core; the benchmark drivers (`comparison/form/ibp.erl`,
+    `comparison/pinn/box_de.erl`, `comparison/fire/fire_check.erl`) now use the library, with the same results;
+
 - **Reducing results by finite-field reconstruction, phase 1** (`R1`; the project owner's decision, 7 Nov 2026):
   - `pq_symbolic:compile/3` with `exact_constants => true`: constants known exactly stay exact in the program
     (float evaluation unchanged);

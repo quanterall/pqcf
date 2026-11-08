@@ -704,3 +704,19 @@ The answers are those checked equal to FIRE's. Where PQCF's time goes now, on th
 about 1 s, the system 1.1 s, the reconstruction 1.2 s (more than half of it evaluating the program). The next steps
 are a cheaper program evaluation per point (the entries of A share most of their subexpressions), and the points
 spread over cores and nodes.
+
+## In the library: `pq_ibp` and `pq_ibp_family` (8 Nov 2026)
+
+The IBP machinery moved from the benchmark scripts (`comparison/form/ibp.erl`, `ibp_family.erl`) into the library:
+- **`pq_ibp_family`:** a family is data, validated by `new/1`. The external scalar products are a map, not a
+  function, so a family can be stored and sent between nodes. The per-process caches (scalar products, Symanzik
+  polynomials, zero sectors, symmetry classes, derivative operators) are keyed by the family's hash. Random points
+  come from local random states, never the caller's.
+- **`pq_ibp`:** `reduce/3` takes several targets at once. Mark and sweep keeps the equations any of them needs, the
+  automatic seeds must be complete for all of them, and one reconstruction gives every target's coefficients.
+  `differential_equation/4` reduces all the integrals of the masters' derivatives in one call.
+- **The benchmark drivers use the library,** with the same answers: the box, kite and double-box reductions, the
+  differential-equation file (byte-identical), and the double box's two targets equal to FIRE's.
+- **Tests** (`pq_ibp_tests`): family validation; zero sectors and symmetries; the box's textbook reduction,
+  I(2,1,1,1) = −(d − 5)/s · Box + 4(d − 5)(d − 3)/(s t²(d − 6)) · Bubble_t, checked exactly at random points;
+  several targets against one; and the box's differential equation.

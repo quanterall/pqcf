@@ -1,54 +1,106 @@
-%% Integration-by-parts identities for any family of propagators (decision record R1, phase 5): the scalar products
-%% solved from the propagators' definitions, the scaleless (zero) sectors by the Lee-Pak criterion, the seeds in
-%% Kira's form (r: the sum of the positive indices, s: of the numerator powers). ibp.erl's box and kite are written
-%% out by hand; this module gives the same identities for them (checked) and any other family, such as FIRE's
-%% double box.
+%% Integration-by-parts (IBP) identities for a family of Feynman integrals (decision record R1): the scalar products
+%% solved from the propagators' definitions, the scaleless (zero) sectors by the Lee-Pak criterion, the sector
+%% symmetries by Pak's criterion, the seeds in Kira's form (or with the dots per sector bounded), and derivatives
+%% with respect to the invariants (for the masters' differential equations). pq_ibp builds and solves the systems.
 %%
-%% A family: #{props => [{Sign, Momentum}]} with Momentum = [{Coefficient, q}] over the loop momenta (loops) and
-%% the external ones (ext); D_a = Sign_a * Momentum_a^2; kin(Pi, Pj) the external scalar products as ASTs and
-%% kin_at(Pi, Pj, Point) their values mod p at a point of the invariants; top: the indices that can be positive.
-%% The propagators must span the scalar products of the loop momenta (with each other and with the externals).
--module(ibp_family).
--export([family/1, identities/2, zero/2, seeds/3, canon/2, derivative/3]).
+%% A family (new/1): loops and ext, the loop and the independent external momenta (atoms); props, the propagators
+%% [{Sign, Momentum}], Momentum = [{IntegerCoefficient, q}] over them, D_a = Sign_a * Momentum_a^2 (numerators
+%% included: they must span every scalar product with a loop momentum, as many as there are); kin, the external
+%% scalar products #{{Pa, Pb} => Ast} in the invariants (a missing pair is 0); vars, the variables of the results (the
+%% dimension d first, then the invariants); top, the indices that can be positive (default: all); symmetries
+%% (default true). The integral I(A) = int prod D_a^-A_a for a tuple A.
+%%
+%% Results are cached per process by the family's id (its hash): the scalar products, the Symanzik polynomials, the
+%% zero sectors, the symmetry classes and the derivative operators. Random points are drawn from local states,
+%% never the caller's.
+-module(pq_ibp_family).
+-export([new/1, example/1, identities/2, zero/2, seeds/3, canon/2, derivative/3, vars/1, size/1, kin/3]).
+-export_type([family/0, integral/0]).
+
+-type family() :: #{id := integer(), loops := [atom()], ext := [atom()], props := [{integer(), [{integer(), atom()}]}],
+                    kin := #{{atom(), atom()} => term()}, vars := [atom()], top := [pos_integer()], symmetries := boolean()}.
+-type integral() :: tuple().
 
 -define(P, 1000000007).
 
-%%% The families
+%%% Families
+
+-spec new(map()) -> family().
+new(Spec) ->
+    Loops = maps:get(loops, Spec),
+    Ext = maps:get(ext, Spec, []),
+    Props = maps:get(props, Spec),
+    Kin0 = maps:get(kin, Spec, #{}),
+    Vars = maps:get(vars, Spec),
+    N = length(Props),
+    Moms = Loops ++ Ext,
+    ok = check(is_list(Loops) andalso Loops =/= [] andalso lists:all(fun is_atom/1, Moms), loops),
+    ok = check(lists:all(fun({S, Mom}) -> (S =:= 1 orelse S =:= -1) andalso Mom =/= []
+                                              andalso lists:all(fun({C, Q}) -> is_integer(C) andalso lists:member(Q, Moms) end, Mom);
+                            (_) -> false end, Props), props),
+    ok = check(lists:all(fun is_atom/1, Vars) andalso lists:member(d, Vars), vars),
+    Kin = maps:from_list([{pair_key(A, B), X} || {A, B} := X <- Kin0]),
+    ok = check(lists:all(fun({A, B}) -> lists:member(A, Ext) andalso lists:member(B, Ext) end, maps:keys(Kin)), kin),
+    Fam0 = #{loops => Loops, ext => Ext, props => Props, kin => Kin, vars => Vars,
+             top => maps:get(top, Spec, lists:seq(1, N)), symmetries => maps:get(symmetries, Spec, true)},
+    Fam = Fam0#{id => erlang:phash2(Fam0)},
+    ok = check(length(sp_keys(Fam)) =:= N, {not_a_basis, length(sp_keys(Fam)), N}),
+    Fam.
+
+check(true, _) -> ok;
+check(false, What) -> error({bad_family, What}).
+
+pair_key(A, B) when A =< B -> {A, B};
+pair_key(A, B) -> {B, A}.
+
+%% the external scalar product pa . pb as an AST
+-spec kin(family(), atom(), atom()) -> term().
+kin(#{kin := Kin}, A, B) -> maps:get(pair_key(A, B), Kin, 0).
+
+-spec vars(family()) -> [atom()].
+vars(#{vars := V}) -> V.
+
+%% the number of indices of the family's integrals
+-spec size(family()) -> pos_integer().
+size(#{props := P}) -> length(P).
+
+%% The families of the benchmarks: the one-loop massless box; the two-loop massless propagator "kite"; FIRE's
+%% two-loop planar double box (examples/doublebox of FIRE 6.5: propagators -k1^2, -(k1+p1+p2)^2, -k2^2,
+%% -(k2+p1+p2)^2, -(k1+p1)^2, -(k1-k2)^2, -(k2-p3)^2, numerators -(k2+p1)^2, -(k1-p3)^2)
+-spec example(box | kite | doublebox) -> family().
+example(box) ->
+    S = {sym, s}, T = {sym, t},
+    new(#{loops => [k], ext => [p1, p2, p4], vars => [d, s, t],
+          props => [{1, [{1, k}]}, {1, [{1, k}, {1, p1}]}, {1, [{1, k}, {1, p1}, {1, p2}]}, {1, [{1, k}, {-1, p4}]}],
+          kin => #{{p1, p2} => {mul, [{rat, 1, 2}, S]}, {p1, p4} => {mul, [{rat, 1, 2}, T]},
+                   {p2, p4} => {mul, [{rat, -1, 2}, {add, [S, T]}]}}});
+example(kite) ->
+    new(#{loops => [k1, k2], ext => [p], vars => [d, s],
+          props => [{1, [{1, k1}]}, {1, [{1, k2}]}, {1, [{1, k1}, {-1, p}]}, {1, [{1, k2}, {-1, p}]}, {1, [{1, k1}, {-1, k2}]}],
+          kin => #{{p, p} => {sym, s}}});
+example(doublebox) ->
+    S = {sym, s}, T = {sym, t},
+    new(#{loops => [k1, k2], ext => [p1, p2, p3], vars => [d, s, t], top => [1, 2, 3, 4, 5, 6, 7],
+          props => [{-1, [{1, k1}]}, {-1, [{1, k1}, {1, p1}, {1, p2}]}, {-1, [{1, k2}]}, {-1, [{1, k2}, {1, p1}, {1, p2}]},
+                    {-1, [{1, k1}, {1, p1}]}, {-1, [{1, k1}, {-1, k2}]}, {-1, [{1, k2}, {-1, p3}]},
+                    {-1, [{1, k2}, {1, p1}]}, {-1, [{1, k1}, {-1, p3}]}],
+          kin => #{{p1, p2} => {mul, [{rat, 1, 2}, S]}, {p1, p3} => {mul, [{rat, 1, 2}, T]},
+                   {p2, p3} => {mul, [{rat, -1, 2}, {add, [S, T]}]}}}).
+
+%% the per-process cache, keyed by the family's id
+memo(Tag, #{id := Id}, Key, Fun) ->
+    K = {?MODULE, Tag, Id, Key},
+    case get(K) of
+        undefined -> V = Fun(), put(K, V), V;
+        V -> V
+    end.
+
+%% a random point of the variables mod ?P from a local state (the caller's random state is left alone)
+point(Vars, Seed) ->
+    {L, _} = lists:mapfoldl(fun(V, S) -> {X, S2} = rand:uniform_s(?P - 1, S), {{V, X}, S2} end, rand:seed_s(exsss, Seed), Vars),
+    maps:from_list(L).
 
 d() -> {sym, d}.
-
-family(doublebox) ->
-    %% FIRE's examples/doublebox: Internal {k1, k2}, External {p1, p2, p3}, all massless, p1.p2 = s/2,
-    %% p1.p3 = t/2, p2.p3 = -(s + t)/2; propagators -k1^2, -(k1+p1+p2)^2, -k2^2, -(k2+p1+p2)^2, -(k1+p1)^2,
-    %% -(k1-k2)^2, -(k2-p3)^2; numerators -(k2+p1)^2, -(k1-p3)^2
-    S = {sym, s}, T = {sym, t},
-    Kin = fun(A, B) when A > B -> kin3(B, A, S, T); (A, B) -> kin3(A, B, S, T) end,
-    #{name => doublebox, loops => [k1, k2], ext => [p1, p2, p3], vars => [d, s, t], top => [1, 2, 3, 4, 5, 6, 7],
-      props => [{-1, [{1, k1}]}, {-1, [{1, k1}, {1, p1}, {1, p2}]}, {-1, [{1, k2}]}, {-1, [{1, k2}, {1, p1}, {1, p2}]},
-                {-1, [{1, k1}, {1, p1}]}, {-1, [{1, k1}, {-1, k2}]}, {-1, [{1, k2}, {-1, p3}]},
-                {-1, [{1, k2}, {1, p1}]}, {-1, [{1, k1}, {-1, p3}]}],
-      kin => Kin};
-family(box) ->
-    %% ibp.erl's box: k^2, (k+p1)^2, (k+p1+p2)^2, (k-p4)^2, p1.p2 = s/2, p1.p4 = t/2, p2.p4 = -(s+t)/2
-    S = {sym, s}, T = {sym, t},
-    Kin = fun(A, B) when A > B -> kin3(ren(B), ren(A), S, T); (A, B) -> kin3(ren(A), ren(B), S, T) end,
-    #{name => box, loops => [k], ext => [p1, p2, p4], vars => [d, s, t], top => [1, 2, 3, 4],
-      props => [{1, [{1, k}]}, {1, [{1, k}, {1, p1}]}, {1, [{1, k}, {1, p1}, {1, p2}]}, {1, [{1, k}, {-1, p4}]}],
-      kin => Kin};
-family(kite) ->
-    S = {sym, s},
-    Kin = fun(p, p) -> S end,
-    #{name => kite, loops => [k1, k2], ext => [p], vars => [d, s], top => [1, 2, 3, 4, 5],
-      props => [{1, [{1, k1}]}, {1, [{1, k2}]}, {1, [{1, k1}, {-1, p}]}, {1, [{1, k2}, {-1, p}]}, {1, [{1, k1}, {-1, k2}]}],
-      kin => Kin}.
-
-ren(p4) -> p3;
-ren(P) -> P.
-
-kin3(p1, p2, S, _) -> {mul, [{rat, 1, 2}, S]};
-kin3(p1, p3, _, T) -> {mul, [{rat, 1, 2}, T]};
-kin3(p2, p3, S, T) -> {mul, [{rat, -1, 2}, {add, [S, T]}]};
-kin3(_, _, _, _) -> 0.
 
 %%% Scalar products in the D's
 
@@ -59,7 +111,7 @@ sp_keys(#{loops := L, ext := E}) ->
 %% q.q' for two momenta: a scalar product key, or {const, Ast} for two external ones
 pair(Fam = #{loops := L}, Q1, Q2) ->
     case {lists:member(Q1, L), lists:member(Q2, L)} of
-        {false, false} -> {const, (maps:get(kin, Fam))(Q1, Q2)};
+        {false, false} -> {const, kin(Fam, Q1, Q2)};
         {true, false} -> {sp, {Q1, Q2}};
         {false, true} -> {sp, {Q2, Q1}};
         {true, true} -> {sp, case index(Q1, L) =< index(Q2, L) of true -> {Q1, Q2}; false -> {Q2, Q1} end}
@@ -69,11 +121,9 @@ index(X, L) -> length(lists:takewhile(fun(Y) -> Y =/= X end, L)) + 1.
 
 %% every scalar product with a loop momentum as [{Rational, j}] (D_j) plus a constant Ast: #{Key => {Ds, Const}};
 %% memoised per family
-sps(Fam = #{name := Name, props := Props}) ->
-    case get({sps, Name}) of
-        undefined ->
+sps(Fam = #{props := Props}) ->
+    memo(sps, Fam, all, fun() ->
             Keys = sp_keys(Fam),
-            length(Keys) =:= length(Props) orelse error({not_a_basis, length(Keys), length(Props)}),
             %% D_a = sum_k M_ak sp_k + c_a
             Rows = [begin
                         Terms = [{Sign * C1 * C2, pair(Fam, Q1, Q2)} || {C1, Q1} <- Mom, {C2, Q2} <- Mom],
@@ -87,10 +137,8 @@ sps(Fam = #{name := Name, props := Props}) ->
                     [{K, {[{Q, J} || {J, Q} <- lists:enumerate(InvRow), Q =/= {0, 1}],
                           {add, [0 | [{mul, [-1, rat(Q), C]} || {Q, C} <- lists:zip(InvRow, Consts), Q =/= {0, 1}]]}}}
                      || {K, InvRow} <- lists:zip(Keys, Inv)]),
-            put({sps, Name}, Map),
-            Map;
-        Map -> Map
-    end.
+            Map
+    end).
 
 rat({N, 1}) -> N;
 rat({N, D}) -> {rat, N, D}.
@@ -146,8 +194,9 @@ term(A, C, M) -> {setelement(M, A, element(M, A) - 1), C}.
 
 %% every identity of every seed: maps Integral => CoefficientAst, zero integrals dropped, equal ones merged (equal
 %% by the sector symmetries too, canon/2, unless the family has symmetries => false)
+-spec identities(family(), [integral()]) -> [#{integral() => term()}].
 identities(Fam = #{loops := Ls, ext := Es}, Seeds) ->
-    Canon = case maps:get(symmetries, Fam, true) of
+    Canon = case maps:get(symmetries, Fam) of
                 true -> fun(I) -> canon(Fam, I) end;
                 false -> fun(I) -> I end
             end,
@@ -165,6 +214,7 @@ identities(Fam = #{loops := Ls, ext := Es}, Seeds) ->
 %%% With R = {dots, D} instead: every sector's powers at most D above 1 in total (Kira's r lets a small sector carry
 %%% many dots, which a reduction of the top sector rarely needs).
 
+-spec seeds(family(), pos_integer() | {dots, non_neg_integer()}, non_neg_integer()) -> [integral()].
 seeds(Fam = #{top := Top, props := Props}, R, S) ->
     N = length(Props),
     Budget = fun(Sec) -> case R of {dots, D} -> length(Sec) + D; _ -> R end end,
@@ -200,12 +250,10 @@ fill(N, Sec, Pos, Others, Neg) ->
 %%% mod p at a random point of the invariants (their supports are those of the generic ones but for a cancellation
 %%% of probability about 1/p).
 
-zero(Fam = #{name := Name}, A) ->
+-spec zero(family(), integral()) -> boolean().
+zero(Fam, A) ->
     Sec = [J || {J, X} <- lists:enumerate(tuple_to_list(A)), X > 0],
-    case get({zero, Name, Sec}) of
-        undefined -> Z = scaleless(Fam, Sec), put({zero, Name, Sec}, Z), Z;
-        Z -> Z
-    end.
+    memo(zero, Fam, Sec, fun() -> scaleless(Fam, Sec) end).
 
 scaleless(Fam, Sec) ->
     {U, F} = symanzik(Fam),
@@ -220,13 +268,11 @@ scaleless(Fam, Sec) ->
     end.
 
 %% U and F mod p as maps Exponents => coefficient (memoised)
-symanzik(Fam = #{name := Name, loops := Ls, props := Props, kin := Kin}) ->
-    case get({symanzik, Name}) of
-        undefined ->
+symanzik(Fam = #{loops := Ls, props := Props, vars := Vars}) ->
+    memo(symanzik, Fam, all, fun() ->
             N = length(Props),
-            rand:seed(exsss, {7, 7, 7}),
-            Point = maps:from_list([{V, rand:uniform(?P - 1)} || V <- maps:get(vars, Fam)]),
-            KinAt = fun(A, B) -> {ok, V} = pq_symbolic:evaluate(Kin(A, B), Point, #{exact => true}), modq(V) end,
+            Point = point(Vars, {7, 7, 7}),
+            KinAt = fun(A, B) -> {ok, V} = pq_symbolic:evaluate(kin(Fam, A, B), Point, #{exact => true}), modq(V) end,
             X = fun(J, C) -> #{[case I =:= J of true -> 1; false -> 0 end || I <- lists:seq(1, N)] => (C rem ?P + ?P) rem ?P} end,
             Coef = fun(Mom, Q) -> lists:sum([C || {C, Q1} <- Mom, Q1 =:= Q]) end,
             Ext = fun(Mom) -> [{C, Q} || {C, Q} <- Mom, not lists:member(Q, Ls)] end,
@@ -244,14 +290,12 @@ symanzik(Fam = #{name := Name, loops := Ls, props := Props, kin := Kin}) ->
                            [[M11, M12], [_, M22]] ->
                                {padd([pmul(M11, M22), pscale(pmul(M12, M12), ?P - 1)]),
                                 [[M22, pscale(M12, ?P - 1)], [pscale(M12, ?P - 1), M11]]};
-                           _ -> error(more_than_two_loops)
+                           _ -> error({not_supported, more_than_two_loops})
                        end,
             F = padd([pmul(Aij, JJ(Ji, Jj)) || {Ji, AdjRow} <- lists:zip(Js, Adj), {Jj, Aij} <- lists:zip(Js, AdjRow)]
                      ++ [pscale(pmul(J0, U), ?P - 1)]),
-            put({symanzik, Name}, {U, F}),
-            {U, F};
-        UF -> UF
-    end.
+            {U, F}
+    end).
 
 modq(N) when is_integer(N) -> (N rem ?P + ?P) rem ?P;
 modq({rat, N, D}) -> modq(N) * pq_ff:inv(modq(D), ?P) rem ?P.
@@ -284,6 +328,7 @@ reduce(Rows, C, K) ->
 %%% and each sector's own automorphisms); an integral with numerators stays as it is (its identities reduce it to
 %%% ones without).
 
+-spec canon(family(), integral()) -> integral().
 canon(Fam, A) ->
     L = tuple_to_list(A),
     Sec = [J || {J, X} <- lists:enumerate(L), X > 0],
@@ -300,9 +345,8 @@ image(A, Sec, Perm, N) ->
 
 %% Sector => {Representative, [Perm]}: Perm the images in the representative of the sector's indices, in order, for
 %% every map that carries U + F of one onto the other (memoised)
-classes(Fam = #{name := Name, top := Top, props := Props}) ->
-    case get({classes, Name}) of
-        undefined ->
+classes(Fam = #{top := Top, props := Props}) ->
+    memo(classes, Fam, all, fun() ->
             N = length(Props),
             {U, F} = symanzik(Fam),
             G = maps:merge(U, F),
@@ -318,10 +362,8 @@ classes(Fam = #{name := Name, top := Top, props := Props}) ->
                               none -> {Acc#{S => {S, matches(S, GS, S, GS)}}, Reps ++ [{S, Sig, GS}]}
                           end
                   end, {#{}, []}, Sectors),
-            put({classes, Name}, Classes),
-            Classes;
-        C -> C
-    end.
+            Classes
+    end).
 
 first_match(_, _, []) -> none;
 first_match(S, GS, [{R, _, GR} | Rest]) ->
@@ -356,6 +398,7 @@ perms(L) -> [[X | P] || X <- L, P <- perms(L -- [X])].
 %%% d/dVar: the c_ij solve a small linear system (exact, pq_recon:linear/4), the operators left out set to 0.
 
 %% d I(A) / d Var as [{Integral, CoefficientAst}], zero integrals dropped, equal ones merged (the symmetries too)
+-spec derivative(family(), integral(), atom()) -> [{integral(), term()}].
 derivative(Fam, A, Var) ->
     Cs = operator(Fam, Var),
     Terms = lists:append([[{I, {mul, [C, X]}} || {I, X} <- ext_op(Fam, A, Pi, Pj)] || {{Pi, Pj}, C} <- Cs]),
@@ -377,12 +420,11 @@ ext_op(Fam = #{props := Props}, A, Pi, Pj) ->
        end || {K, {Sign, Mom}} <- lists:enumerate(Props), element(K, A) =/= 0]).
 
 %% [{{Pi, Pj}, CoefficientAst}]: sum c_ij O_ij = d/dVar on the scalar products of the externals (memoised)
-operator(#{name := Name, ext := Es, kin := Kin, vars := Vars}, Var) ->
-    case get({operator, Name, Var}) of
-        undefined ->
+operator(Fam = #{ext := Es, vars := Vars}, Var) ->
+    memo(operator, Fam, Var, fun() ->
             Pairs = [{A, B} || {I, A} <- lists:enumerate(Es), {J, B} <- lists:enumerate(Es), I =< J],
             Ops = [{Pi, Pj} || Pi <- Es, Pj <- Es],
-            Q = fun(A, B) -> Kin(A, B) end,
+            Q = fun(A, B) -> kin(Fam, A, B) end,
             Act = fun({Pi, Pj}, {A, B}) ->
                           {add, [0] ++ [Q(Pi, B) || Pj =:= A] ++ [Q(A, Pi) || Pj =:= B]}
                   end,
@@ -394,15 +436,12 @@ operator(#{name := Name, ext := Es, kin := Kin, vars := Vars}, Var) ->
             {ok, Sol} = pq_recon:linear(A, Rhs, Vars, #{}),
             Cs = [{lists:nth(K, Ops), {mul, [pq_sym_norm:to_ast(N), {pow, pq_sym_norm:to_ast(D), -1}]}}
                   || {C, {N, D}} <- Sol, K <- [lists:nth(C + 1, Keep)], map_size(N) > 0],
-            put({operator, Name, Var}, Cs),
-            Cs;
-        Cs -> Cs
-    end.
+            Cs
+    end).
 
 %% the first N columns (in order) that are independent at a random point mod p
 independent(Rows, N, Vars) ->
-    rand:seed(exsss, {5, 5, 5}),
-    Point = maps:from_list([{V, rand:uniform(?P - 1)} || V <- Vars]),
+    Point = point(Vars, {5, 5, 5}),
     Num = [[begin {ok, X} = pq_symbolic:evaluate(E, Point, #{exact => true}), modq(X) end || E <- Row] || Row <- Rows],
     Cols = length(hd(Num)),
     pick(Num, lists:seq(1, Cols), [], N).

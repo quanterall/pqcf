@@ -77,6 +77,17 @@ top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust 
 - **Compiled programs:** straight-line programs and `equiv`.
 - **Speed:** compared with FORM every week (`comparison/form`).
 
+### Reducing results (`pq_recon`, `pq_ibp`, `pq_simplify`)
+- **Reconstruction over finite fields:** polynomials, rational functions and linear systems reconstructed exactly
+  from evaluations modulo primes (`pq_recon`), with denominator guessing and a learned, replayed elimination; the
+  samples spread over local workers or Erlang nodes (`pq_rexec`), the same answer on any of them.
+- **Feynman-integral reduction:** a family of integrals as data (`pq_ibp_family`), its IBP identities, zero sectors
+  and symmetries; `pq_ibp:reduce/3` reduces targets to master integrals with automatically chosen seeds;
+  `pq_ibp:differential_equation/4` derives the masters' differential equations. On FIRE's own double box, 3–7×
+  faster than FIRE on one core, with the same answers (`comparison/fire`, decision record R1).
+- **Simplification by verified rewriting** (`pq_simplify`): factors from an alphabet, coefficients collected by
+  monomials, every result checked against the input.
+
 ### Gradients
 - Central differences; symbolic gradients for passive circuits and Gaussian inputs; adjoint gradients on the Fock
   backend, through loss too, and exact parameter-shift rules (AD1).
