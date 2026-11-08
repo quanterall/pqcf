@@ -80,7 +80,8 @@ implements no cryptographic algorithms.
 - **Physics:** the symbolic unitary of passive circuits with a decisive unitarity check; symbolic permanents;
   symbolic Gaussian evolution (FR-G04).
 - **Compiled programs:** straight-line programs and `equiv`.
-- **Speed:** compared with FORM every week (`comparison/form`).
+- **Speed:** compared with FORM every week (`comparison/form`); reductions compared with FIRE on FIRE's own
+  examples, answers checked equal (`bench/ibp.sh`).
 
 ### Reducing results (`pq_recon`, `pq_ibp`, `pq_simplify`)
 - **Reconstruction over finite fields:** polynomials, rational functions and linear systems reconstructed exactly
@@ -161,7 +162,8 @@ The symbolic engine against FORM 5 (`CHANGELOG.md`, `docs/decisions/` K1, K2, H1
 
 - The multi-node NFR-02 benchmark on separate machines, and the reference hardware for the benchmarks
   (`bench/HARDWARE.md` is provisional: a shared ARM machine, no x86-64 reference yet).
-- Feynman-integral reduction on larger families (masses, three loops) and spread across many machines.
+- Feynman-integral reduction spread across many machines, and on FIRE's larger examples (nbox2w; families with
+  linear propagators).
 - Regular comparisons with PennyLane and Strawberry Fields (Xanadu) and Perceval (Quandela).
 
 ## Documentation

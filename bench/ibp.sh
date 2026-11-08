@@ -69,5 +69,5 @@ for r in rows:
           f"{(f'{f:7.3f}s' if f else '       -')} {ratio} {r['additions']:5}  {eq:7} {note}")
 print("written", out)
 PY
-rm -rf "$WORK"
+rm -rf "${WORK:?}"
 exit $CHECK

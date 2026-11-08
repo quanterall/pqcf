@@ -804,10 +804,48 @@ coefficient is still checked against the reconstruction (`verify/4`).
 | kite I(1,1,1,1,1) | 5 | 4 | 0.1 s |
 | double box I(1,1,1,1,1,1,1,−1,−1) | 18 (expanded 25) | **12** (16) | 12.7 s, 111 reductions |
 | double box I(1,1,1,1,1,1,1,−2,−1) | 56 (79) | **32** (48) | 53 s, 116 reductions |
+| double box I(1,1,1,1,1,1,2,−2,−2) | 102 (148) | **69** (103) | 295 s, 55 reductions (one round) |
 
   In the searched basis, d appears in FIRE's first target only as powers of (d − 4), as (3d − 10)(3d − 8), and
   in one numerator. For example, I(1,0,0,1,0,1,0,0,0)'s coefficient is −2(3d − 10)(3d − 8) / (s² (d − 4)³),
   close to a d-factorising basis, found without being told to look for one.
   - **Next:** a search that a model steers, proposing the swaps most likely to help, or a d-factorising criterion
     instead of the size.
+
+## A benchmark suite, run regularly (8 Nov 2026)
+
+`bench/ibp.sh [core]` runs a fixed set of reductions and records them in `bench/results/ibp-<host>-<date>.json`.
+- **What it benchmarks:** the committed HEAD (`git archive`), so that every result names its commit.
+- **The cases** (`bench/ibp_suite.erl`):
+  - FIRE's own examples, with the families transcribed from FIRE's notebooks: the one-loop box I(3,3,3,3) at
+    S = T = 1, the two-loop vertex v2 I(−1,1,1,1,1,1,1), and the double box's example target.
+  - Two harder double-box targets, on FIRE's double-box start file.
+  - PQCF-only cases: the kite, the massive tadpole and the three-loop banana.
+- **How it runs:** PQCF reduces each case on one core and then on all of them. FIRE 6.5.2 (FLINT, one thread)
+  reduces the same targets on the same core, back to back, and then reduces PQCF's masters.
+- **The check:** each answer must equal FIRE's in FIRE's basis, exactly at a point mod p (`fire_check:compare/5`).
+  The script exits 1 if one does not.
+- **The comparison over time:** each run is printed against the previous run on the host. A case more than 25%
+  slower is flagged, and so is a change in a result's size.
+- **Load:** the machine's other load is recorded (its load average), not controlled. Ratios to FIRE, measured back
+  to back, are the stable figure.
+- **Regular runs:** a crontab line in the script's header runs it weekly.
+- **FIRE's other examples:**
+  - nbox2w takes FIRE more than 10 minutes.
+  - softQuadrupleBox and bananaUnequal use linear (eikonal) propagators, which `pq_ibp_family` does not model; FIRE
+    aborts on bananaUnequal anyway ("Bad inverse!").
+  - Kira cannot run on this platform (Fermat licence).
+
+The first run (dgx-spark, core 8, load average 4–5, commit 5c8a65b):
+
+| case | PQCF, 1 core | PQCF, all cores | FIRE, 1 thread | ratio | additions | answers |
+| --- | --- | --- | --- | --- | --- | --- |
+| FIRE box I(3,3,3,3) | 0.075 s | 0.056 s | 0.349 s | 0.22 | 24 | equal |
+| FIRE v2 | 0.036 s | 0.057 s | 0.499 s | 0.07 | 4 | equal |
+| double box, FIRE's target | 0.212 s | 0.204 s | 7.54 s | 0.03 | 18 | equal |
+| double box I(..,−2,−1) | 1.16 s | 0.77 s | 11.7 s | 0.10 | 56 | equal |
+| double box I(1,1,1,1,1,1,2,−2,−2) | 10.1 s | 5.2 s | 13.0 s | 0.78 | 102 | equal |
+
+On v2, PQCF needs 2 masters, while FIRE's example basis has 3 up to symmetries. The answers still agree in FIRE's
+basis, so FIRE's third master reduces to the other two.
 

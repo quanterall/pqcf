@@ -29,12 +29,17 @@ the public API is additive.
   identities do not reduce is handled by the `sector_maps => false` option (every sector's identities, scalar
   symmetries only), which the automatic seeds try after `true` at each budget: I(1,1,1,1,1,1,1,-2,-1) takes
   1.28 s on one core this way (18,366 equations; FIRE 12.0 s).
+- **A reduction benchmark suite** (`bench/ibp.sh`, `bench/ibp_suite.erl`, `bench/fire_run.sh`): PQCF and FIRE
+  6.5.2 on FIRE's own examples (the one-loop box, the two-loop vertex v2, the double box) and harder double-box
+  targets, on the same core back to back. Every answer is checked equal to FIRE's (`fire_check:compare/5`,
+  `tables/1`), and each run is compared with the previous one. PQCF-only cases: the kite, the massive tadpole and
+  the three-loop banana. The first run: PQCF at 0.03–0.78 of FIRE's time on one core, every answer equal.
 - **Smaller results** (decision record R1, "Smaller results"):
   - `pq_ibp:choose_masters/3`: a greedy search over master bases (each master swapped for a neighbour in its
     sector, kept when the simplified coefficients shrink), every candidate an exact reduction on the default
     reduction's seeds; `reduce/3` takes `masters => [Integral]` (preferred masters) and `pq_ibp:size_of/2` measures
-    a reduction. FIRE's double-box targets: 18 -> 12 and 56 -> 32 additions (12.7 s and 53 s of search on 16
-    cores); the expanded coefficients 25 -> 16 and 79 -> 48.
+    a reduction. The double box: 18 -> 12, 56 -> 32 and 102 -> 69 additions (12.7 s, 53 s and 295 s of search on
+    16 cores); the expanded coefficients 25 -> 16, 79 -> 48 and 148 -> 103.
   - `pq_simplify`: multivariate partial fractions (Leinartas's decomposition for affine denominator factors, then
     the numerators reduced modulo the denominators; nested: in d, then in the kinematics) as a fourth form, chosen
     when smaller or forced by `form => partial`; `apart => [[Var]]` the variable sets tried.
