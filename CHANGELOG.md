@@ -10,6 +10,11 @@ the public API is additive.
 - Programs are evaluated over finite fields in Montgomery arithmetic (`Mont` in `ffslp.rs`: three 64-bit products per
   multiplication, no 128-bit division, which is a library call on aarch64): a double-box sample 2.86 -> 2.14 ms,
   the same values.
+- `pq_ibp:system/4` builds its systems from the identities' coefficients as exact polynomials
+  (`pq_ibp_family:identities_poly/2`, the zero test and symmetry name of each integral computed once per call),
+  evaluated mod p directly, only the needed rows turned into ASTs; Shoup multiplication in the search-based
+  eliminations: the harder double-box target's seeds and system 1.12 -> 0.63 s, the whole reduction on one worker
+  2.04 -> 1.63 s, the same answers (equal to FIRE's).
 
 ## 1.4.0 (8 November 2026)
 

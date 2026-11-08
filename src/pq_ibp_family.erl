@@ -15,6 +15,8 @@
 %% never the caller's.
 -module(pq_ibp_family).
 -export([new/1, example/1, identities/2, zero/2, seeds/3, canon/2, derivative/3, vars/1, size/1, kin/3]).
+%% for pq_ibp: the identities with their coefficients as polynomials (Exponents => {N, D})
+-export([identities_poly/2]).
 -export_type([family/0, integral/0]).
 
 -type family() :: #{id := integer(), loops := [atom()], ext := [atom()], props := [{integer(), [{integer(), atom()}]}],
@@ -207,6 +209,86 @@ identities(Fam = #{loops := Ls, ext := Es}, Seeds) ->
                          end
                  end, #{}, identity(Fam, A, L, V))
      || A <- Seeds, L <- Ls, V <- Ls ++ Es].
+
+%%% The identities with polynomial coefficients (pq_ibp's fast path): every coefficient an exact polynomial in the
+%%% family's variables, a map Exponents => {N, D} -- no general symbolic arithmetic -- and each integral's zero test
+%%% and canonical name computed once per call.
+
+-spec identities_poly(family(), [integral()]) -> [#{integral() => #{[non_neg_integer()] => {integer(), pos_integer()}}}].
+identities_poly(Fam = #{loops := Ls, ext := Es}, Seeds) ->
+    Sym = maps:get(symmetries, Fam),
+    Name = fun(I) ->
+                   case get({?MODULE, name, I}) of
+                       undefined ->
+                           V = case zero(Fam, I) of
+                                   true -> zero;
+                                   false when Sym -> canon(Fam, I);
+                                   false -> I
+                               end,
+                           put({?MODULE, name, I}, V),
+                           V;
+                       V -> V
+                   end
+           end,
+    Eqs = [lists:foldl(fun({I, C}, M) ->
+                               case Name(I) of
+                                   zero -> M;
+                                   J -> case M of
+                                            #{J := C0} -> M#{J => qpadd(C0, C)};
+                                            _ -> M#{J => C}
+                                        end
+                               end
+                       end, #{}, identity_poly(Fam, A, L, V))
+           || A <- Seeds, L <- Ls, V <- Ls ++ Es],
+    [maps:filter(fun(_, C) -> map_size(C) > 0 end, E) || E <- Eqs].
+
+identity_poly(Fam = #{props := Props, vars := Vars}, A, L, V) ->
+    Div = case L =:= V of
+              true -> [{A, #{[case X of d -> 1; _ -> 0 end || X <- Vars] => {1, 1}}}];
+              false -> []
+          end,
+    Deriv = lists:append(
+              [begin
+                   Aj = element(J, A),
+                   Raised = setelement(J, A, Aj + 1),
+                   CL = lists:sum([C || {C, Q} <- Mom, Q =:= L]),
+                   [term(Raised, qpscale(X, {-2 * Aj * Sign * CL * Cq, 1}), Y)
+                    || CL =/= 0, {Cq, Q} <- Mom, {X, Y} <- dot_poly(Fam, V, Q)]
+               end || {J, {Sign, Mom}} <- lists:enumerate(Props), element(J, A) =/= 0]),
+    Div ++ Deriv.
+
+%% dot/3 with polynomial coefficients (memoised per pair)
+dot_poly(Fam = #{vars := Vars}, V, Q) ->
+    memo(dot_poly, Fam, {V, Q}, fun() ->
+            [{P, Y} || {X, Y} <- dot(Fam, V, Q), P <- [qpoly(X, Vars)], map_size(P) > 0]
+    end).
+
+%% an AST of numbers, symbols, sums, products and non-negative integer powers as a polynomial
+qpoly(N, Vars) when is_integer(N) -> qpconst({N, 1}, Vars);
+qpoly({rat, N, D}, Vars) -> qpconst(qnorm({N, D}), Vars);
+qpoly({sym, X}, Vars) -> #{[case V of X -> 1; _ -> 0 end || V <- Vars] => {1, 1}};
+qpoly({add, Es}, Vars) -> lists:foldl(fun(E, Acc) -> qpadd(Acc, qpoly(E, Vars)) end, #{}, Es);
+qpoly({mul, Es}, Vars) -> lists:foldl(fun(E, Acc) -> qpmul(Acc, qpoly(E, Vars)) end, qpconst({1, 1}, Vars), Es);
+qpoly({pow, B, K}, Vars) when is_integer(K), K >= 0 ->
+    lists:foldl(fun(_, Acc) -> qpmul(Acc, qpoly(B, Vars)) end, qpconst({1, 1}, Vars), lists:seq(1, K)).
+
+qpconst({0, _}, _) -> #{};
+qpconst(Q, Vars) -> #{[0 || _ <- Vars] => Q}.
+
+qpadd(A, B) ->
+    maps:fold(fun(K, V, Acc) ->
+                      case qadd(maps:get(K, Acc, {0, 1}), V) of
+                          {0, _} -> maps:remove(K, Acc);
+                          S -> Acc#{K => S}
+                      end
+              end, A, B).
+qpmul(A, B) ->
+    lists:foldl(fun(T, Acc) -> qpadd(Acc, T) end, #{},
+                [#{[X + Y || {X, Y} <- lists:zip(Ka, Kb)] => qmul(Va, Vb)} || Ka := Va <- A, Kb := Vb <- B]).
+qpscale(_, {0, _}) -> #{};
+qpscale(A, Q) -> maps:map(fun(_, V) -> qmul(V, Q) end, A).
+
+qadd({A, B}, {C, D}) -> qnorm({A * D + C * B, B * D}).
 
 %%% The seeds: every non-zero sector within top, the positive indices summing to at most R, the others (numerators)
 %%% to at least -S

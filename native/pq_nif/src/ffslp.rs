@@ -364,6 +364,7 @@ impl Plan {
                 }
                 ops.push(PlanOp::Elim(slot[&(q, k)], start, pairs.len() as u32));
                 let f = mulmod(aqk, inv, p);
+                let fp = shoup_pre(f, p);
                 let (rq, rr) = (std::mem::take(&mut rows[q]), &rows[r]);
                 let mut merged = Vec::with_capacity(rq.len() + rr.len());
                 let (mut i, mut j) = (0, 0);
@@ -373,11 +374,11 @@ impl Plan {
                         rq[i - 1]
                     } else if i >= rq.len() || rr[j].0 < rq[i].0 {
                         j += 1;
-                        (rr[j - 1].0, (p - mulmod(f, rr[j - 1].1, p)) % p)
+                        (rr[j - 1].0, (p - shoup_mul(rr[j - 1].1, f, fp, p)) % p)
                     } else {
                         i += 1;
                         j += 1;
-                        (rq[i - 1].0, (rq[i - 1].1 + p - mulmod(f, rr[j - 1].1, p)) % p)
+                        (rq[i - 1].0, (rq[i - 1].1 + p - shoup_mul(rr[j - 1].1, f, fp, p)) % p)
                     };
                     if v != 0 || c != k {
                         merged.push((c, v));
@@ -586,6 +587,7 @@ pub fn solve_aug(p: u64, mut rows: Vec<Vec<(usize, u64)>>, n: usize, m: usize, w
                 continue;
             }
             let f = mulmod(aqk, inv, p);
+                let fp = shoup_pre(f, p);
             // row_q -= f row_r, merging the sorted rows
             let (rq, rr) = (std::mem::take(&mut rows[q]), &rows[r]);
             let mut merged = Vec::with_capacity(rq.len() + rr.len());
@@ -596,11 +598,11 @@ pub fn solve_aug(p: u64, mut rows: Vec<Vec<(usize, u64)>>, n: usize, m: usize, w
                     rq[i - 1]
                 } else if i >= rq.len() || rr[j].0 < rq[i].0 {
                     j += 1;
-                    (rr[j - 1].0, (p - mulmod(f, rr[j - 1].1, p)) % p)
+                    (rr[j - 1].0, (p - shoup_mul(rr[j - 1].1, f, fp, p)) % p)
                 } else {
                     i += 1;
                     j += 1;
-                    (rq[i - 1].0, (rq[i - 1].1 + p - mulmod(f, rr[j - 1].1, p)) % p)
+                    (rq[i - 1].0, (rq[i - 1].1 + p - shoup_mul(rr[j - 1].1, f, fp, p)) % p)
                 };
                 if v != 0 {
                     merged.push((c, v));
@@ -686,6 +688,7 @@ pub fn pivots(p: u64, mut rows: Vec<Vec<(usize, u64)>>, n: usize, targets: &[usi
         for q in others {
             let aqk = rows[q].iter().find(|e| e.0 == k).map_or(0, |e| e.1);
             let f = mulmod(aqk, inv, p);
+                let fp = shoup_pre(f, p);
             deps[q].push(r as u32);
             let (rq, rr) = (std::mem::take(&mut rows[q]), &rows[r]);
             let mut merged = Vec::with_capacity(rq.len() + rr.len());
@@ -696,11 +699,11 @@ pub fn pivots(p: u64, mut rows: Vec<Vec<(usize, u64)>>, n: usize, targets: &[usi
                     rq[i - 1]
                 } else if i >= rq.len() || rr[j].0 < rq[i].0 {
                     j += 1;
-                    (rr[j - 1].0, (p - mulmod(f, rr[j - 1].1, p)) % p)
+                    (rr[j - 1].0, (p - shoup_mul(rr[j - 1].1, f, fp, p)) % p)
                 } else {
                     i += 1;
                     j += 1;
-                    (rq[i - 1].0, (rq[i - 1].1 + p - mulmod(f, rr[j - 1].1, p)) % p)
+                    (rq[i - 1].0, (rq[i - 1].1 + p - shoup_mul(rr[j - 1].1, f, fp, p)) % p)
                 };
                 if v != 0 {
                     merged.push((c, v));

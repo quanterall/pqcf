@@ -143,7 +143,10 @@ nonzero_masters(Fam, #{a := A, bs := Bs, masters := Masters, targets := TIs}) ->
 %% stay in Laporta order, so that eliminating column k on row k repeats the learned elimination.
 -spec system(pq_ibp_family:family(), [integral()], [integral()], map()) -> map().
 system(Fam, Seeds, Targets, Opts) ->
-    Eqs = [E || E <- pq_ibp_family:identities(Fam, Seeds), map_size(E) > 0],
+    Vars = pq_ibp_family:vars(Fam),
+    %% the coefficients as exact polynomials (Exponents => {N, D}): evaluated mod ?P directly, and only the needed
+    %% rows turned into ASTs
+    Eqs = [E || E <- pq_ibp_family:identities_poly(Fam, Seeds), map_size(E) > 0],
     Ints = lists:usort(lists:append([maps:keys(E) || E <- Eqs])),
     case [T || T <- Targets, not lists:member(T, Ints)] of
         [] -> ok;
@@ -152,17 +155,15 @@ system(Fam, Seeds, Targets, Opts) ->
     Order = maps:get(order, Opts, numerators),
     Cols = [I || {_, I} <- lists:reverse(lists:sort([{weight(I, Order), I} || I <- Ints]))],
     Index = maps:from_list(lists:zip(Cols, lists:seq(0, length(Cols) - 1))),
-    Point = point(pq_ibp_family:vars(Fam), {1, 1, 1}),
-    %% the coefficients evaluated mod ?P as they are; only the square system's are canonicalised (below)
-    Num = [lists:sort([{maps:get(I, Index), modval(C, Point)} || I := C <- E]) || E <- Eqs],
+    Point = point(Vars, {1, 1, 1}),
+    PointList = [maps:get(V, Point) || V <- Vars],
+    Num = [lists:sort([{maps:get(I, Index), polymod(C, PointList)} || I := C <- E]) || E <- Eqs],
     TCols = [maps:get(T, Index) || T <- Targets],
     {PR, PC, Needed} = pq_nif:ff_pivots(?P, Num, length(Cols), TCols),
     PivotCol = maps:from_list(lists:zip(PR, PC)),
     EqArr = array:from_list(Eqs),
     ColArr = array:from_list(Cols),
-    Rows = [maps:filter(fun(_, C) -> C =/= 0 end,
-                        maps:map(fun(_, C) -> {ok, Cc} = pq_symbolic:canonicalise(C), Cc end, array:get(R, EqArr)))
-            || R <- Needed],
+    Rows = [maps:map(fun(_, C) -> poly_ast(C, Vars) end, array:get(R, EqArr)) || R <- Needed],
     UCols = [array:get(maps:get(R, PivotCol), ColArr) || R <- Needed],
     UIndex = maps:from_list(lists:zip(UCols, lists:seq(0, length(UCols) - 1))),
     Masters = [I || {_, I} <- lists:usort([{maps:get(I, Index), I} || Row <- Rows, I <- maps:keys(Row), not maps:is_key(I, UIndex)])],
@@ -188,15 +189,23 @@ weight(A, Order) ->
         dots -> {length([x || X <- L, X > 0]), Pos + Neg, Neg, A}
     end.
 
-%% a coefficient's value mod ?P at the point (the identities' ASTs: integers, rationals, symbols, sums, products)
-modval(N, _) when is_integer(N) -> (N rem ?P + ?P) rem ?P;
-modval({rat, N, D}, _) -> modval(N, #{}) * pq_ff:inv(modval(D, #{}), ?P) rem ?P;
-modval({sym, X}, Point) -> maps:get(X, Point);
-modval({add, Es}, Point) -> lists:foldl(fun(E, Acc) -> (Acc + modval(E, Point)) rem ?P end, 0, Es);
-modval({mul, Es}, Point) -> lists:foldl(fun(E, Acc) -> Acc * modval(E, Point) rem ?P end, 1, Es);
-modval(C, Point) ->
-    {ok, V} = pq_symbolic:evaluate(C, Point, #{exact => true}),
-    modval(V, Point).
+%% a polynomial coefficient's value mod ?P at the point (its coordinates in the variables' order)
+polymod(Poly, Xs) ->
+    maps:fold(fun(Exps, {N, D}, Acc) ->
+                      Mono = lists:foldl(fun({X, E}, M) -> M * pow_mod(X, E) rem ?P end, 1, lists:zip(Xs, Exps)),
+                      C = (N rem ?P + ?P) rem ?P * pq_ff:inv(D rem ?P, ?P) rem ?P,
+                      (Acc + C * Mono) rem ?P
+              end, 0, Poly).
+
+pow_mod(_, 0) -> 1;
+pow_mod(X, 1) -> X;
+pow_mod(X, E) -> X * pow_mod(X, E - 1) rem ?P.
+
+%% a polynomial coefficient as an AST: a sum of rational multiples of monomials
+poly_ast(Poly, Vars) ->
+    Terms = [{mul, [case D of 1 -> N; _ -> {rat, N, D} end | [{pow, {sym, V}, E} || {V, E} <- lists:zip(Vars, Exps), E > 0]]}
+             || {Exps, {N, D}} <- lists:sort(maps:to_list(Poly))],
+    case Terms of [T] -> T; _ -> {add, Terms} end.
 
 point(Vars, Seed) ->
     {L, _} = lists:mapfoldl(fun(V, S) -> {X, S2} = rand:uniform_s(?P - 1, S), {{V, X}, S2} end, rand:seed_s(exsss, Seed), Vars),
