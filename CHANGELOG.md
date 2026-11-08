@@ -17,6 +17,17 @@ the public API is additive.
   - tests: the massive tadpole's I(2) = (d - 2)/(2 m^2) I(1) and its differential equation in m^2, a bubble with
     one massive line (zero sectors), and the three-loop massless banana (four lines, five numerators), whose
     differential equation in s is (3d/2 - 4)/s as dimensional analysis requires.
+- **Sector symmetries with numerators** (`pq_ibp_family:expand/2`, `mapped/2`): for a sector equivalent to its
+  representative, a change of the loop momenta k -> A k + B p (A integer, det A = +-1) carrying its propagators onto
+  the representative's, found from the permutation (Pak) and an exact linear solve over the sign choices. Every
+  integral of the sector, numerators included, then expands into integrals of the representative and its
+  subsectors. Such sectors get no identities of their own, and a target in one is defined by its expansion. The
+  kite's identities 2,274 -> 1,579; the double box 7,296 -> 6,807 and 18,366 -> 16,967, answers unchanged (equal to
+  FIRE's). Symmetries that would also have to move the external momenta are not used beyond the scalar mapping:
+  changing the loop momenta is always valid, moving external ones is not in general.
+- Fixed: `pq_ibp_family:canon/2` mapped integrals even in a family with `symmetries => false`; the automatic seeds
+  could then never be complete for such a family. Found by the sector-map test, which compares mapped reductions
+  with unmapped ones, master by master.
 
 ### Documentation
 

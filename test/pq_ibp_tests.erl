@@ -118,3 +118,42 @@ three_loop_banana_test_() ->
         same(E, {mul, [{add, [{mul, [{rat, 3, 2}, d()]}, -4]}, {pow, s(), -1}]})
     end}.
 
+%% sector maps (a change of loop momenta behind a symmetry): an integral with numerators in a mapped sector of the
+%% kite reduces to the same masters, with the same coefficients, whether its own sector's identities are used or
+%% the integral is expanded into its representative's
+sector_map_test_() ->
+    {timeout, 300, fun() ->
+        Kite = pq_ibp_family:example(kite),
+        %% every sector with an index left over, a numerator put there: those whose sector maps
+        Sectors = [[case lists:member(J, S) of true -> 1; false -> 0 end || J <- lists:seq(1, 5)]
+                   || S <- [[1, 2, 4, 5], [1, 3, 4, 5], [2, 3, 4, 5], [2, 3, 5], [1, 2, 3, 4], [1, 2, 3, 5], [1, 4, 5]]],
+        Targets = [T || L <- Sectors, {J, 0} <- [hd([{J0, X} || {J0, X} <- lists:enumerate(L), X =:= 0])],
+                        T <- [list_to_tuple(setnth(J, L, -1))], pq_ibp_family:mapped(Kite, T)],
+        ?assertNotEqual([], Targets),
+        %% the expansions' integrals are in sectors that need no mapping
+        [?assertNot(pq_ibp_family:mapped(Kite, J)) || T <- Targets, {J, _} <- pq_ibp_family:expand(Kite, T)],
+        NoSym = maps:put(symmetries, false, maps:put(id, erlang:phash2({nosym, Kite}), Kite)),
+        [begin
+             {ok, #{T := A}, _} = pq_ibp:reduce(Kite, [T], #{}),
+             {ok, #{T := B}, _} = pq_ibp:reduce(NoSym, [T], #{}),
+             compare_reductions(Kite, A, B)
+         end || T <- Targets]
+    end}.
+
+setnth(1, [_ | T], V) -> [V | T];
+setnth(N, [H | T], V) -> [H | setnth(N - 1, T, V)].
+
+compare_reductions(Kite, A, B) ->
+        %% without symmetries the masters are not merged: compare at a point, mapping each master to its name
+        Pt = #{d => 7919, s => 104729},
+        Val = fun(Cs, Fam) ->
+                      lists:foldl(fun({M, {N, D}}, Acc) ->
+                                          {ok, V} = pq_symbolic:evaluate({mul, [pq_sym_norm:to_ast(N), {pow, pq_sym_norm:to_ast(D), -1}]}, Pt, #{exact => true}),
+                                          K = pq_ibp_family:canon(Kite, M),
+                                          _ = Fam,
+                                          Acc#{K => pq_symbolic:canonicalise({add, [maps:get(K, Acc, 0), V]})}
+                                  end, #{}, Cs)
+              end,
+        ?assertEqual(lists:sort(maps:to_list(Val(A, sym))), lists:sort(maps:to_list(Val(B, nosym)))).
+
+

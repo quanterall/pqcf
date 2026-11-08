@@ -17,7 +17,7 @@
 -module(pq_ibp_family).
 -export([new/1, example/1, identities/2, zero/2, seeds/3, canon/2, derivative/3, vars/1, size/1, kin/3]).
 %% for pq_ibp: the identities with their coefficients as polynomials (Exponents => {N, D})
--export([identities_poly/2, warm/2, load/1]).
+-export([identities_poly/2, warm/2, load/1, expand/2, mapped/2, qpone/1, qpneg/1]).
 -export_type([family/0, integral/0]).
 
 -type family() :: #{id := integer(), loops := [atom()], ext := [atom()], props := [{integer(), [{integer(), atom()}]}],
@@ -102,6 +102,7 @@ warm(Fam = #{id := Id, top := Top, props := Props}, _Seeds) ->
     N = length(Props),
     _ = sps(Fam),
     _ = classes(Fam),
+    _ = sector_maps(Fam),
     _ = [zero(Fam, sector_point(N, S)) || S <- subsets(lists:seq(1, N))],
     _ = [{zero(Fam, sector_point(N, S))} || S <- subsets(Top)],
     [{K, V} || {{?MODULE, _Tag, Id2, _} = K, V} <- get(), Id2 =:= Id].
@@ -237,32 +238,34 @@ identities(Fam = #{loops := Ls, ext := Es}, Seeds) ->
 %%% and canonical name computed once per call.
 
 -spec identities_poly(family(), [integral()]) -> [#{integral() => #{[non_neg_integer()] => {integer(), pos_integer()}}}].
-identities_poly(Fam = #{loops := Ls, ext := Es}, Seeds) ->
-    Sym = maps:get(symmetries, Fam),
-    Name = fun(I) ->
-                   case get({?MODULE, name, I}) of
-                       undefined ->
-                           V = case zero(Fam, I) of
-                                   true -> zero;
-                                   false when Sym -> canon(Fam, I);
-                                   false -> I
-                               end,
-                           put({?MODULE, name, I}, V),
-                           V;
-                       V -> V
-                   end
-           end,
+identities_poly(Fam = #{loops := Ls, ext := Es, vars := Vars}, Seeds0) ->
+    One = qpconst({1, 1}, Vars),
+    %% an integral's name in the equations: [] if it is zero, its expansion if its sector maps onto another one
+    %% (numerators included), else itself under the scalar symmetries (canon/2)
+    Name = fun(I) -> memo(name, Fam, I, fun() -> case zero(Fam, I) of
+                                                      true -> [];
+                                                      false -> expand_or_canon(Fam, I, One)
+                                                  end end) end,
+    %% no identities from the sectors that map onto another one: their integrals are expanded instead
+    Seeds = [A || A <- Seeds0, not mapped(Fam, A)],
     Eqs = [lists:foldl(fun({I, C}, M) ->
-                               case Name(I) of
-                                   zero -> M;
-                                   J -> case M of
-                                            #{J := C0} -> M#{J => qpadd(C0, C)};
-                                            _ -> M#{J => C}
-                                        end
-                               end
+                               lists:foldl(fun({J, Cj}, M2) ->
+                                                   Cc = qpmul(C, Cj),
+                                                   case M2 of
+                                                       #{J := C0} -> M2#{J => qpadd(C0, Cc)};
+                                                       _ -> M2#{J => Cc}
+                                                   end
+                                           end, M, Name(I))
                        end, #{}, identity_poly(Fam, A, L, V))
            || A <- Seeds, L <- Ls, V <- Ls ++ Es],
     [maps:filter(fun(_, C) -> map_size(C) > 0 end, E) || E <- Eqs].
+
+expand_or_canon(Fam = #{symmetries := true}, I, One) ->
+    case mapped(Fam, I) of
+        true -> expand(Fam, I);
+        false -> [{canon(Fam, I), One}]
+    end;
+expand_or_canon(_Fam, I, One) -> [{I, One}].
 
 identity_poly(Fam = #{props := Props, vars := Vars}, A, L, V) ->
     Div = case L =:= V of
@@ -293,6 +296,10 @@ qpoly({add, Es}, Vars) -> lists:foldl(fun(E, Acc) -> qpadd(Acc, qpoly(E, Vars)) 
 qpoly({mul, Es}, Vars) -> lists:foldl(fun(E, Acc) -> qpmul(Acc, qpoly(E, Vars)) end, qpconst({1, 1}, Vars), Es);
 qpoly({pow, B, K}, Vars) when is_integer(K), K >= 0 ->
     lists:foldl(fun(_, Acc) -> qpmul(Acc, qpoly(B, Vars)) end, qpconst({1, 1}, Vars), lists:seq(1, K)).
+
+%% the polynomial 1 in the family's variables, and a polynomial's negative (for pq_ibp)
+qpone(#{vars := Vars}) -> qpconst({1, 1}, Vars).
+qpneg(P) -> qpscale(P, {-1, 1}).
 
 qpconst({0, _}, _) -> #{};
 qpconst(Q, Vars) -> #{[0 || _ <- Vars] => Q}.
@@ -448,6 +455,7 @@ reduce(Rows, C, K) ->
 %%% ones without).
 
 -spec canon(family(), integral()) -> integral().
+canon(#{symmetries := false}, A) -> A;
 canon(Fam, A) ->
     L = tuple_to_list(A),
     Sec = [J || {J, X} <- lists:enumerate(L), X > 0],
@@ -605,4 +613,167 @@ diff({add, Es}, V) -> {add, [diff(E, V) || E <- Es]};
 diff({pow, B, K}, V) when is_integer(K) -> {mul, [K, {pow, B, K - 1}, diff(B, V)]};
 diff({mul, Es}, V) ->
     {add, [{mul, [diff(E, V) | [F || {J, F} <- lists:enumerate(Es), J =/= I]]} || {I, E} <- lists:enumerate(Es)]}.
+
+%%% Sector maps: the changes of loop momenta behind the symmetries (as in LiteRed, Kira and FIRE). For a sector S
+%%% equivalent to its representative R by a permutation of the propagators (Pak's criterion, classes/1), a change
+%%% k -> A k + B p of the loop momenta (A integer, det A = +-1, so the measure is unchanged) with
+%%% Momentum_i(A k + B p) = +-Momentum_sigma(i)(k) for every propagator i of S carries S's integrand onto R's. Under
+%%% it a numerator D_j becomes a linear combination of the family's D's, so every integral of S, numerators
+%%% included, equals a combination of integrals of R and its subsectors (expand/2). Such a sector needs no identities
+%%% of its own. A symmetry with no such change (it would need to move the external momenta) keeps the scalar
+%%% mapping only.
+
+%% does the integral's sector map onto another one?
+-spec mapped(family(), integral()) -> boolean().
+mapped(Fam = #{symmetries := true}, A) ->
+    is_map_key([J || {J, X} <- lists:enumerate(tuple_to_list(A)), X > 0], sector_maps(Fam));
+mapped(_, _) -> false.
+
+%% Sector => {Representative, Perm, {A, B}} for the sectors that map onto their representative (memoised)
+sector_maps(Fam) ->
+    memo(sector_maps, Fam, all, fun() ->
+            maps:from_list([{S, {R, Perm, T}} || S := {R, Perms} <- classes(Fam), R =/= S,
+                                                 {Perm, T} <- [first_transform(Fam, S, Perms)], T =/= none])
+    end).
+
+first_transform(_Fam, _S, []) -> {none, none};
+first_transform(Fam, S, [Perm | Perms]) ->
+    case transform(Fam, S, Perm) of
+        none -> first_transform(Fam, S, Perms);
+        T -> {Perm, T}
+    end.
+
+%% {A, B} with Momentum_i(A k + B p) = eps_i Momentum_sigma(i)(k) for i in S, some signs eps, or none
+transform(#{loops := Ls, ext := Es, props := Props}, S, Perm) ->
+    Coef = fun(Mom, Q) -> lists:sum([C || {C, Q1} <- Mom, Q1 =:= Q]) end,
+    Mom = fun(J) -> element(2, lists:nth(J, Props)) end,
+    L = length(Ls), E = length(Es),
+    %% unknowns: a_lj (l, j loops) then b_le (l loop, e external), row-major
+    Ua = fun(Li, Lj) -> (Li - 1) * L + Lj end,
+    Ub = fun(Li, Ee) -> L * L + (Li - 1) * E + Ee end,
+    NU = L * L + L * E,
+    Pairs = lists:zip(S, Perm),
+    try_signs(Pairs, [], fun(Signs) ->
+            Rows = lists:append(
+                     [[row(NU, [{Ua(Li, Lj), Coef(Mom(I), lists:nth(Li, Ls))} || Li <- lists:seq(1, L)],
+                           Eps * Coef(Mom(R), lists:nth(Lj, Ls)))
+                       || Lj <- lists:seq(1, L)]
+                      ++ [row(NU, [{Ub(Li, Ee), Coef(Mom(I), lists:nth(Li, Ls))} || Li <- lists:seq(1, L)],
+                              Eps * Coef(Mom(R), lists:nth(Ee, Es)) - Coef(Mom(I), lists:nth(Ee, Es)))
+                          || Ee <- lists:seq(1, E)]
+                      || {{I, R}, Eps} <- lists:zip(Pairs, Signs)]),
+            %% where the conditions leave freedom: the identity (a = 1 on the diagonal, the rest 0)
+            Default = [case U =< L * L andalso (U - 1) div L =:= (U - 1) rem L of true -> 1; false -> 0 end || U <- lists:seq(1, NU)],
+            case solve_q(Rows, NU, Default) of
+                none -> none;
+                Sol ->
+                    case lists:all(fun({_, 1}) -> true; (_) -> false end, Sol) of
+                        false -> none;
+                        true ->
+                            Ints = [N || {N, 1} <- Sol],
+                            A = [lists:sublist(Ints, (Li - 1) * L + 1, L) || Li <- lists:seq(1, L)],
+                            B = [lists:sublist(Ints, L * L + (Li - 1) * E + 1, E) || Li <- lists:seq(1, L)],
+                            case abs(idet(A)) of 1 -> {A, B}; _ -> none end
+                    end
+            end
+    end).
+
+%% every choice of signs, the first with a result (the first sign +1: k -> -k covers the other half)
+try_signs([], Signs, F) -> F(lists:reverse(Signs));
+try_signs([_ | Rest], [], F) -> try_signs(Rest, [1], F);
+try_signs([_ | Rest], Signs, F) ->
+    case try_signs(Rest, [1 | Signs], F) of
+        none -> try_signs(Rest, [-1 | Signs], F);
+        T -> T
+    end.
+
+row(NU, Coefs, Rhs) ->
+    M = lists:foldl(fun({U, C}, Acc) -> Acc#{U => maps:get(U, Acc, 0) + C} end, #{}, Coefs),
+    [{maps:get(U, M, 0), 1} || U <- lists:seq(1, NU)] ++ [{Rhs, 1}].
+
+%% the solution of the rational system (rows [coefficients | rhs]), free unknowns at their defaults; none if
+%% inconsistent
+solve_q(Rows, NU, Default) ->
+    {Red, Pivots} = rref([[qnorm(X) || X <- R] || R <- Rows], 1, NU, [], []),
+    case lists:any(fun(R) -> lists:all(fun(X) -> X =:= {0, 1} end, lists:sublist(R, NU)) andalso lists:last(R) =/= {0, 1} end, Red) of
+        true -> none;
+        false ->
+            Free = [U || U <- lists:seq(1, NU), not lists:member(U, Pivots)],
+            Vals0 = maps:from_list([{U, {lists:nth(U, Default), 1}} || U <- Free]),
+            Vals = lists:foldl(fun({R, U}, V) ->
+                                       %% x_U = rhs - sum over free unknowns
+                                       X = lists:foldl(fun(F, Acc) -> qsub(Acc, qmul(lists:nth(F, R), maps:get(F, V))) end,
+                                                       lists:last(R), Free),
+                                       V#{U => X}
+                               end, Vals0, lists:zip(lists:sublist(Red, length(Pivots)), Pivots)),
+            [maps:get(U, Vals) || U <- lists:seq(1, NU)]
+    end.
+
+%% reduced row echelon form over the rationals: {Rows (pivot rows first, in pivot order), Pivot columns}
+rref(Rows, C, NU, Done, Pivots) when C > NU -> {lists:reverse(Done) ++ Rows, lists:reverse(Pivots)};
+rref(Rows, C, NU, Done, Pivots) ->
+    case lists:splitwith(fun(R) -> lists:nth(C, R) =:= {0, 1} end, Rows) of
+        {_, []} -> rref(Rows, C + 1, NU, Done, Pivots);
+        {Before, [Piv | After]} ->
+            Inv = qinv(lists:nth(C, Piv)),
+            PivN = [qmul(Inv, X) || X <- Piv],
+            Elim = fun(R) -> F = lists:nth(C, R), case F of {0, 1} -> R; _ -> [qsub(X, qmul(F, Y)) || {X, Y} <- lists:zip(R, PivN)] end end,
+            rref([Elim(R) || R <- Before ++ After], C + 1, NU, [PivN | [Elim(R) || R <- Done]], [C | Pivots])
+    end.
+
+idet([[A]]) -> A;
+idet([Row | _] = M) ->
+    lists:sum([case J rem 2 of 1 -> 1; 0 -> -1 end * X * idet(minor(M, 1, J)) || {J, X} <- lists:enumerate(Row), X =/= 0]).
+
+%% An integral of a mapped sector as a combination of integrals that need no mapping: [{Integral, Poly}], zero ones
+%% dropped, scalar ones canonical (memoised)
+-spec expand(family(), integral()) -> [{integral(), #{[non_neg_integer()] => {integer(), pos_integer()}}}].
+expand(Fam = #{props := Props, masses := Masses, vars := Vars}, A) ->
+    memo(expand, Fam, A, fun() ->
+            One = qpconst({1, 1}, Vars),
+            N = length(Props),
+            Sec = [J || {J, X} <- lists:enumerate(tuple_to_list(A)), X > 0],
+            case maps:find(Sec, sector_maps(Fam)) of
+                error -> [{canon(Fam, A), One}];
+                {ok, {_R, Perm, T}} ->
+                    Base = maps:from_list(lists:zip(Perm, [element(J, A) || J <- Sec])),
+                    %% each numerator D_j(T k) as a linear form in the D's: #{j | const => Poly}
+                    Factors = lists:append([lists:duplicate(-element(J, A), moved(Fam, J, T, lists:nth(J, Props), lists:nth(J, Masses)))
+                                            || J <- lists:seq(1, N), element(J, A) < 0]),
+                    Terms = lists:foldl(fun(F, Acc) ->
+                                                [{Lower#{K => maps:get(K, Lower, 0) + 1}, qpmul(C, Ck)} || {Lower, C} <- Acc, {K, Ck} <- maps:to_list(F), K =/= const]
+                                                ++ [{Lower, qpmul(C, Cc)} || {Lower, C} <- Acc, #{const := Cc} <- [F]]
+                                        end, [{#{}, One}], Factors),
+                    Ints = [{list_to_tuple([maps:get(K, Base, 0) - maps:get(K, Lower, 0) || K <- lists:seq(1, N)]), C} || {Lower, C} <- Terms],
+                    %% each integral named in turn (zero, mapped again, or canonical), equal ones merged
+                    Merged = lists:foldl(fun({I, C}, M) ->
+                                                 Named = case zero(Fam, I) of
+                                                             true -> [];
+                                                             false -> case mapped(Fam, I) of
+                                                                          true -> expand(Fam, I);
+                                                                          false -> [{canon(Fam, I), One}]
+                                                                      end
+                                                         end,
+                                                 lists:foldl(fun({J, Cj}, M2) ->
+                                                                     Cc = qpmul(C, Cj),
+                                                                     case M2 of #{J := C0} -> M2#{J => qpadd(C0, Cc)}; _ -> M2#{J => Cc} end
+                                                             end, M, Named)
+                                         end, #{}, Ints),
+                    [{I, C} || I := C <- Merged, map_size(C) > 0]
+            end
+    end).
+
+%% D_j(A k + B p) as #{j | const => Poly}: the momentum moved, squared through the scalar products, the mass
+moved(Fam = #{loops := Ls, ext := Es, vars := Vars}, _J, {A, B}, {Sign, Mom}, M2) ->
+    %% the moved momentum as [{Coefficient, q}]: each loop l -> sum_j a_lj k_j + sum_e b_le p_e
+    Moved = lists:append([case lists:member(Q, Ls) of
+                              true ->
+                                  Li = index(Q, Ls),
+                                  [{C * X, Lj} || {Lj, X} <- lists:zip(Ls, lists:nth(Li, A)), X =/= 0]
+                                  ++ [{C * X, Pe} || {Pe, X} <- lists:zip(Es, lists:nth(Li, B)), X =/= 0];
+                              false -> [{C, Q}]
+                          end || {C, Q} <- Mom]),
+    Terms = [{qpscale(P, {Sign * C1 * C2, 1}), K} || {C1, Q1} <- Moved, {C2, Q2} <- Moved, {P, K} <- dot_poly(Fam, Q1, Q2)]
+            ++ [{qpscale(qpoly(M2, Vars), {-Sign, 1}), const} || M2 =/= 0],
+    lists:foldl(fun({P, K}, Acc) -> Acc#{K => qpadd(maps:get(K, Acc, #{}), P)} end, #{}, Terms).
 

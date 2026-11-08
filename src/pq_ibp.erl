@@ -151,7 +151,12 @@ system(Fam, Seeds, Targets, Opts) ->
     Warm = pq_ibp_family:warm(Fam, Seeds),
     Eqs = [E || E <- lists:append(pmap(fun(Chunk) -> ok = pq_ibp_family:load(Warm), pq_ibp_family:identities_poly(Fam, Chunk) end,
                                        chunks(Seeds, max(64, length(Seeds) div (4 * erlang:system_info(schedulers_online)) + 1)))),
-                map_size(E) > 0],
+                map_size(E) > 0]
+          %% a target in a sector that maps onto another one: defined by its expansion (its own sector has no
+          %% identities)
+          ++ [maps:fold(fun(J, C, M) -> M#{J => pq_ibp_family:qpneg(C)} end, #{T => pq_ibp_family:qpone(Fam)},
+                        maps:from_list(pq_ibp_family:expand(Fam, T)))
+              || T <- Targets, pq_ibp_family:mapped(Fam, T)],
     Ints = lists:usort(lists:append([maps:keys(E) || E <- Eqs])),
     case [T || T <- Targets, not lists:member(T, Ints)] of
         [] -> ok;
