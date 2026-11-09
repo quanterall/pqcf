@@ -857,10 +857,25 @@ five-loop β-function ([arXiv:1701.01404](https://arxiv.org/abs/1701.01404)).
 - **Exactness:** every answer is exact. PQCF's reductions, composed with the master integrals' values
   ([arXiv:1108.0732](https://arxiv.org/abs/1108.0732), [arXiv:1004.1153](https://arxiv.org/abs/1004.1153), as Forcer
   ships them), equal Forcer's results as ε-expansions. The MS-bar sums equal FORM's assertions, ζ₃ to ζ₇ included.
-- **Speed:** Forcer's parametric reduction is 75–150× faster on the four-loop checks (`Forcer_1`: 10.3 s against
-  918 s). The automatic seed choice is most of PQCF's cost; for one case it chose a system nine times larger than
-  needed.
+- **Speed:** Forcer's parametric reduction is 75–150× faster on the four-loop checks in the first run (`Forcer_1`:
+  10.3 s against 918 s).
 - **What the comparison added to PQCF:** insertions in families, numerators as integrals, and symmetry classes
   100× faster. The details and every number are in `comparison/forcer/README.md`.
 - **Next:** seeds per sector; then the same checks again.
+
+**Making it faster (9 Nov 2026).** Three changes, each kept only because every answer stayed exact. They took
+`Forcer_1` from 918 s to 272 s and `Forcer_2` from 767 s to 174 s; Forcer is now 27–33× faster, not 75–150×.
+- **Seeds sector by sector.** A master that is not a seed means its identities were never written. Only its own
+  sector's budget is raised, and the system is built again. On no2's numerators: 374,416 equations → 97,949.
+  - **Tried and not kept:** starting every other sector from zero. The learning elimination filled in badly, with
+    ragged budgets (9 GB, no result in 15 minutes).
+  - **A cost on small systems:** the double box's harder target takes 3.0 s instead of 1.2 s on one core. Its
+    sector maps make the coefficients harder to reconstruct. That is still 4× faster than FIRE.
+- **One reconstruction for a sum.** The time went into reconstructing every target's coefficient of every master
+  separately. `reduce_sum/3` adds x − Σ c_T T = 0 and reconstructs only x; no1 F2 went from 383 s to 108 s.
+- **Zero right-hand sides left out.** A large system has a right-hand side for each unreduced integral at its edge:
+  19,841 on no1, 21 of them non-zero. They are now found first and dropped from the reconstruction. The sample rows
+  are read as tuples, not by `lists:nth`, which had shown as 44% of a profile.
+- **What is left:** building the system and learning its elimination (about 30 s on no1 F2), and the seeds a
+  dotted target needs in every sector.
 

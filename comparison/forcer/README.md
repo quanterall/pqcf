@@ -48,42 +48,56 @@ and checks the answers against Forcer's and against the numbers FORM's checks as
 `run.sh` does all of it on the committed HEAD (images: `comparison/form/Dockerfile`, then
 `comparison/forcer/Dockerfile`) and writes `results/<host>-<date>.json`. It exits 1 if any check fails.
 
-## Results (8 Nov 2026, dgx-spark, 16 cores for PQCF, FORM on one core; commit c166d7e)
+## Results
 
-**Every answer agrees exactly:**
+**Every answer agrees exactly, in every run:**
 - 10 of 10 components equal Forcer's results, as ε-expansions to between ε³ and ε⁷;
 - 5 of 5 MS-bar results equal FORM's assertions, every coefficient including ζ₃ to ζ₇.
 
 For example, `Forcer_1` F2 = 15/2 ε⁻⁴ + 383/12 ε⁻³ − 2089/18 ε⁻² + (1466/9 − 728ζ₃ − 1245/8 ζ₅) ε⁻¹ − 2183/12 − 17198/9 ζ₃ − 3705/8 ζ₃² − 2169/2 ζ₄ − 57155/48 ζ₅ − 6225/16 ζ₆ + 441/2 ζ₇.
 
-**Time:**
+**Time** (dgx-spark; FORM on one core, PQCF on 16; the files in `results/`):
 
-| check | FORM + Forcer (1 core) | PQCF (reduction only, 16 cores) |
-| --- | --- | --- |
-| `Forcer_example` | 0.51 s | 0.07 s |
-| `Forcer_1` | 10.3 s | 918 s |
-| `Forcer_2` | 5.2 s | 767 s |
+| check | FORM + Forcer | PQCF, 8 Nov (c166d7e) | PQCF, 9 Nov (f615b0c) |
+| --- | --- | --- | --- |
+| `Forcer_example` | 0.51 s | 0.07 s | 0.06 s |
+| `Forcer_1` | 10.2 s | 918 s | **272 s** |
+| `Forcer_2` | 5.2 s | 767 s | **174 s** |
 
-PQCF's per-case times:
+PQCF's per-case times on 9 November:
 
 | case | seconds | equations | needed | masters |
 | --- | --- | --- | --- | --- |
-| no1 F1 | 6.7 | 1,864 | 0 (a master) | 1 |
-| no1 F2 | 384 | 116,202 | 67,035 | 21 |
-| no2 F1 | 15.8 | 1,417 | 0 (a master) | 1 |
-| no2 F2 | 221 | 87,919 | 51,715 | 16 |
-| no3 F1 | 66 | 44,053 | 31,283 | 10 |
-| no3 F2 | 225 | 92,723 | 53,259 | 13 |
-| no1 numerators | 16 | 13,244 | 10,076 | 21 |
-| no2 numerators | 729 | 374,416 | 244,587 | 16 |
+| no1 F1 | 6.8 | 1,864 | 0 (a master) | 1 |
+| no1 F2 | 101 | 116,202 | 67,035 | 21 |
+| no2 F1 | 17.3 | 1,417 | 0 (a master) | 1 |
+| no2 F2 | 65 | 87,919 | 51,715 | 16 |
+| no3 F1 | 30 | 33,454 | 22,098 | 12 |
+| no3 F2 | 51 | 92,723 | 53,259 | 13 |
+| no1 numerators | 5.4 | 13,244 | 10,076 | 20 |
+| no2 numerators | 145 | 97,949 | 58,123 | 16 |
+
+**What changed between the two runs:**
+
+1. **Seeds sector by sector.** The search starts from the targets' budget. Each master that is not itself a seed
+   raises only its own sector's budget, and the system is built again. no2's numerator variants: 374,416 equations
+   → 97,949. no3 F1: 44,053 → 33,454.
+2. **One reconstruction for a sum** (`pq_ibp:reduce_sum/3`). Each check needs only the sum of its integrals, so one
+   extra unknown x and one equation x − Σ c_T T = 0 are added, and only x is reconstructed. Before, every target's
+   coefficient of every master was reconstructed separately: dozens of targets, after the numerators are written
+   as integrals.
+3. **Zero right-hand sides left out** (`pq_recon:linear/4`). The large systems carry one right-hand side per
+   unreduced integral at their edge, 19,841 for no1, and only 21 are non-zero. They are now found first and
+   dropped.
+
+**Tried and not kept:** starting every sector other than the targets' own from no dots and no numerators. The
+learning elimination then filled in badly (9 GB, no result after 15 minutes on no1 F2).
 
 **Reading these honestly:**
-- **On the four-loop checks Forcer is 75–150 times faster.** Forcer reduces with identities solved once,
-  parametrically, for each of its 437 topologies. PQCF solves a Laporta system for each problem. This is the
-  expected advantage of a program built for one class of integrals, and the result PQCF has to improve on.
-- **The automatic seed choice is most of PQCF's cost here.** For no2's numerators it settles on 374,416 equations,
-  where the system from the next smaller seeds is 42,217 equations and reduces in 9 s; the smaller seeds fail only
-  the completeness check. Choosing seeds per sector is the next step.
+- **On the four-loop checks Forcer is still 27–33 times faster.** Forcer reduces with identities solved once,
+  parametrically, for each of its 437 topologies. PQCF solves a Laporta system for each problem.
+- **PQCF's remaining cost** is mostly the system: building it and learning its elimination (about 30 s for no1 F2),
+  and the seeds that a dotted target needs in every sector.
+- **On the three-loop example PQCF is 8 times faster** (0.06 s against 0.51 s).
 - **PQCF's symmetry classes for a four-loop family took 75 s before this comparison;** they now take 0.7 s, by
   matching lines by invariants instead of trying all 11! permutations.
-- **On the three-loop example PQCF is 7 times faster** (0.07 s against 0.51 s).

@@ -33,8 +33,16 @@ the public API is additive.
   [arXiv:1704.06650](https://arxiv.org/abs/1704.06650)): PQCF reduces the integrals of `forcer.frm`
   (`Forcer_example`, `Forcer_1`, `Forcer_2`: the four-loop non-planar topologies no1-no3 with dots and numerators,
   and a two-loop kite with insertions), and every answer is exact: equal to Forcer's results as epsilon expansions,
-  and equal in MS-bar to the numbers FORM's checks assert (zeta_3 to zeta_7). Forcer is 75-150x faster on the
-  four-loop checks (10.3 s against 918 s for `Forcer_1`); PQCF 7x faster on the three-loop example.
+  and equal in MS-bar to the numbers FORM's checks assert (zeta_3 to zeta_7). Forcer is 27-33x faster on the
+  four-loop checks (`Forcer_1`: 10.2 s against 272 s, from 918 s before the changes below); PQCF 8x faster on the
+  three-loop example.
+- **Seeds chosen sector by sector** (`pq_ibp:auto_seeds/3`): each master that is not a seed raises only its own
+  sector's budget (`pq_ibp_family:sector_seeds/4`); the global budgets stay as the fallback, `sector_seeds =>
+  false` restores them. Four loops: 374,416 equations -> 97,949 for one case. A cost: the double box's harder
+  target, 1.2 s -> 3.0 s on one core.
+- **`pq_ibp:reduce_sum/3`**: a combination of targets reduced as one result (one extra unknown and equation, one
+  reconstruction); **`pq_recon:linear/4`** leaves out the zero right-hand sides (19,841 -> 21 on a four-loop
+  system).
 - **`pq_ibp_family`: insertions and numerators** -- `eps => #{Line => M}` (a line's power index + M epsilon, as a
   one-loop insertion leaves it) and `numerator/3` (an integral times scalar products, as integrals of the family).
 - **Four-loop symmetry classes 75 s -> 0.7 s**: sector maps found by backtracking over lines with equal invariants
