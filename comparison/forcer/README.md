@@ -58,26 +58,26 @@ For example, `Forcer_1` F2 = 15/2 ε⁻⁴ + 383/12 ε⁻³ − 2089/18 ε⁻² 
 
 **Time** (dgx-spark; FORM on one core, PQCF on 16; the files in `results/`):
 
-| check | FORM + Forcer | PQCF, 8 Nov (c166d7e) | PQCF, 9 Nov (f615b0c) |
-| --- | --- | --- | --- |
-| `Forcer_example` | 0.51 s | 0.07 s | 0.06 s |
-| `Forcer_1` | 10.2 s | 918 s | **272 s** |
-| `Forcer_2` | 5.2 s | 767 s | **174 s** |
+| check | FORM + Forcer | PQCF, 8 Nov (c166d7e) | 9 Nov (f615b0c) | 9 Nov (9779719) |
+| --- | --- | --- | --- | --- |
+| `Forcer_example` | 0.51 s | 0.07 s | 0.06 s | **0.04 s** |
+| `Forcer_1` | 10.3 s | 918 s | 272 s | **175 s** |
+| `Forcer_2` | 5.2 s | 767 s | 174 s | **132 s** |
 
-PQCF's per-case times on 9 November:
+PQCF's per-case times in the latest run:
 
 | case | seconds | equations | needed | masters |
 | --- | --- | --- | --- | --- |
 | no1 F1 | 6.8 | 1,864 | 0 (a master) | 1 |
-| no1 F2 | 101 | 116,202 | 67,035 | 21 |
-| no2 F1 | 17.3 | 1,417 | 0 (a master) | 1 |
-| no2 F2 | 65 | 87,919 | 51,715 | 16 |
-| no3 F1 | 30 | 33,454 | 22,098 | 12 |
-| no3 F2 | 51 | 92,723 | 53,259 | 13 |
-| no1 numerators | 5.4 | 13,244 | 10,076 | 20 |
-| no2 numerators | 145 | 97,949 | 58,123 | 16 |
+| no1 F2 | 48 | 116,202 | 67,035 | 21 |
+| no2 F1 | 16.6 | 1,417 | 0 (a master) | 1 |
+| no2 F2 | 34 | 87,919 | 51,715 | 16 |
+| no3 F1 | 47 | 33,454 | 22,098 | 12 |
+| no3 F2 | 23 | 92,723 | 53,259 | 13 |
+| no1 numerators | 2.9 | 13,244 | 10,076 | 20 |
+| no2 numerators | 105 | 97,949 | 58,123 | 16 |
 
-**What changed between the two runs:**
+**What changed between the first two runs:**
 
 1. **Seeds sector by sector.** The search starts from the targets' budget. Each master that is not itself a seed
    raises only its own sector's budget, and the system is built again. no2's numerator variants: 374,416 equations
@@ -90,14 +90,33 @@ PQCF's per-case times on 9 November:
    unreduced integral at their edge, 19,841 for no1, and only 21 are non-zero. They are now found first and
    dropped.
 
-**Tried and not kept:** starting every sector other than the targets' own from no dots and no numerators. The
-learning elimination then filled in badly (9 GB, no result after 15 minutes on no1 F2).
+**What changed in the third run:**
+
+4. **The completeness check solves once.** The seed search checks that every master with a coefficient is a seed.
+   It now does this with one solve on a random combination of the targets, not one solve per target (no1 F2:
+   37.7 s → 5.2 s).
+5. **Fewer, cheaper reconstructions.**
+   - Only the masters that check found non-zero are reconstructed.
+   - The 1.36M-entry program is stored once per reconstruction, not once per column.
+   - With one variable, the columns run concurrently.
+6. **The seed search orders its budgets differently.** The global budgets come first, while their seeds stay
+   within three times the smallest budget's; a larger budget hands over to the sector-by-sector search.
+   - This fixes a regression the sector search had caused on the double box's harder target: 3.0 s instead of
+     1.2 s, now 1.4 s.
+   - The four-loop cases still reach the sector search. no3 F1 pays for the global attempts first: 47 s here,
+     30 s in the run before.
+
+**Tried and not kept:**
+- **Every sector but the targets' own starting from no dots and no numerators.** The learning elimination filled
+  in badly (9 GB, no result after 15 minutes on no1 F2).
+- **Each target's own budget instead of the maximum over all targets:** {1 dot} ∪ {1 numerator} instead of {1 dot,
+  1 numerator}. Its ragged budgets did the same: no result in 4 hours.
 
 **Reading these honestly:**
-- **On the four-loop checks Forcer is still 27–33 times faster.** Forcer reduces with identities solved once,
+- **On the four-loop checks Forcer is still 17–25 times faster** (75–150 in the first run). Forcer reduces with identities solved once,
   parametrically, for each of its 437 topologies. PQCF solves a Laporta system for each problem.
-- **PQCF's remaining cost** is mostly the system: building it and learning its elimination (about 30 s for no1 F2),
-  and the seeds that a dotted target needs in every sector.
-- **On the three-loop example PQCF is 8 times faster** (0.06 s against 0.51 s).
+- **PQCF's remaining cost** is mostly the system: building it and learning its elimination (about 30 s of no1 F2's
+  48 s), and the seeds that a dotted target needs in every sector.
+- **On the three-loop example PQCF is 13 times faster** (0.04 s against 0.51 s).
 - **PQCF's symmetry classes for a four-loop family took 75 s before this comparison;** they now take 0.7 s, by
   matching lines by invariants instead of trying all 11! permutations.

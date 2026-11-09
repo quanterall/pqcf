@@ -879,3 +879,20 @@ five-loop β-function ([arXiv:1701.01404](https://arxiv.org/abs/1701.01404)).
 - **What is left:** building the system and learning its elimination (about 30 s on no1 F2), and the seeds a
   dotted target needs in every sector.
 
+**The remaining overheads, and the double box again (9 Nov 2026).** A profile of no1 F2 (105 s) found two costs
+outside the arithmetic. Fixing them took `Forcer_1` to 175 s and `Forcer_2` to 132 s, every answer still exact.
+Forcer is now 17–25× faster on four loops; on the three-loop example PQCF is 13× faster.
+- **The completeness check: 37.7 s → 5.2 s.** It had solved the system once per target. One solve of a random
+  combination x = Σ r_T T finds the same masters, with probability 1 − (number of masters)/p.
+- **The reconstruction's columns** are now light:
+  - only the masters found non-zero are reconstructed;
+  - the 1.36M-entry program is stored and hashed once per reconstruction, not once per column;
+  - with one variable, the columns run concurrently (5 s saved).
+- **The double box.** The sector-by-sector search had made its harder target 3.0 s instead of 1.2 s: its sector
+  maps give coefficients that are harder to reconstruct. The search now tries the global budgets first, as long as
+  their seeds stay within 3× the smallest budget's; a larger budget hands over to the sector search. The target is
+  back to 1.4 s, and the four-loop cases still reach the sector search. no3 F1 pays for the global attempts first:
+  47 s instead of 30 s.
+- **Tried and not kept:** each target's own budget instead of the maximum over all targets. Its ragged budgets
+  filled in like the zero start: no result in 4 hours.
+

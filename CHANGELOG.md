@@ -33,13 +33,17 @@ the public API is additive.
   [arXiv:1704.06650](https://arxiv.org/abs/1704.06650)): PQCF reduces the integrals of `forcer.frm`
   (`Forcer_example`, `Forcer_1`, `Forcer_2`: the four-loop non-planar topologies no1-no3 with dots and numerators,
   and a two-loop kite with insertions), and every answer is exact: equal to Forcer's results as epsilon expansions,
-  and equal in MS-bar to the numbers FORM's checks assert (zeta_3 to zeta_7). Forcer is 27-33x faster on the
-  four-loop checks (`Forcer_1`: 10.2 s against 272 s, from 918 s before the changes below); PQCF 8x faster on the
+  and equal in MS-bar to the numbers FORM's checks assert (zeta_3 to zeta_7). Forcer is 17-25x faster on the
+  four-loop checks (`Forcer_1`: 10.3 s against 175 s, from 918 s before the changes below); PQCF 13x faster on the
   three-loop example.
+- **Reduction overheads:** the seed search's completeness check is one solve on a random combination of the
+  targets (four loops: 37.7 s -> 5.2 s); `reduce_sum/3` reconstructs only the masters found non-zero;
+  `pq_recon:linear/4` stores its program once per call and runs univariate columns concurrently. The seed search
+  takes the global budgets first while they stay within 3x the smallest, then the sector-by-sector search: the
+  double box's harder target is back to 1.4 s (3.0 s with the sector search first).
 - **Seeds chosen sector by sector** (`pq_ibp:auto_seeds/3`): each master that is not a seed raises only its own
   sector's budget (`pq_ibp_family:sector_seeds/4`); the global budgets stay as the fallback, `sector_seeds =>
-  false` restores them. Four loops: 374,416 equations -> 97,949 for one case. A cost: the double box's harder
-  target, 1.2 s -> 3.0 s on one core.
+  false` restores them. Four loops: 374,416 equations -> 97,949 for one case.
 - **`pq_ibp:reduce_sum/3`**: a combination of targets reduced as one result (one extra unknown and equation, one
   reconstruction); **`pq_recon:linear/4`** leaves out the zero right-hand sides (19,841 -> 21 on a four-loop
   system).
