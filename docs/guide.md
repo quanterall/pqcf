@@ -601,7 +601,7 @@ tries partial fractions (`form => partial` forces them), and `pq_simplify:discov
 alphabet, repeated or shared between coefficients, by exact gcds; pass them as `extra`.
 
 ```erlang
-{ok, Basis, #{size_in := 5, size_out := 3, seeds := Seeds}} = pq_ibp:choose_masters(Kite, [{1, 1, 1, 1, 1}], #{}),
+{ok, Basis, #{size_in := 5, size_out := 4, seeds := Seeds}} = pq_ibp:choose_masters(Kite, [{1, 1, 1, 1, 1}], #{}),
 {ok, _, _} = pq_ibp:reduce(Kite, [{1, 1, 1, 1, 1}], #{masters => Basis, seeds => Seeds}).
 ```
 

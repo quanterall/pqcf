@@ -158,9 +158,21 @@ seeds(_Fam, List, _Targets) when is_list(List) -> List.
 auto_seeds(Fam, Targets, Opts) ->
     Dt = lists:max([lists:sum([X - 1 || X <- tuple_to_list(T), X > 1]) || T <- Targets]),
     St = lists:max([lists:sum([-X || X <- tuple_to_list(T), X < 0]) || T <- Targets]),
-    case maps:get(sector_seeds, Opts, true) andalso sector_seeds(Fam, Targets, Opts, Dt, St) of
-        {ok, Spec, Sys} -> {Spec, Sys};
-        _ -> global_seeds(Fam, Targets, Opts, Dt, St)
+    case maps:get(sector_seeds, Opts, true) of
+        false -> global_seeds(Fam, Targets, Opts, Dt, St);
+        true ->
+            %% the global budgets first, while their seeds stay within three times the smallest budget's; a larger
+            %% one hands over to the sector-by-sector search, which raises only the sectors that need it (four
+            %% loops: R1), and if that stalls, the global budgets without the limit
+            Cap = 3 * length(pq_ibp_family:seeds(Fam, {dots, Dt}, St)),
+            case catch global_seeds(Fam, Targets, Opts#{seed_cap => Cap}, Dt, St) of
+                {{dots, _, _}, #{} = Sys} = Found when is_map_key(a, Sys) -> Found;
+                _ ->
+                    case sector_seeds(Fam, Targets, Opts, Dt, St) of
+                        {ok, Spec, Sys} -> {Spec, Sys};
+                        _ -> global_seeds(Fam, Targets, Opts, Dt, St)
+                    end
+            end
     end.
 
 %% the sector-by-sector search, with the sector maps (the smallest systems), then without
@@ -209,7 +221,12 @@ global_seeds(Fam, Targets, Opts, Dt, St) ->
 auto_seeds(_Fam, _Targets, _Opts, []) -> throw({pq_ibp, no_seeds_reduce_the_targets});
 auto_seeds(Fam, Targets, Opts, [{D, S, Mapped} | More]) ->
     Seeds = pq_ibp_family:seeds(Fam, {dots, D}, S),
-    Result = try system(Fam, Seeds, Targets, Opts#{sector_maps => Mapped}) of
+    %% seed_cap (from auto_seeds/3): the budgets come in growing order, so the first too large ends the search
+    case length(Seeds) > maps:get(seed_cap, Opts, infinity) of
+        true -> throw({pq_ibp, seed_cap});
+        false -> ok
+    end,
+    Result = try system(Fam, Seeds, Targets, maps:remove(seed_cap, Opts#{sector_maps => Mapped})) of
                  Sys ->
                      SeedSet = sets:from_list([pq_ibp_family:canon(Fam, X) || X <- Seeds], [{version, 2}]),
                      NZ = nonzero_masters(Fam, Sys),
