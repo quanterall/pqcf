@@ -98,8 +98,18 @@ reduce_sum(Fam, Comb, Opts) ->
                                       auto -> auto_seeds(Fam, Live, Opts);
                                       Spec -> {Spec, system(Fam, seeds(Fam, Spec, Live), Live, Opts)}
                                   end,
-                #{a := A, bs := Bs, masters := Masters, targets := TIs, size := {NEqs, NInts}} = Sys,
+                #{a := A, bs := Bs0, masters := Masters0, targets := TIs, size := {NEqs, NInts}} = Sys,
                 N = length(A),
+                %% only the masters that can have a coefficient (known from the seed search's check), renumbered
+                {Masters, Bs} = case Sys of
+                                    #{nonzero := NZ} ->
+                                        Keep = [K || {K, {M, _}} <- lists:enumerate(0, Masters0),
+                                                     lists:member(M, NZ) orelse lists:keymember(M, 1, [{T, x} || {T, {master, _}} <- TIs])],
+                                        New = maps:from_list(lists:zip(Keep, lists:seq(0, length(Keep) - 1))),
+                                        {[lists:nth(K + 1, Masters0) || K <- Keep],
+                                         [maps:from_list([{maps:get(C, New), E} || C := E <- R, is_map_key(C, New)]) || R <- Bs0]};
+                                    _ -> {Masters0, Bs0}
+                                end,
                 MPos = maps:from_list(lists:zip([M || {M, _} <- Masters], lists:seq(0, length(Masters) - 1))),
                 Row = maps:from_list([{N, 1} | [{TI, {mul, [-1, maps:get(T, Merged)]}} || {T, TI} <- TIs, is_integer(TI)]]),
                 Rhs = maps:from_list([{maps:get(T, MPos), maps:get(T, Merged)} || {T, {master, _}} <- TIs, is_map_key(T, MPos)]),
@@ -166,8 +176,9 @@ raise(Fam, Targets, Opts, Dt, St, Raised, Round) ->
     try system(Fam, Seeds, Targets, Opts) of
         Sys ->
             SeedSet = sets:from_list([pq_ibp_family:canon(Fam, X) || X <- Seeds], [{version, 2}]),
-            case [M || M <- nonzero_masters(Fam, Sys), not sets:is_element(M, SeedSet)] of
-                [] -> {ok, Spec, Sys#{sector_maps => maps:get(sector_maps, Opts)}};
+            NZ = nonzero_masters(Fam, Sys),
+            case [M || M <- NZ, not sets:is_element(M, SeedSet)] of
+                [] -> {ok, Spec, Sys#{sector_maps => maps:get(sector_maps, Opts), nonzero => NZ}};
                 Missing ->
                     %% each missing master's sector, its budget raised to the master's own dots and numerators
                     Need = lists:foldl(fun(M, Acc) ->
@@ -201,8 +212,9 @@ auto_seeds(Fam, Targets, Opts, [{D, S, Mapped} | More]) ->
     Result = try system(Fam, Seeds, Targets, Opts#{sector_maps => Mapped}) of
                  Sys ->
                      SeedSet = sets:from_list([pq_ibp_family:canon(Fam, X) || X <- Seeds], [{version, 2}]),
-                     case lists:all(fun(M) -> sets:is_element(M, SeedSet) end, nonzero_masters(Fam, Sys)) of
-                         true -> {ok, Sys};
+                     NZ = nonzero_masters(Fam, Sys),
+                     case lists:all(fun(M) -> sets:is_element(M, SeedSet) end, NZ) of
+                         true -> {ok, Sys#{nonzero => NZ}};
                          false -> incomplete
                      end
              catch
@@ -213,21 +225,28 @@ auto_seeds(Fam, Targets, Opts, [{D, S, Mapped} | More]) ->
         incomplete -> auto_seeds(Fam, Targets, Opts, More)
     end.
 
-%% the masters with a non-zero coefficient in any target, from one numeric solve at a random point mod ?P
+%% the masters with a non-zero coefficient in any target, from one numeric solve at a random point mod ?P: of a random
+%% combination x = sum r_T T of the targets (one extra unknown and equation), whose masters are those of every
+%% target but with probability about (number of masters) / ?P -- one solve instead of one per target
 nonzero_masters(Fam, #{a := A, bs := Bs, masters := Masters, targets := TIs}) ->
     Vars = pq_ibp_family:vars(Fam),
-    Sp = fun(Row) -> lists:sort(maps:to_list(Row)) end,
-    SA = [Sp(R) || R <- A], SB = [Sp(R) || R <- Bs],
-    {ok, Prog} = pq_symbolic:compile([E || Row <- SA ++ SB, {_, E} <- Row], Vars, ?COMPILE),
-    {ok, {ff, Ref, _, _}} = pq_ff:prepare(Prog),
-    PointMap = point(Vars, {3, 1, 4}),
-    Point = [maps:get(V, PointMap) || V <- Vars],
-    lists:usort(
-      [M || {_, TI} <- TIs, is_integer(TI),
-            {ok, Lin} <- [pq_nif:ff_linsys(Ref, length(A), length(Masters), TI, 0, [[C || {C, _} <- R] || R <- SA],
-                                           [[C || {C, _} <- R] || R <- SB], [])],
-            {ok, [Vals]} <- [pq_nif:ff_linsys_all(Lin, ?P, Point)],
-            {{M, _}, V} <- lists:zip(Masters, Vals), V =/= 0]).
+    case [TI || {_, TI} <- TIs, is_integer(TI)] of
+        [] -> [];
+        Cols ->
+            N = length(A),
+            {Rs, _} = lists:mapfoldl(fun(_, S) -> rand:uniform_s(?P - 1, S) end, rand:seed_s(exsss, {2, 7, 1}), Cols),
+            Row = maps:from_list([{N, 1} | [{C, -R} || {C, R} <- lists:zip(Cols, Rs)]]),
+            Sp = fun(R) -> lists:sort(maps:to_list(R)) end,
+            SA = [Sp(R) || R <- A] ++ [Sp(Row)], SB = [Sp(R) || R <- Bs] ++ [[]],
+            {ok, Prog} = pq_symbolic:compile([E || R <- SA ++ SB, {_, E} <- R], Vars, ?COMPILE),
+            {ok, {ff, Ref, _, _}} = pq_ff:prepare(Prog),
+            PointMap = point(Vars, {3, 1, 4}),
+            Point = [maps:get(V, PointMap) || V <- Vars],
+            {ok, Lin} = pq_nif:ff_linsys(Ref, N + 1, length(Masters), N, 0, [[C || {C, _} <- R] || R <- SA],
+                                         [[C || {C, _} <- R] || R <- SB], []),
+            {ok, [Vals]} = pq_nif:ff_linsys_all(Lin, ?P, Point),
+            lists:usort([M || {{M, _}, V} <- lists:zip(Masters, Vals), V =/= 0])
+    end.
 
 %%% The system
 

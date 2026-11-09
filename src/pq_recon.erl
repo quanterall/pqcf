@@ -110,8 +110,9 @@ linear(A, B, Vars, Opts) ->
             Limits = maps:with([max_poly_terms, max_expand_power, max_expr_nodes, sym_timeout_ms, sym_max_heap_words], Opts),
             Entries = [E || Row <- Sparse ++ SparseB, {_, E} <- Row],
             case pq_symbolic:compile(Entries, Vars, Limits#{exact_constants => true}) of
-                {ok, Prog} when Multi, M > 1, not is_map_key(pruned, Opts) ->
-                    %% many right-hand sides (a reduction's masters, most with no coefficient in the targets): the
+                {ok, Prog} when Multi, M > 64, not is_map_key(pruned, Opts) ->
+                    %% many right-hand sides (a reduction's masters, most with no coefficient in the targets; a few
+                    %% zero ones cost nothing to carry, so only above 64): the
                     %% zero ones found first, then only the others carried through the reconstruction -- each
                     %% right-hand side's solution is independent of the others
                     Wanted = maps:get(components, Opts, lists:seq(0, N - 1)),
@@ -123,7 +124,10 @@ linear(A, B, Vars, Opts) ->
                     end;
                 {ok, Prog} ->
                     Wanted = maps:get(components, Opts, lists:seq(0, N - 1)),
-                    Results = [{W, component(Prog, Vars, {N, Pattern}, M, W, Opts)} || W <- Wanted],
+                    %% the program and the pattern stored once: every job (the zero test, the guesses, each column)
+                    %% names them by these keys instead of hashing them again
+                    Keys = #{prog_key => pq_rstore:put(Prog), pattern_key => {Pattern, pq_rstore:put(Pattern)}},
+                    Results = [{W, component(Prog, Vars, {N, Pattern}, M, W, maps:merge(Opts, Keys))} || W <- Wanted],
                     case [E || {_, {error, _} = E} <- Results] of
                         [] when Multi -> {ok, [{W, R} || {W, {ok, R}} <- Results]};
                         [] -> {ok, [{W, NumDen} || {W, {ok, [{0, NumDen}]}} <- Results]};
@@ -174,10 +178,16 @@ component(Prog, Vars, NP, M, W, Opts) ->
             %% one right-hand side after another: each reuses the points the earlier ones solved (the system's
             %% cache), and the parallelism is within each reconstruction's stages (running them concurrently was
             %% measured slower: R1)
-            Cols = [case lists:member(C, Zeros) of
-                        true -> {C, {ok, Zero}};
-                        false -> {C, column(Prog, Vars, NP, M, W, C, maps:get(C, Guesses, none), Opts)}
-                    end || C <- lists:seq(0, M - 1)],
+            One = fun(C) -> case lists:member(C, Zeros) of
+                                true -> {C, {ok, Zero}};
+                                false -> {C, column(Prog, Vars, NP, M, W, C, maps:get(C, Guesses, none), Opts)}
+                            end end,
+            %% concurrently with one variable (light columns sharing their points: measured faster on four-loop
+            %% systems), one after another with several (measured slower concurrently: R1)
+            Cols = case maps:get(concurrent_columns, Opts, length(Vars) =:= 1) of
+                       false -> [One(C) || C <- lists:seq(0, M - 1)];
+                       true -> pmap(One, lists:seq(0, M - 1))
+                   end,
             case [E || {_, {error, _} = E} <- Cols] of
                 [] -> {ok, [{C, R} || {C, {ok, R}} <- Cols]};
                 [E | _] -> E
@@ -353,12 +363,19 @@ with_job(Program, N, Opts, Kind, Body) ->
     case pq_ff:prepare(Program) of
         {ok, _} ->
             Exec = maps:get(executor, Opts, local),
-            Key = pq_rstore:put(Program),
+            Key = maps:get(prog_key, Opts, undefined) =/= undefined andalso maps:get(prog_key, Opts),
+            Key2 = case Key of false -> pq_rstore:put(Program); _ -> Key end,
+            PutPattern = fun(Pattern) ->
+                                 case Opts of
+                                     #{pattern_key := {Pattern, PK}} -> PK;
+                                     _ -> pq_rstore:put(Pattern)
+                                 end
+                         end,
             BB = case Kind of
-                     program -> Key;
-                     {linsys, {Size, Pattern}, Rhs, Want, Col} -> {linsys, Key, pq_rstore:put(Pattern), Size, Rhs, Want, Col}
+                     program -> Key2;
+                     {linsys, {Size, Pattern}, Rhs, Want, Col} -> {linsys, Key2, PutPattern(Pattern), Size, Rhs, Want, Col}
                  end,
-            Job = #{key => Key, bb => BB, run => fun(Tasks) -> pq_rexec:map(Tasks, Exec, Opts) end,
+            Job = #{key => Key2, bb => BB, run => fun(Tasks) -> pq_rexec:map(Tasks, Exec, Opts) end,
                     batch => maps:get(batch, Opts, batch(Exec, Opts)), seed => maps:get(seed, Opts, 1), n => N},
             try {ok, Body(Job)}
             catch throw:{recon, Why} -> {error, {reconstruction, Why}}
@@ -692,3 +709,8 @@ chunks([], _) -> [];
 chunks(L, N) when length(L) =< N -> [L];
 chunks(L, N) -> {A, B} = lists:split(N, L), [A | chunks(B, N)].
 
+%% F over Xs in parallel processes, the results in order
+pmap(F, Xs) ->
+    Self = self(),
+    Refs = [begin R = make_ref(), spawn_link(fun() -> Self ! {R, F(X)} end), R end || X <- Xs],
+    [receive {R, V} -> V end || R <- Refs].
