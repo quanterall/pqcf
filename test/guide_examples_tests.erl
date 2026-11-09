@@ -225,6 +225,6 @@ reducing() ->
     ?assertEqual(pq_symbolic:evaluate({mul, [{rat, 1, 2}, {add, [{sym, d}, -4]}, {pow, {sym, t}, -1}]}, P2, #{exact => true}),
                  pq_symbolic:evaluate(Lhs, P2, #{exact => true})),
     Kite = pq_ibp_family:example(kite),
-    {ok, Basis, #{size_in := 5, size_out := 4, seeds := Seeds}} = pq_ibp:choose_masters(Kite, [{1, 1, 1, 1, 1}], #{}),
+    {ok, Basis, #{size_in := 5, size_out := 3, seeds := Seeds}} = pq_ibp:choose_masters(Kite, [{1, 1, 1, 1, 1}], #{}),
     {ok, _, _} = pq_ibp:reduce(Kite, [{1, 1, 1, 1, 1}], #{masters => Basis, seeds => Seeds}).
 

@@ -42,7 +42,7 @@ zero_and_symmetry_test() ->
 box_test_() ->
     {timeout, 120, fun() ->
         Box = pq_ibp_family:example(box),
-        {ok, R, #{seeds := {dots, _, _}, masters := M}} = pq_ibp:reduce(Box, [{2, 1, 1, 1}, {1, 1, 1, 1}, {1, 0, 0, 0}], #{}),
+        {ok, R, #{seeds := _, masters := M}} = pq_ibp:reduce(Box, [{2, 1, 1, 1}, {1, 1, 1, 1}, {1, 0, 0, 0}], #{}),
         ?assert(M >= 2),
         ?assertEqual([], maps:get({1, 0, 0, 0}, R)),
         [{{1, 1, 1, 1}, One}] = maps:get({1, 1, 1, 1}, R),

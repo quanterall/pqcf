@@ -17,7 +17,7 @@
 -module(pq_ibp_family).
 -export([new/1, example/1, identities/2, zero/2, seeds/3, canon/2, derivative/3, vars/1, size/1, kin/3, numerator/3]).
 %% for pq_ibp: the identities with their coefficients as polynomials (Exponents => {N, D})
--export([identities_poly/2, warm/2, load/1, expand/2, mapped/2, without_sector_maps/1, qpone/1, qpneg/1]).
+-export([identities_poly/2, warm/2, load/1, expand/2, mapped/2, without_sector_maps/1, qpone/1, qpneg/1, sector_seeds/4]).
 -export_type([family/0, integral/0]).
 
 -type family() :: #{id := integer(), loops := [atom()], ext := [atom()], props := [{integer(), [{integer(), atom()}]}],
@@ -373,6 +373,23 @@ seeds(Fam = #{top := Top, props := Props}, R, S) ->
     lists:usort(lists:foldl(fun(J, Acc) ->
                                     [setelement(J, T, X) || T <- Acc, X <- lists:seq(-S, element(J, T))]
                             end, Plain, Ins)).
+
+%% the seeds of one sector (its positive lines, a sorted list): at most D powers above 1 and S numerator powers in
+%% total (pq_ibp's seeds per sector); [] for a zero sector
+-spec sector_seeds(family(), [pos_integer()], non_neg_integer(), non_neg_integer()) -> [integral()].
+sector_seeds(Fam = #{props := Props}, Sec0, D, S) ->
+    N = length(Props),
+    Ins = maps:keys(maps:get(eps, Fam, #{})),
+    Sec = lists:usort(Sec0 ++ Ins),
+    case zero(Fam, sector_point(N, Sec)) of
+        true -> [];
+        false ->
+            Others = [J || J <- lists:seq(1, N), not lists:member(J, Sec)],
+            Plain = [list_to_tuple(fill(N, Sec, Pos, Others, Neg))
+                     || Pos <- compositions(Sec, length(Sec) + D), Neg <- numerators(length(Others), S)],
+            lists:usort(lists:foldl(fun(J, Acc) -> [setelement(J, T, X) || T <- Acc, X <- lists:seq(-S, element(J, T))] end,
+                                    Plain, Ins))
+    end.
 
 subsets([]) -> [[]];
 subsets([X | Xs]) -> Rest = subsets(Xs), [[X | Ys] || Ys <- Rest] ++ Rest.

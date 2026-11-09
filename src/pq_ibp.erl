@@ -79,9 +79,12 @@ reduce_live(Fam, Live, Opts) ->
 %%% Seeds
 
 %% the seed integrals: {dots, D, S}: in every non-zero sector, at most D powers above 1 and S numerator powers in
-%% total; {R, S}: Kira's (the positive indices summing to at most R); a list: as given
+%% total; {sectors, D, S, [{Sector, Ds, Ss}]}: {dots, D, S} with the budget of some sectors raised (auto_seeds/3);
+%% {R, S}: Kira's (the positive indices summing to at most R); a list: as given
 -spec seeds(pq_ibp_family:family(), term(), [integral()]) -> [integral()].
 seeds(Fam, {dots, D, S}, _Targets) -> pq_ibp_family:seeds(Fam, {dots, D}, S);
+seeds(Fam, {sectors, D, S, Raised}, _Targets) ->
+    lists:usort(pq_ibp_family:seeds(Fam, {dots, D}, S) ++ lists:append([pq_ibp_family:sector_seeds(Fam, Sec, Ds, Ss) || {Sec, Ds, Ss} <- Raised]));
 seeds(Fam, {R, S}, _Targets) when is_integer(R) -> pq_ibp_family:seeds(Fam, R, S);
 seeds(_Fam, List, _Targets) when is_list(List) -> List.
 
@@ -90,10 +93,56 @@ seeds(_Fam, List, _Targets) when is_list(List) -> List.
 %% target (one numeric solve at a random point mod ?P) is itself a seed, its identities generated; a master at the
 %% edge of the seed range, whose identities were never written, means the seeds are too small. {Spec, System}
 %% (the system as system/4 gives it)
--spec auto_seeds(pq_ibp_family:family(), [integral()], map()) -> {{dots, non_neg_integer(), non_neg_integer()}, map()}.
+%%
+%% First, sector by sector: from the targets' own budget, each master that is not a seed (its identities never
+%% written) raises the budget of its own sector just enough to make it one, and the system is built again, until
+%% every master is a seed. Most sectors keep the small budget. If that stalls (a master no raise makes a seed), the
+%% global budgets below, as before.
+-spec auto_seeds(pq_ibp_family:family(), [integral()], map()) -> {term(), map()}.
 auto_seeds(Fam, Targets, Opts) ->
     Dt = lists:max([lists:sum([X - 1 || X <- tuple_to_list(T), X > 1]) || T <- Targets]),
     St = lists:max([lists:sum([-X || X <- tuple_to_list(T), X < 0]) || T <- Targets]),
+    case maps:get(sector_seeds, Opts, true) andalso sector_seeds(Fam, Targets, Opts, Dt, St) of
+        {ok, Spec, Sys} -> {Spec, Sys};
+        _ -> global_seeds(Fam, Targets, Opts, Dt, St)
+    end.
+
+%% the sector-by-sector search, with the sector maps (the smallest systems), then without
+sector_seeds(Fam, Targets, Opts, Dt, St) ->
+    lists:foldl(fun(_, {ok, _, _} = Done) -> Done;
+                   (Mapped, _) -> raise(Fam, Targets, Opts#{sector_maps => Mapped}, Dt, St, [], 0)
+                end, none, case maps:find(sector_maps, Opts) of {ok, M} -> [M]; error -> [true, false] end).
+
+raise(_, _, _, _, _, _, 12) -> stalled;
+raise(Fam, Targets, Opts, Dt, St, Raised, Round) ->
+    Spec = {sectors, Dt, St, Raised},
+    Seeds = seeds(Fam, Spec, Targets),
+    try system(Fam, Seeds, Targets, Opts) of
+        Sys ->
+            SeedSet = sets:from_list([pq_ibp_family:canon(Fam, X) || X <- Seeds], [{version, 2}]),
+            case [M || M <- nonzero_masters(Fam, Sys), not sets:is_element(M, SeedSet)] of
+                [] -> {ok, Spec, Sys#{sector_maps => maps:get(sector_maps, Opts)}};
+                Missing ->
+                    %% each missing master's sector, its budget raised to the master's own dots and numerators
+                    Need = lists:foldl(fun(M, Acc) ->
+                                               L = tuple_to_list(M),
+                                               Sec = [J || {J, X} <- lists:enumerate(L), X > 0],
+                                               Dm = lists:sum([X - 1 || X <- L, X > 1]),
+                                               Sm = lists:sum([-X || X <- L, X < 0]),
+                                               {D0, S0} = maps:get(Sec, Acc, {Dt, St}),
+                                               Acc#{Sec => {max(D0, Dm), max(S0, Sm)}}
+                                       end, maps:from_list([{Sec, {D, S}} || {Sec, D, S} <- Raised]), Missing),
+                    Raised2 = lists:sort([{Sec, D, S} || Sec := {D, S} <- Need]),
+                    case Raised2 =:= lists:sort(Raised) of
+                        true -> stalled;
+                        false -> raise(Fam, Targets, Opts, Dt, St, Raised2, Round + 1)
+                    end
+            end
+    catch
+        throw:{pq_ibp, {targets_not_in_system, _}} -> stalled
+    end.
+
+global_seeds(Fam, Targets, Opts, Dt, St) ->
     Candidates = lists:sort(fun({D1, S1}, {D2, S2}) -> {D1 + S1, D1} =< {D2 + S2, D2} end,
                             [{D, S} || D <- lists:seq(Dt, Dt + 2), S <- lists:seq(St, St + 2)]),
     %% for each budget: with the sector maps first (the smallest system), then without (a mapped sector's integrals
