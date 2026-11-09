@@ -110,6 +110,17 @@ linear(A, B, Vars, Opts) ->
             Limits = maps:with([max_poly_terms, max_expand_power, max_expr_nodes, sym_timeout_ms, sym_max_heap_words], Opts),
             Entries = [E || Row <- Sparse ++ SparseB, {_, E} <- Row],
             case pq_symbolic:compile(Entries, Vars, Limits#{exact_constants => true}) of
+                {ok, Prog} when Multi, M > 1, not is_map_key(pruned, Opts) ->
+                    %% many right-hand sides (a reduction's masters, most with no coefficient in the targets): the
+                    %% zero ones found first, then only the others carried through the reconstruction -- each
+                    %% right-hand side's solution is independent of the others
+                    Wanted = maps:get(components, Opts, lists:seq(0, N - 1)),
+                    case union_nonzero(Prog, Vars, {N, Pattern}, M, Wanted, Opts) of
+                        {ok, Keep} when length(Keep) < M ->
+                            pruned(A, SparseB, Vars, Opts, M, Wanted, Keep);
+                        {ok, _} -> linear(A, B, Vars, Opts#{pruned => true});
+                        Error -> Error
+                    end;
                 {ok, Prog} ->
                     Wanted = maps:get(components, Opts, lists:seq(0, N - 1)),
                     Results = [{W, component(Prog, Vars, {N, Pattern}, M, W, Opts)} || W <- Wanted],
@@ -118,6 +129,34 @@ linear(A, B, Vars, Opts) ->
                         [] -> {ok, [{W, NumDen} || {W, {ok, [{0, NumDen}]}} <- Results]};
                         [E | _] -> E
                     end;
+                Error -> Error
+            end
+    end.
+
+%% the right-hand sides non-zero in any wanted component (the zero test at three points), sorted
+union_nonzero(Prog, Vars, NP, M, Wanted, Opts) ->
+    lists:foldl(fun(_, {error, _} = E) -> E;
+                   (W, {ok, Acc}) ->
+                        case zero_columns(Prog, Vars, NP, M, W, Opts) of
+                            {ok, Zeros} -> {ok, lists:usort(Acc ++ (lists:seq(0, M - 1) -- Zeros))};
+                            Error -> Error
+                        end
+                end, {ok, []}, Wanted).
+
+%% the system with only the right-hand sides Keep, renumbered; the results put back in the full numbering, the
+%% others 0
+pruned(A, SparseB, Vars, Opts, M, Wanted, Keep) ->
+    Zero = {#{}, #{{[], []} => {q, {1, 1}, {0, 1}}}},
+    New = maps:from_list(lists:zip(Keep, lists:seq(0, length(Keep) - 1))),
+    Old = maps:from_list(lists:zip(lists:seq(0, length(Keep) - 1), Keep)),
+    Back = fun(Rs) -> R = maps:from_list([{maps:get(C, Old), V} || {C, V} <- Rs]),
+                      [{C, maps:get(C, R, Zero)} || C <- lists:seq(0, M - 1)] end,
+    case Keep of
+        [] -> {ok, [{W, Back([])} || W <- Wanted]};
+        _ ->
+            B2 = [maps:from_list([{maps:get(C, New), E} || {C, E} <- Row, is_map_key(C, New)]) || Row <- SparseB],
+            case linear(A, B2, Vars, Opts#{rhs => length(Keep), pruned => true}) of
+                {ok, Res} -> {ok, [{W, Back(Rs)} || {W, Rs} <- Res]};
                 Error -> Error
             end
     end.
@@ -211,7 +250,9 @@ guess_denominators(Prog, Vars, NP, M, W, Cols, Opts) ->
                           Chunks = [{I, Part} || {I, Base, Ts} <- Specs, Part <- chunks([setnth(I, Base, T) || T <- Ts], 8)],
                           Results = Run([{linsys_all, BB, P, Part} || {_, Part} <- Chunks]),
                           RowsOf = fun(I) -> lists:append([Rows || {{J, _}, {ok, Rows}} <- lists:zip(Chunks, Results), J =:= I]) end,
-                          Lines = [{I, Base, lists:zip(Ts, RowsOf(I))} || {I, Base, Ts} <- Specs],
+                          %% the rows as tuples: one value per right-hand side, read by position for every column
+                          Tup = fun(bad) -> bad; (R) -> list_to_tuple(R) end,
+                          Lines = [{I, Base, lists:zip(Ts, [Tup(R) || R <- RowsOf(I)])} || {I, Base, Ts} <- Specs],
                           maps:from_list([{C, guess_column(P, Alpha, Lines, C)} || C <- Cols])
                   end) of
         {ok, Guesses} -> Guesses;
@@ -219,7 +260,7 @@ guess_denominators(Prog, Vars, NP, M, W, Cols, Opts) ->
     end.
 
 guess_column(P, Alpha, Lines, C) ->
-    PerLine = [line_factors(P, Alpha, I, Base, [{T, lists:nth(C + 1, Row)} || {T, Row} <- Pts, Row =/= bad]) || {I, Base, Pts} <- Lines],
+    PerLine = [line_factors(P, Alpha, I, Base, [{T, element(C + 1, Row)} || {T, Row} <- Pts, Row =/= bad]) || {I, Base, Pts} <- Lines],
     case lists:member(none, PerLine) of
         true -> none;
         false ->
@@ -282,9 +323,9 @@ zero_columns(Prog, Vars, NP, M, W, Opts) ->
                      P = pq_ff:prime(1),
                      Points = [rnd_list(P, length(Vars), {Seed, zero, I}) || I <- [1, 2, 3]],
                      [{ok, Rows}] = Run([{linsys_all, BB, P, Points}]),
-                     Good = [Row || Row <- Rows, Row =/= bad],
+                     Good = [list_to_tuple(Row) || Row <- Rows, Row =/= bad],
                      Good =/= [] orelse throw({recon, singular_system}),
-                     [C || C <- lists:seq(0, M - 1), lists:all(fun(Row) -> lists:nth(C + 1, Row) =:= 0 end, Good)]
+                     [C || C <- lists:seq(0, M - 1), lists:all(fun(Row) -> element(C + 1, Row) =:= 0 end, Good)]
              end).
 
 ts(#{seed := Seed}, P, Count) ->

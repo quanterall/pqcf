@@ -209,3 +209,22 @@ numerator_test() ->
     Box = pq_ibp_family:example(box),
     R = maps:from_list(pq_ibp_family:numerator(Box, {1, 1, 1, 1}, [{[{1, k}], [{1, p1}]}])),
     ?assertEqual(#{{1, 0, 1, 1} => {rat, 1, 2}, {0, 1, 1, 1} => {rat, -1, 2}}, R).
+
+%% a combination reduced as one result equals the combination of the targets' reductions (exactly, at points)
+reduce_sum_test_() ->
+    {timeout, 120, fun() ->
+        Kite = pq_ibp_family:example(kite),
+        Comb = [{{2, 1, 1, 1, 1}, d()}, {{1, 1, 1, 1, 1}, {rat, 1, 3}}, {{1, 2, 1, 1, 1}, s()}, {{0, 1, 1, 0, 1}, 5}],
+        {ok, Sum, _} = pq_ibp:reduce_sum(Kite, Comb, #{}),
+        {ok, Each, _} = pq_ibp:reduce(Kite, [T || {T, _} <- Comb], #{}),
+        Pt = #{d => 7919, s => 104729},
+        V = fun(Ast) -> {ok, X} = pq_symbolic:evaluate(Ast, Pt, #{exact => true}), X end,
+        Q = fun({N, D}) -> {mul, [pq_sym_norm:to_ast(N), {pow, pq_sym_norm:to_ast(D), -1}]} end,
+        Add = fun(K, X, Acc) -> {ok, Y} = pq_symbolic:canonicalise({add, [maps:get(K, Acc, 0), X]}), Acc#{K => Y} end,
+        Expected = lists:foldl(fun({T, C}, Acc) ->
+                                       lists:foldl(fun({M, ND}, A2) -> Add(pq_ibp_family:canon(Kite, M), V({mul, [C, Q(ND)]}), A2) end,
+                                                   Acc, maps:get(T, Each))
+                               end, #{}, Comb),
+        Got = maps:from_list([{pq_ibp_family:canon(Kite, M), V(Q(ND))} || {M, ND} <- Sum]),
+        ?assertEqual(maps:filter(fun(_, X) -> X =/= 0 end, Expected), Got)
+    end}.

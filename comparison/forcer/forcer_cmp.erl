@@ -33,17 +33,12 @@ targets(#{family := Fam, mom := Mom, aux := Aux}, Terms) ->
              end, #{}, Terms),
     [{I, C} || I := C0 <- Comb, {ok, C} <- [pq_symbolic:canonicalise(C0)], C =/= 0].
 
-%% PQCF's reduction of Terms: {Seconds, #{Master => CoefAst}} (the combination's coefficients, in d)
+%% PQCF's reduction of Terms: {Seconds, #{Master => CoefAst}, Info} (the combination's coefficients, in d; one
+%% reconstruction for the whole sum, pq_ibp:reduce_sum/3)
 reduce(P = #{family := Fam}, Terms) ->
     Ts = targets(P, Terms),
-    {Us, {ok, Red, Info}} = timer:tc(pq_ibp, reduce, [Fam, [I || {I, _} <- Ts], #{}]),
-    Sum = lists:foldl(fun({I, C}, Acc) ->
-                              lists:foldl(fun({Mst, {Nu, De}}, A2) ->
-                                                  X = {mul, [C, pq_sym_norm:to_ast(Nu), {pow, pq_sym_norm:to_ast(De), -1}]},
-                                                  maps:update_with(Mst, fun(X0) -> {add, [X0, X]} end, X, A2)
-                                          end, Acc, maps:get(I, Red))
-                      end, #{}, Ts),
-    {Us / 1.0e6, Sum, Info}.
+    {Us, {ok, Red, Info}} = timer:tc(pq_ibp, reduce_sum, [Fam, Ts, #{}]),
+    {Us / 1.0e6, maps:from_list([{M, {mul, [pq_sym_norm:to_ast(Nu), {pow, pq_sym_norm:to_ast(De), -1}]}} || {M, {Nu, De}} <- Red]), Info}.
 
 %% PQCF's masters as a FORM program for Forcer: one expression per master, M1, M2, ...
 masters_form(P, Masters) ->
