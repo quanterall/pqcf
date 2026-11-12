@@ -13,3 +13,4 @@ s5_s8_errors.json
 s6.json
 bench/results/ibp.log
 comparison/form/run.log
+comparison/photonic/run.log

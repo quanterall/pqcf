@@ -101,6 +101,10 @@ def secs(x):
     return f"{x:.2e}" if x < 1e-3 else (f"{x:.4f}" if x < 1 else f"{x:.2f}")
 
 
+def rate(v):
+    return f"{v:,.0f}" if v >= 100 else f"{v:.3g}"
+
+
 def table(task, sizes, label, value):
     tools = [t for t in TOOLS if res.get(t, {}).get(task)]
     lines = [f"| {label} | " + " | ".join(NAMES[t] for t in tools) + " |",
@@ -111,16 +115,16 @@ def table(task, sizes, label, value):
         for t in tools:
             r = by_size(t, task).get(s)
             if r is None:
-                cells.append("not run (budget)")
+                cells.append("not run")
             elif r.get("not_run"):
                 cells.append(f"not run ({r['not_run']})")
             else:
                 v = value(r)
                 if t != "pqcf" and p and not p.get("not_run"):
                     ratio = value(r) / value(p) if task != "boson_sampling" else value(p) / value(r)
-                    cells.append(f"{secs(v) if task != 'boson_sampling' else f'{v:,.0f}'} ({ratio:.2g}×)")
+                    cells.append(f"{secs(v) if task != 'boson_sampling' else rate(v)} ({ratio:.2g}×)")
                 else:
-                    cells.append(secs(v) if task != "boson_sampling" else f"{v:,.0f}")
+                    cells.append(secs(v) if task != "boson_sampling" else rate(v))
         lines.append(f"| {s} | " + " | ".join(cells) + " |")
     return "\n".join(lines)
 
@@ -132,6 +136,8 @@ md = [f"# Photonic head-to-head: latest run",
       f"at commit {meta['commit']}. {ver}. Written by `run.sh`; the method is in [README.md](README.md).",
       "",
       f"**Answers: {sum(c['ok'] for c in checks)} of {len(checks)} checks agree.**",
+      "",
+      "*Not run*: a smaller size took more than 120 s or could not run, so the program's larger sizes were skipped.",
       "",
       "## Permanent of an n × n block of a random unitary (seconds; in brackets, the time relative to PQCF's)",
       "",
