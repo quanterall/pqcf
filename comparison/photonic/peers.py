@@ -38,7 +38,10 @@ def sized(cases, key, f):
     f(cases[0])
     out = []
     for c in cases:
-        r = f(c)
+        try:
+            r = f(c)
+        except Exception as e:  # a size the program cannot run, e.g. more modes than it holds
+            r = {"not_run": f"{type(e).__name__}: {str(e).splitlines()[0][:80]}", "seconds": None}
         r["size"] = c[key]
         out.append(r)
         if r.get("not_run") or r["seconds"] > BUDGET:

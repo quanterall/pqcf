@@ -23,7 +23,8 @@ mkdir -p "$WORK/src" "$WORK/out"
 git archive HEAD | tar -x -C "$WORK/src"
 ONE="--cpuset-cpus=$CORE -e OMP_NUM_THREADS=1 -e NUMBA_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1"
 peer() {
-    docker run --rm $ONE -v "$WORK/src/comparison/photonic":/p -v "$WORK/out":/out "$1" python /p/peers.py "$2" /out
+    docker run --rm $ONE -v "$WORK/src/comparison/photonic":/p -v "$WORK/out":/out "$1" python /p/peers.py "$2" /out ||
+        echo "$2 failed: its results are missing from the tables"
 }
 docker run --rm -v "$WORK/src/comparison/photonic":/p -v "$WORK/out":/out pqcf-photonic-peers \
     sh -c 'python /p/gen_inputs.py > /out/inputs.json'
