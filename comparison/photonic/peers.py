@@ -325,9 +325,10 @@ def strawberryfields(inp):
             if d == f["per_mode_cutoffs"][0]:
                 run()
             t, st = timed(run)
-            means = [float(st.mean_photon(i)[0]) for i in range(f["modes"])]
+            # from the state vector: SF's mean_photon builds the whole density matrix (16 TiB at cutoff 4)
+            means, norm = mean_photons(np.abs(st.ket()) ** 2, f["modes"])
             out.append({"cutoff": d, "truncation": "per mode", "dimension": d ** f["modes"], "seconds": t,
-                        "mean_photons": means, "norm": float(st.trace())})
+                        "mean_photons": means, "norm": norm})
             if t > BUDGET:
                 break
         return out

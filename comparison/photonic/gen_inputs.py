@@ -20,9 +20,12 @@ def haar(n, seed):
 
 
 def torontonian_input(k, seed):
-    # a pure Gaussian state of k modes, every mode squeezed, through a random interferometer; all k modes click
+    # a pure Gaussian state of k modes, every mode squeezed, through a random interferometer; all k modes click. The
+    # squeezing of Gaussian boson sampling experiments (r of 1 to 1.5): with weak squeezing the probability that every
+    # mode clicks is tiny (1e-13 at k = 22 for r of 0.2 to 0.6), the 2^k terms of the torontonian cancel, and no
+    # program's answer is accurate in double precision.
     rng = np.random.default_rng(seed)
-    r = rng.uniform(0.2, 0.6, k)
+    r = rng.uniform(1.0, 1.5, k)
     S = interferometer(haar(k, seed + 1)) @ squeezing(r, np.zeros(k))
     cov = S @ S.T  # hbar = 2, vacuum covariance I
     O = np.eye(2 * k) - np.linalg.inv(Qmat(cov, hbar=2))

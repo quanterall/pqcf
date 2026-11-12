@@ -35,7 +35,9 @@ def by_size(tool, task):
 # --- answers -----------------------------------------------------------------------------------------------------
 
 # permanents and torontonians: every program against The Walrus, the reference both PQCF and Piquasso test against
-for task, tol in (("permanent", 1e-9), ("torontonian", 1e-7)):
+# permanents: 1e-8, since at n = 28 a permanent of 5e-12 is a sum of terms of order 1, and the programs differ by a few
+# 1e-9 among themselves in double precision
+for task, tol in (("permanent", 1e-8), ("torontonian", 1e-7)):
     ref = by_size("thewalrus", task)
     for t in TOOLS:
         if t == "thewalrus":
