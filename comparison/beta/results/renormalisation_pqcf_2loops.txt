@@ -1,0 +1,24 @@
+# Two-loop QCD, Landau gauge: every integral reduced by PQCF (results/pqcf), the master integrals' values from
+# Forcer, the renormalisation by PQCF. Finite: true
+
+# beta(a) = -sum_k beta_k a^(k+2), a = g^2/(16 pi^2); cA = C_A, cR = C_F, I2R = T_F, nf = n_f
+beta_0 = -4/3*I2R*nf + 11/3*cA
+beta_1 = -20/3*I2R*cA*nf + -4*I2R*cR*nf + 34/3*cA^2
+
+Z_3 (gluon), coefficient of a^1:
+  ep^-1: -4/3*I2R*nf + 13/6*cA
+Z_3 (gluon), coefficient of a^2:
+  ep^-2: 1*I2R*cA*nf + -13/8*cA^2
+  ep^-1: -5/2*I2R*cA*nf + -2*I2R*cR*nf + 59/16*cA^2
+
+Z~_3 (ghost), coefficient of a^1:
+  ep^-1: 3/4*cA
+Z~_3 (ghost), coefficient of a^2:
+  ep^-2: 1/2*I2R*cA*nf + -35/32*cA^2
+  ep^-1: -5/12*I2R*cA*nf + 95/96*cA^2
+
+Z_a = Z_g^2 = 1/(Z~_3^2 Z_3), coefficient of a^1:
+  ep^-1: 4/3*I2R*nf + -11/3*cA
+Z_a = Z_g^2 = 1/(Z~_3^2 Z_3), coefficient of a^2:
+  ep^-2: -88/9*I2R*cA*nf + 16/9*I2R^2*nf^2 + 121/9*cA^2
+  ep^-1: 10/3*I2R*cA*nf + 2*I2R*cR*nf + -17/3*cA^2

@@ -1,0 +1,6 @@
+# PQCF's bare self-energy, MS-bar (the gluon's divided by D - 1)
+  ep^-2: 1/2*I2R*cA*nf + -35/32*cA^2
+  ep^-1: 7/4*I2R*cA*nf + -125/32*cA^2
+  ep^0: 53/8*I2R*cA*nf + -957/64*cA^2 + 15/16*cA^2*z3
+  ep^1: 351/16*I2R*cA*nf + -16/3*I2R*cA*nf*z3 + -6371/128*cA^2 + 713/48*cA^2*z3 + 45/32*cA^2*z4
+  + O(ep^5)

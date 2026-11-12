@@ -1,0 +1,9 @@
+# PQCF's bare self-energy, MS-bar (the gluon's divided by D - 1)
+  ep^-2: 1*I2R*cA*nf + -13/8*cA^2
+  ep^-1: 35/6*I2R*cA*nf + 2*I2R*cR*nf + -371/48*cA^2
+  ep^0: 755/36*I2R*cA*nf + 8*I2R*cA*nf*z3 + 55/3*I2R*cR*nf + -16*I2R*cR*nf*z3 + -9503/288*cA^2 + 3*cA^2*z3
+  ep^1: 13307/216*I2R*cA*nf + -16/3*I2R*cA*nf*z3 + 12*I2R*cA*nf*z4 + 1711/18*I2R*cR*nf + -152/3*I2R*cR*nf*z3 + -24*I2R*cR*nf*z4 + -201515/1728*cA^2 + 115/3*cA^2*z3 + 9/2*cA^2*z4
+  ep^2: 13307/324*I2R*cA*nf + -32/9*I2R*cA*nf*z3 + 8*I2R*cA*nf*z4 + 1711/27*I2R*cR*nf + -304/9*I2R*cR*nf*z3 + -16*I2R*cR*nf*z4 + -201515/2592*cA^2 + 230/9*cA^2*z3 + 3*cA^2*z4
+  ep^3: 13307/486*I2R*cA*nf + -64/27*I2R*cA*nf*z3 + 16/3*I2R*cA*nf*z4 + 3422/81*I2R*cR*nf + -608/27*I2R*cR*nf*z3 + -32/3*I2R*cR*nf*z4 + -201515/3888*cA^2 + 460/27*cA^2*z3 + 2*cA^2*z4
+  ep^4: 13307/729*I2R*cA*nf + -128/81*I2R*cA*nf*z3 + 32/9*I2R*cA*nf*z4 + 6844/243*I2R*cR*nf + -1216/81*I2R*cR*nf*z3 + -64/9*I2R*cR*nf*z4 + -201515/5832*cA^2 + 920/81*cA^2*z3 + 4/3*cA^2*z4
+  + O(ep^5)
