@@ -7,7 +7,7 @@
 %% is #{Monomial => {N, D}}, a monomial a sorted list of {Symbol, Exponent} (z3, z5, z5z3, ...); [] is 1.
 -module(epsexp).
 -export([eval/3, gc/3, msbar/1, series_of_form/2, truncate/2, to_string/1, sub/2, equal/2, is_zero/1, leading/1,
-         sadd/2, smul/2, spow/3, drop/2]).
+         sadd/2, smul/2, spow/3, drop/2, sinv/2, exact/1, scale/2, coeffs/1]).
 
 -define(INF, 1000000).
 
@@ -158,7 +158,8 @@ eval({sym, S}, Masters, N) ->
             [A, B] = [list_to_integer(X) || X <- string:split(AB, "_")],
             gc(A, B, N);
         "master_" ++ Name -> maps:get(Name, Masters);
-        "z" ++ _ -> exact(#{0 => psym(S)})
+        %% zeta values, colour factors, flavours: constants in epsilon
+        _ -> exact(#{0 => psym(S)})
     end;
 eval({add, Es}, M, N) -> lists:foldl(fun(E, Acc) -> sadd(Acc, eval(E, M, N)) end, exact(#{}), Es);
 eval({mul, Es}, M, N) -> lists:foldl(fun(E, Acc) -> smul(Acc, eval(E, M, N)) end, sconst({1, 1}), Es);
@@ -171,7 +172,9 @@ series_of_form(Text, Masters) ->
     T0 = re:replace(Text, "\\s+", "", [global, {return, list}]),
     T1 = re:replace(T0, "GschemeConstants\\(([0-9]+),([0-9]+)\\)", "gc_\\1_\\2", [global, {return, list}]),
     T2 = re:replace(T1, "Master\\(([a-z0-9]+)\\)", "master_\\1", [global, {return, list}]),
-    T3 = re:replace(T2, "rat\\(", "ratf(", [global, {return, list}]),
+    T3a = re:replace(T2, "rat\\(", "ratf(", [global, {return, list}]),
+    %% a sign right after an opening bracket (FORM's bracketed output): a 0 in front, for the parser
+    T3 = re:replace(T3a, "\\(([-+])", "(0\\1", [global, {return, list}]),
     %% FORM writes a leading unary plus; a 0 in front keeps the parser's grammar
     {ok, Ast} = pq_symbolic:parse(list_to_binary("0" ++ unrat(T3))),
     {Ast, fun(N) -> eval(Ast, Masters, N) end}.
@@ -215,3 +218,6 @@ qinv({A, B}) -> qnorm({B, A}).
 qneg({A, B}) -> {-A, B}.
 gcd(A, 0) -> A;
 gcd(A, B) -> gcd(B, A rem B).
+
+%% the coefficients: #{Order => Poly}, a Poly #{Monomial => {N, D}}
+coeffs({C, _}) -> C.

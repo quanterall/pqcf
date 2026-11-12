@@ -6,7 +6,7 @@
 %% compared as epsilon expansions (epsexp): PQCF's coefficients times the masters' values against Forcer's own
 %% result, and in MS-bar against the numbers FORM's check asserts.
 -module(forcer_cmp).
--export([problem/3, reduce/2, masters_form/2, targets_form/1, compare/5, form_exprs/1, msbar/2, asserted/3, master_tables/1]).
+-export([problem/3, reduce/2, masters_form/2, targets_form/1, compare/5, form_exprs/1, msbar/2, asserted/3, master_tables/1, integral_text/2, targets/2]).
 
 %% Problem: #{vx => "vx(Q,p1,..)*vx(..)", lines => N, ex => [Line], terms => [{Coef, Powers, Sps}]}:
 %% the integral is sum Coef * prod_i 1/(p_i^2)^Powers_i * prod {A, B} A.B, A and B momenta names (q for Q).
@@ -14,24 +14,61 @@
 problem(Vx, N, Opts) ->
     Verts = parse_vx(Vx),
     {Loops, Mom} = solve(Verts, N),
-    Lines = [{1, maps:get(list_to_atom("p" ++ integer_to_list(I)), Mom)} || I <- lists:seq(1, N)],
-    Aux = complete(Loops, [M || {_, M} <- Lines]),
+    LineMoms = [maps:get(list_to_atom("p" ++ integer_to_list(I)), Mom) || I <- lists:seq(1, N)],
+    %% lines with the same momentum (up to its sign: a self-energy insertion on a line) are one propagator, their
+    %% powers added: Rep maps each line to its propagator
+    Canon = fun(M) -> Ms = lists:sort([X || X = {C, _} <- M, C =/= 0]),
+                      Neg = lists:sort([{-C, A} || {C, A} <- Ms]),
+                      min(Ms, Neg) end,
+    {Reps, Rep} = lists:foldl(fun({I, M}, {Rs, Map}) ->
+                                      K = Canon(M),
+                                      case lists:keyfind(K, 1, Rs) of
+                                          {K, J} -> {Rs, Map#{I => J}};
+                                          false -> J = length(Rs) + 1, {Rs ++ [{K, J}], Map#{I => J}}
+                                      end
+                              end, {[], #{}}, lists:enumerate(LineMoms)),
+    Props = [hd([M || {I, M} <- lists:enumerate(LineMoms), maps:get(I, Rep) =:= J]) || {_, J} <- Reps],
+    Aux = complete(Loops, Props),
     Ex = maps:get(ex, Opts, []),
     Fam = pq_ibp_family:new(#{loops => Loops, ext => [q], vars => [d], kin => #{{q, q} => 1},
-                              props => Lines ++ [{1, A} || A <- Aux], top => lists:seq(1, N),
-                              eps => maps:from_list([{L, 1} || L <- Ex])}),
-    #{family => Fam, mom => Mom, lines => N, aux => Aux, vx => Vx, ex => Ex, loops => length(Loops)}.
+                              props => [{1, M} || M <- Props] ++ [{1, A} || A <- Aux], top => lists:seq(1, length(Props)),
+                              eps => maps:from_list([{maps:get(L, Rep), 1} || L <- Ex])}),
+    #{family => Fam, mom => Mom, lines => N, rep => Rep, props => length(Props), aux => Aux, vx => Vx, ex => Ex,
+      loops => length(Loops)}.
+
+%% a term's line powers as the family's: lines sharing a propagator add their powers
+fold_powers(#{rep := Rep, props := NP}, Powers) ->
+    [lists:sum([X || {I, X} <- lists:enumerate(Powers), maps:get(I, Rep) =:= J]) || J <- lists:seq(1, NP)].
 
 %% the targets of a problem: [{Coef, Powers, Sps}] as a combination of the family's integrals
-targets(#{family := Fam, mom := Mom, aux := Aux}, Terms) ->
+targets(P = #{family := Fam, mom := Mom, aux := Aux}, Terms) ->
     M = fun(Name) -> maps:get(Name, Mom) end,
+    %% numerators with rational multipliers (the kinematics are numbers), each integral's multiplier of each distinct
+    %% term coefficient summed: Integral => #{Coef => Rational}; then one simplification per integral over its few
+    %% distinct coefficients (symbolic merging term by term was quadratic: minutes for a graph of 1,571 terms)
     Comb = lists:foldl(
              fun({Coef, Powers, Sps}, Acc) ->
-                     Base = list_to_tuple(Powers ++ [0 || _ <- Aux]),
-                     lists:foldl(fun({I, C}, A2) -> maps:update_with(I, fun(C0) -> {add, [C0, C]} end, {mul, [Coef, C]}, A2) end,
-                                 Acc, pq_ibp_family:numerator(Fam, Base, [{M(A), M(B)} || {A, B} <- Sps]))
+                     Base = list_to_tuple(fold_powers(P, Powers) ++ [0 || _ <- Aux]),
+                     Sp = [{M(A), M(B)} || {A, B} <- Sps],
+                     Exp = case pq_ibp_family:numerator_q(Fam, Base, Sp) of
+                               error -> [{I, {ast, C}} || {I, C} <- pq_ibp_family:numerator(Fam, Base, Sp)];
+                               Qs -> Qs
+                           end,
+                     lists:foldl(fun({I, R}, A2) ->
+                                         maps:update_with(I, fun(Cs) -> maps:update_with(Coef, fun(R0) -> addq(R0, R) end, R, Cs) end,
+                                                          #{Coef => R}, A2)
+                                 end, Acc, Exp)
              end, #{}, Terms),
-    [{I, C} || I := C0 <- Comb, {ok, C} <- [pq_symbolic:canonicalise(C0)], C =/= 0].
+    [{I, C} || I := Cs <- Comb,
+               {ok, C} <- [pq_symbolic:canonicalise({add, [{mul, [Coef, q_ast(R)]} || Coef := R <- Cs]})], C =/= 0].
+
+addq({ast, A}, {ast, B}) -> {ast, {add, [A, B]}};
+addq({ast, A}, B) -> {ast, {add, [A, q_ast(B)]}};
+addq(A, {ast, B}) -> {ast, {add, [q_ast(A), B]}};
+addq({A, B}, {C, D}) -> qnorm({A * D + C * B, B * D}).
+q_ast({ast, A}) -> A;
+q_ast({N, 1}) -> N;
+q_ast({N, D}) -> {rat, N, D}.
 
 %% PQCF's reduction of Terms: {Seconds, #{Master => CoefAst}, Info} (the combination's coefficients, in d; one
 %% reconstruction for the whole sum, pq_ibp:reduce_sum/3)
@@ -49,9 +86,15 @@ masters_form(P, Masters) ->
 targets_form(Exprs) ->
     ["#-\n#include- forcer.h\n", [io_lib:format("L ~s = ~s;~n", [N, E]) || {N, E} <- Exprs], "#call Forcer\nB ep;\nP +s;\n.end\n"].
 
-integral_form(#{vx := Vx, lines := N, aux := Aux, ex := Ex}, I) ->
+%% an integral of the problem in Forcer's notation, as text
+integral_text(P, I) -> iolist_to_binary(integral_form(P, I)).
+
+integral_form(#{vx := Vx, lines := N, rep := Rep, props := NP, aux := Aux, ex := Ex}, I) ->
     L = tuple_to_list(I),
-    {Ls, As} = lists:split(N, L),
+    {Ps, As} = lists:split(NP, L),
+    %% a propagator's power on the first of its lines, 0 on the others (Forcer contracts those)
+    First = maps:from_list([{J, hd([K || K <- lists:seq(1, N), maps:get(K, Rep) =:= J])} || J <- lists:seq(1, NP)]),
+    Ls = [case maps:get(maps:get(K, Rep), First) of K -> lists:nth(maps:get(K, Rep), Ps); _ -> 0 end || K <- lists:seq(1, N)],
     %% a line's power: its index (ex(p) adds epsilon to the power written, whatever it is)
     Lines = [io_lib:format("*p~b.p~b^~b", [J, J, -X]) || {J, X} <- lists:enumerate(Ls), X =/= 0],
     Nums = [case X > 0 of

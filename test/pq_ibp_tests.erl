@@ -228,3 +228,16 @@ reduce_sum_test_() ->
         Got = maps:from_list([{pq_ibp_family:canon(Kite, M), V(Q(ND))} || {M, ND} <- Sum]),
         ?assertEqual(maps:filter(fun(_, X) -> X =/= 0 end, Expected), Got)
     end}.
+
+%% several combinations on one system give what each gives alone
+reduce_sums_test_() ->
+    {timeout, 120, fun() ->
+        Kite = pq_ibp_family:example(kite),
+        C1 = [{{2, 1, 1, 1, 1}, d()}, {{1, 1, 1, 1, 1}, {rat, 1, 3}}],
+        C2 = [{{1, 2, 1, 1, 1}, s()}, {{0, 1, 1, 0, 1}, 5}],
+        {ok, [S1, S2], _} = pq_ibp:reduce_sums(Kite, [C1, C2], #{}),
+        {ok, A1, _} = pq_ibp:reduce_sum(Kite, C1, #{}),
+        {ok, A2, _} = pq_ibp:reduce_sum(Kite, C2, #{}),
+        ?assertEqual(lists:sort(A1), lists:sort(S1)),
+        ?assertEqual(lists:sort(A2), lists:sort(S2))
+    end}.

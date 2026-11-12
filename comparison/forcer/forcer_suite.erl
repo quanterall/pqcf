@@ -51,6 +51,15 @@ pqcf(Dir) ->
                 ok = file:write_file(filename:join(Dir, Case ++ "_masters.frm"), forcer_cmp:masters_form(P, Ms)),
                 ok = file:write_file(filename:join(Dir, Case ++ "_target.frm"), forcer_cmp:targets_form([{"T", target_form(Vx, N, Ex, Terms)}])),
                 ok = file:write_file(filename:join(Dir, Case ++ ".coeffs"), io_lib:format("~p.~n", [{Ms, [maps:get(M, Coeffs) || M <- Ms]}])),
+                %% the reduction itself, readable: the integral, then each master (Forcer's notation) and its exact
+                %% coefficient in d
+                ok = filelib:ensure_dir(filename:join([Dir, "symbolic", "x"])),
+                ok = file:write_file(filename:join([Dir, "symbolic", Case ++ ".reduction.txt"]),
+                                     [io_lib:format("# PQCF's reduction of ~s (d = 4 - 2 ep), ~b masters~n# integral:~n  ~s~n~n",
+                                                    [Case, length(Ms), target_form(Vx, N, Ex, Terms)]),
+                                      [io_lib:format("master M~b = ~s~ncoefficient = ~s~n~n",
+                                                     [K, forcer_cmp:integral_text(P, M), pq_symbolic:pretty(maps:get(M, Coeffs))])
+                                       || {K, M} <- lists:enumerate(Ms)]]),
                 io:format("~-16s ~8.2f s  ~7b equations  ~6b needed  ~3b masters  seeds ~w~n",
                           [Case, T, maps:get(equations, Info, 0), maps:get(needed, Info, 0), length(Ms), maps:get(seeds, Info, none)]),
                 #{<<"case">> => list_to_binary(Case), <<"pqcf_seconds">> => T, <<"equations">> => maps:get(equations, Info, 0),
@@ -82,6 +91,10 @@ check(Dir) ->
                     Prec = min(element(2, Ours), element(2, Theirs)),
                     io:format("~-16s Forcer's result, G-scheme: ~s (compared to O(ep^~b))~n",
                               [Case, case Eq of true -> "equal"; false -> "DIFFERENT" end, Prec]),
+                    ok = file:write_file(filename:join([Dir, "symbolic", Case ++ ".expansion.txt"]),
+                                         [io_lib:format("# ~s: PQCF's coefficients times the masters' values, G-scheme (Forcer's normalisation),~n"
+                                                        "# known below O(ep^~b); equal to Forcer's own result: ~p~n", [Case, Prec, Eq]),
+                                          epsexp:to_string(Ours)]),
                     {Case, {Eq, Ours}}
                 end || {Case, _, _, _, _} <- cases()]),
     Asserts = [begin
@@ -90,6 +103,9 @@ check(Dir) ->
                    Eq = epsexp:equal(Total, E(6)),
                    io:format("~s ~s, MS-bar, against FORM's assertion: ~s~n~s",
                              [Section, Expr, case Eq of true -> "equal"; false -> "DIFFERENT" end, epsexp:to_string(Total)]),
+                   ok = file:write_file(filename:join([Dir, "symbolic", Section ++ "_" ++ Expr ++ ".msbar.txt"]),
+                                        [io_lib:format("# ~s ~s: PQCF's result, MS-bar (Forcer's msbarexpand=4); equal to FORM's assertion: ~p~n",
+                                                       [Section, Expr, Eq]), epsexp:to_string(Total)]),
                    #{<<"check">> => list_to_binary(Section ++ " " ++ Expr), <<"equal">> => Eq,
                      <<"result">> => iolist_to_binary(epsexp:to_string(Total))}
                end || {Section, Expr, Parts} <- assertions()],

@@ -15,7 +15,7 @@
 %% zero sectors, the symmetry classes and the derivative operators. Random points are drawn from local states,
 %% never the caller's.
 -module(pq_ibp_family).
--export([new/1, example/1, identities/2, zero/2, seeds/3, canon/2, derivative/3, vars/1, size/1, kin/3, numerator/3]).
+-export([new/1, example/1, identities/2, zero/2, seeds/3, canon/2, derivative/3, vars/1, size/1, kin/3, numerator/3, numerator_q/3]).
 %% for pq_ibp: the identities with their coefficients as polynomials (Exponents => {N, D})
 -export([identities_poly/2, warm/2, load/1, expand/2, mapped/2, without_sector_maps/1, qpone/1, qpneg/1, sector_seeds/4]).
 -export_type([family/0, integral/0]).
@@ -193,6 +193,28 @@ numerator(Fam, A, Sps) ->
                         end, [{1, A}], Sps),
     Merged = lists:foldl(fun({C, I}, M) -> maps:update_with(I, fun(C0) -> {add, [C0, C]} end, C, M) end, #{}, Terms),
     [{I, C} || I := C0 <- Merged, {ok, C} <- [pq_symbolic:canonicalise(C0)], C =/= 0].
+
+%% numerator/3 with rational multipliers, when the kinematics are numbers: [{Integral, {N, D}}], or error if a
+%% scalar product of the external momenta is symbolic. Much faster for many terms (no symbolic algebra).
+-spec numerator_q(family(), integral(), [{[{integer(), atom()}], [{integer(), atom()}]}]) -> [{integral(), {integer(), pos_integer()}}] | error.
+numerator_q(Fam, A, Sps) ->
+    try
+        Q = fun(X) -> case pq_symbolic:evaluate(X, #{}, #{exact => true}) of
+                          {ok, N} when is_integer(N) -> {N, 1};
+                          {ok, {rat, N, D}} -> qnorm({N, D});
+                          _ -> throw(symbolic)
+                      end end,
+        Dot = fun(Qu, Qv) -> memo(dot_q, Fam, {Qu, Qv}, fun() -> [{Q(X), Y} || {X, Y} <- dot(Fam, Qu, Qv)] end) end,
+        Expand = fun({U, V}) -> [{qmul({Cu * Cv, 1}, R), Y} || {Cu, Qu} <- U, {Cv, Qv} <- V, {R, Y} <- Dot(Qu, Qv)] end,
+        Terms = lists:foldl(fun(Sp, Acc) ->
+                                    [{qmul(C, R), case Y of const -> I; _ -> setelement(Y, I, element(Y, I) - 1) end}
+                                     || {C, I} <- Acc, {R, Y} <- Expand(Sp)]
+                            end, [{{1, 1}, A}], Sps),
+        Merged = lists:foldl(fun({C, I}, M) -> maps:update_with(I, fun(C0) -> qadd(C0, C) end, C, M) end, #{}, Terms),
+        [{I, C} || I := C <- Merged, C =/= {0, 1}]
+    catch
+        throw:symbolic -> error
+    end.
 
 %% the inverse of a square matrix of rationals {N, D} (Gauss-Jordan)
 inverse(M) ->

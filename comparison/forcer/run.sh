@@ -41,6 +41,8 @@ CHECK=0
 dev 'forcer_suite:check("/out")' || CHECK=1
 docker run --rm -v "$WORK":/w pqcf-dev chown -R "$(id -u):$(id -g)" /w
 mkdir -p comparison/forcer/results
+# PQCF's symbolic results (reductions, expansions, MS-bar results) of the latest run, readable
+rm -rf comparison/forcer/results/symbolic && cp -r "$WORK/out/symbolic" comparison/forcer/results/symbolic
 OUT=comparison/forcer/results/$HOST-$DATE.json
 python3 - "$WORK/out" "$OUT" "$HOST" "$DATE" "$COMMIT" "$CORES" "$(cut -d' ' -f1-3 /proc/loadavg)" <<'PY'
 import json, sys

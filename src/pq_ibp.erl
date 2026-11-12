@@ -11,7 +11,7 @@
 %% polynomial maps; pq_simplify:rational/4 writes them in factored form). Masters and targets are integrals as
 %% tuples, named by their canonical image under the family's symmetries (pq_ibp_family:canon/2).
 -module(pq_ibp).
--export([reduce/3, reduce_sum/3, system/4, seeds/3, auto_seeds/3, differential_equation/4, choose_masters/3, size_of/2]).
+-export([reduce/3, reduce_sum/3, reduce_sums/3, system/4, seeds/3, auto_seeds/3, differential_equation/4, choose_masters/3, size_of/2]).
 
 -define(P, 1000000007).
 -define(LIMITS, #{sym_timeout_ms => 3600000, sym_max_heap_words => 4000000000, max_expr_nodes => 500000000}).
@@ -82,16 +82,27 @@ reduce_live(Fam, Live, Opts) ->
 %% instead of every target's coefficient of every master (reduce/3), when only their sum is wanted.
 -spec reduce_sum(pq_ibp_family:family(), [{integral(), term()}], map()) -> {ok, [{integral(), ratfun()}], map()} | {error, term()}.
 reduce_sum(Fam, Comb, Opts) ->
+    case reduce_sums(Fam, [Comb], Opts) of
+        {ok, [R], Info} -> {ok, R, Info};
+        Error -> Error
+    end.
+
+%% Several combinations at once, on one system: one extra unknown and equation each, {ok, [[{Master, {N, D}}]],
+%% Info} in the combinations' order (a sum split by its other factors -- colour, say -- needs no second system)
+-spec reduce_sums(pq_ibp_family:family(), [[{integral(), term()}]], map()) ->
+          {ok, [[{integral(), ratfun()}]], map()} | {error, term()}.
+reduce_sums(Fam, Combs, Opts) ->
     %% each integral under its canonical name, zero ones dropped, equal ones merged
-    Merged = lists:foldl(fun({T, C}, Acc) ->
-                                 I = pq_ibp_family:canon(Fam, T),
-                                 case pq_ibp_family:zero(Fam, I) of
-                                     true -> Acc;
-                                     false -> maps:update_with(I, fun(C0) -> {add, [C0, C]} end, C, Acc)
-                                 end
-                         end, #{}, Comb),
-    case maps:keys(Merged) of
-        [] -> {ok, [], #{}};
+    Merge = fun(Comb) -> lists:foldl(fun({T, C}, Acc) ->
+                                             I = pq_ibp_family:canon(Fam, T),
+                                             case pq_ibp_family:zero(Fam, I) of
+                                                 true -> Acc;
+                                                 false -> maps:update_with(I, fun(C0) -> {add, [C0, C]} end, C, Acc)
+                                             end
+                                     end, #{}, Comb) end,
+    Merged = [Merge(C) || C <- Combs],
+    case lists:usort(lists:append([maps:keys(M) || M <- Merged])) of
+        [] -> {ok, [[] || _ <- Combs], #{}};
         Live ->
             try
                 {SeedSpec, Sys} = case maps:get(seeds, Opts, auto) of
@@ -101,28 +112,33 @@ reduce_sum(Fam, Comb, Opts) ->
                 #{a := A, bs := Bs0, masters := Masters0, targets := TIs, size := {NEqs, NInts}} = Sys,
                 N = length(A),
                 %% only the masters that can have a coefficient (known from the seed search's check), renumbered
+                MasterTargets = [T || {T, {master, _}} <- TIs],
                 {Masters, Bs} = case Sys of
                                     #{nonzero := NZ} ->
                                         Keep = [K || {K, {M, _}} <- lists:enumerate(0, Masters0),
-                                                     lists:member(M, NZ) orelse lists:keymember(M, 1, [{T, x} || {T, {master, _}} <- TIs])],
+                                                     lists:member(M, NZ) orelse lists:member(M, MasterTargets)],
                                         New = maps:from_list(lists:zip(Keep, lists:seq(0, length(Keep) - 1))),
                                         {[lists:nth(K + 1, Masters0) || K <- Keep],
                                          [maps:from_list([{maps:get(C, New), E} || C := E <- R, is_map_key(C, New)]) || R <- Bs0]};
                                     _ -> {Masters0, Bs0}
                                 end,
-                MPos = maps:from_list(lists:zip([M || {M, _} <- Masters], lists:seq(0, length(Masters) - 1))),
-                Row = maps:from_list([{N, 1} | [{TI, {mul, [-1, maps:get(T, Merged)]}} || {T, TI} <- TIs, is_integer(TI)]]),
-                Rhs = maps:from_list([{maps:get(T, MPos), maps:get(T, Merged)} || {T, {master, _}} <- TIs, is_map_key(T, MPos)]),
+                MPos0 = maps:from_list(lists:zip([M || {M, _} <- Masters], lists:seq(0, length(Masters) - 1))),
                 %% a target that is a master but no master of the system (its system has none): the masters extended
-                Extra = [T || {T, {master, _}} <- TIs, not is_map_key(T, MPos)],
+                Extra = [T || T <- MasterTargets, not is_map_key(T, MPos0)],
                 Ms = [M || {M, _} <- Masters] ++ Extra,
-                Rhs2 = maps:merge(Rhs, maps:from_list([{length(Masters) + K - 1, maps:get(T, Merged)} || {K, T} <- lists:enumerate(Extra)])),
+                MPos = maps:from_list(lists:zip(Ms, lists:seq(0, length(Ms) - 1))),
+                K = length(Combs),
+                Rows = [maps:from_list([{N + J - 1, 1} | [{TI, {mul, [-1, maps:get(T, Mg)]}} || {T, TI} <- TIs, is_integer(TI), is_map_key(T, Mg)]])
+                        || {J, Mg} <- lists:enumerate(Merged)],
+                Rhss = [maps:from_list([{maps:get(T, MPos), maps:get(T, Mg)} || T <- MasterTargets, is_map_key(T, Mg)]) || Mg <- Merged],
                 Vars = pq_ibp_family:vars(Fam),
-                case pq_recon:linear([maps:map(fun(_, E) -> E end, R) || R <- A] ++ [Row], Bs ++ [Rhs2], Vars,
-                                     maps:merge(?LIMITS, Opts#{components => [N], rhs => length(Ms)})) of
-                    {ok, [{N, Per}]} ->
+                Wanted = lists:seq(N, N + K - 1),
+                case pq_recon:linear([maps:map(fun(_, E) -> E end, R) || R <- A] ++ Rows, Bs ++ Rhss, Vars,
+                                     maps:merge(?LIMITS, Opts#{components => Wanted, rhs => length(Ms)})) of
+                    {ok, Per} ->
                         Msa = list_to_tuple(Ms),
-                        {ok, [{element(C + 1, Msa), ND} || {C, ND = {Nu, _}} <- Per, map_size(Nu) > 0],
+                        PerMap = maps:from_list(Per),
+                        {ok, [[{element(C + 1, Msa), ND} || {C, ND = {Nu, _}} <- maps:get(W, PerMap), map_size(Nu) > 0] || W <- Wanted],
                          #{seeds => SeedSpec, sector_maps => maps:get(sector_maps, Sys, maps:get(sector_maps, Opts, true)),
                            equations => NEqs, integrals => NInts, needed => N, masters => length(Ms)}};
                     {error, Why} -> {error, Why}
