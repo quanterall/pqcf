@@ -1,0 +1,7 @@
+# PQCF's reduction of zno1_f1 (d = 4 - 2 ep), 1 masters
+# integral:
+  1*vx(-Q,p4,p5)*vx(p3,-p4,p10)*vx(p2,-p3,p9)*vx(p1,-p2,p11)*vx(-p5,p6,-p11)*vx(-p6,p7,-p10)*vx(-p7,p8,-p9)*vx(-p1,-p8,Q)/p1.p1^1/p2.p2^1/p3.p3^1/p4.p4^1/p5.p5^1/p6.p6^1/p7.p7^1/p8.p8^1/p9.p9^1/p10.p10^1/p11.p11^1
+
+master M1 = vx(-Q,p4,p5)*vx(p3,-p4,p10)*vx(p2,-p3,p9)*vx(p1,-p2,p11)*vx(-p5,p6,-p11)*vx(-p6,p7,-p10)*vx(-p7,p8,-p9)*vx(-p1,-p8,Q)*p1.p1^-1*p2.p2^-1*p3.p3^-1*p4.p4^-1*p5.p5^-1*p6.p6^-1*p7.p7^-1*p8.p8^-1*p9.p9^-1*p10.p10^-1*p11.p11^-1
+coefficient = 1
+

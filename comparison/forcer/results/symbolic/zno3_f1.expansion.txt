@@ -1,0 +1,7 @@
+# zno3_f1: PQCF's coefficients times the masters' values, G-scheme (Forcer's normalisation),
+# known below O(ep^3); equal to Forcer's own result: true
+  ep^-1: -5/2*z5
+  ep^0: 7/2*z3^2 + -35/4*z5 + -25/4*z6
+  ep^1: 21/2*z3*z4 + -71/4*z3^2 + 1845/8*z5 + -175/8*z6 + 55/4*z7
+  ep^2: -213/4*z3*z4 + 449*z3*z5 + 657/8*z3^2 + -8225/6*z4^2 + -22375/16*z5 + -594/5*z5z3 + 9225/16*z6 + 6125/8*z7 + 1415227/720*z8
+  + O(ep^3)

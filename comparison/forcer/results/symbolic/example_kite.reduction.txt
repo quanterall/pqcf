@@ -1,0 +1,13 @@
+# PQCF's reduction of example_kite (d = 4 - 2 ep), 3 masters
+# integral:
+  1*vx(-Q,p2,p3)*vx(p1,-p2,p5)*vx(-p1,p4,Q)*vx(-p3,-p4,-p5)/p1.p1^1/p2.p2^1/p3.p3^1/p4.p4^1/p5.p5^1*ex(p1,p4)
+
+master M1 = vx(-Q,p2,p3)*vx(p1,-p2,p5)*vx(-p1,p4,Q)*vx(-p3,-p4,-p5)*p3.p3^-1*p5.p5^-2*ex(p1,p4)
+coefficient = -14*(48 - 40*d + 11*d^2 - d^3)^-1 + 11*(48 - 40*d + 11*d^2 - d^3)^-1*d - 2*(48 - 40*d + 11*d^2 - d^3)^-1*d^2
+
+master M2 = vx(-Q,p2,p3)*vx(p1,-p2,p5)*vx(-p1,p4,Q)*vx(-p3,-p4,-p5)*p2.p2^-1*p5.p5^-2*ex(p1,p4)
+coefficient = -14*(48 - 40*d + 11*d^2 - d^3)^-1 + 11*(48 - 40*d + 11*d^2 - d^3)^-1*d - 2*(48 - 40*d + 11*d^2 - d^3)^-1*d^2
+
+master M3 = vx(-Q,p2,p3)*vx(p1,-p2,p5)*vx(-p1,p4,Q)*vx(-p3,-p4,-p5)*p2.p2^-1*p3.p3^-1*p5.p5^-1*ex(p1,p4)
+coefficient = 1260*(64 - 48*d + 12*d^2 - d^3)^-1 - 1158*(64 - 48*d + 12*d^2 - d^3)^-1*d + 354*(64 - 48*d + 12*d^2 - d^3)^-1*d^2 - 36*(64 - 48*d + 12*d^2 - d^3)^-1*d^3
+

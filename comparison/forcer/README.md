@@ -48,6 +48,18 @@ and checks the answers against Forcer's and against the numbers FORM's checks as
 `run.sh` does all of it on the committed HEAD (images: `comparison/form/Dockerfile`, then
 `comparison/forcer/Dockerfile`) and writes `results/<host>-<date>.json`. It exits 1 if any check fails.
 
+## PQCF's symbolic results
+
+The results themselves, not only the comparison, are in [`results/symbolic/`](results/symbolic), rewritten by every
+run of `run.sh`:
+- **`<case>.reduction.txt`:** PQCF's reduction of each check's integrals. It lists the integral (in Forcer's
+  notation), then every master integral PQCF reduced it to, with its coefficient as an exact rational function of
+  d = 4 − 2ε.
+- **`<case>.expansion.txt`:** that reduction times the masters' values, expanded in ε, in Forcer's G-scheme
+  normalisation.
+- **`<check>.msbar.txt`:** each of FORM's checks in MS-bar, as PQCF computes it (every one equal to FORM's
+  assertion).
+
 ## Results
 
 **Every answer agrees exactly, in every run:**

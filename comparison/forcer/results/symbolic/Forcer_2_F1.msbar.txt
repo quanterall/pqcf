@@ -1,0 +1,4 @@
+# Forcer_2 F1: PQCF's result, MS-bar (Forcer's msbarexpand=4); equal to FORM's assertion: true
+  ep^-1: -15*z5
+  ep^0: -51*z3^2 + 55*z5 + -75/2*z6 + 21/2*z7
+  + O(ep^6)
