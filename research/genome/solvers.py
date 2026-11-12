@@ -75,12 +75,18 @@ def exact_dks(net, k, time_limit=60.0):
     m = cp_model.CpModel()
     x = [m.NewBoolVar(f"x{i}") for i in range(n)]
     m.Add(sum(x) == k)
-    ys = []
+    ys, inc = [], [[] for _ in range(n)]
     for (i, j) in net.edges:
         y = m.NewBoolVar(f"y{i}_{j}")
         m.AddImplication(y, x[i])
         m.AddImplication(y, x[j])
         ys.append(y)
+        inc[i].append(y)
+        inc[j].append(y)
+    # a chosen gene has at most k - 1 links inside the module, an unchosen one none: tightens the bound
+    for i in range(n):
+        m.Add(sum(inc[i]) <= (k - 1) * x[i])
+    m.Add(sum(ys) <= k * (k - 1) // 2)
     m.Maximize(sum(ys))
     s, status, t = _solve(m, time_limit)
     chosen = [i for i in range(n) if s.Value(x[i])] if status in (cp_model.OPTIMAL, cp_model.FEASIBLE) else None

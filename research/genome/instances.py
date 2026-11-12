@@ -116,8 +116,13 @@ def assembly(genome, n_reads, read_len=100, coverage=4, error=0.0, min_overlap=2
     seg_len = int(n_reads * read_len / coverage)
     start = rng.randint(0, len(genome) - seg_len - 1)
     segment = genome[start:start + seg_len]
-    # read starts spread over the segment, the first at 0 and the last at its end, so the reads cover it
-    starts = sorted([0, seg_len - read_len] + [rng.randint(0, seg_len - read_len) for _ in range(n_reads - 2)])
+    # read starts evenly spaced with a random jitter of up to a third of the spacing, the first at 0 and the last at
+    # the segment's end: consecutive reads overlap by at least read_len - 5/3 spacing, so the reads cover the segment
+    step = (seg_len - read_len) / (n_reads - 1)
+    assert read_len - 5 * step / 3 >= min_overlap, "coverage too low for min_overlap"
+    starts = [0] + [int(round(i * step + rng.uniform(-step / 3, step / 3))) for i in range(1, n_reads - 1)] \
+        + [seg_len - read_len]
+    starts = sorted(starts)
     reads = []
     for s in starts:
         r = list(segment[s:s + read_len])

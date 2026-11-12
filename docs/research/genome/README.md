@@ -163,7 +163,14 @@ From IBM, CERN and FOM.
 Each step ends with published instances, code and cross-checked results, like the comparisons. Each also has a
 go/no-go question.
 
-- **G0. Data and baselines** (first).
+- **G0. Data and baselines.** **Done** (12 November 2026): [research/genome](../../../research/genome/README.md),
+  results in [RESULTS.md](../../../research/genome/RESULTS.md).
+  - *Haplotype phasing* is native Ising and hard at a few hundred sites (exact 44 s, SA 14 s at 256 sites): the
+    best target for G2.
+  - *Assembly* is trivial natively (1 ms) but hard as a QUBO (no solver reaches the optimum at 24 reads).
+  - *The densest modules* of the DNA-repair network are cliques of hub genes, and SA/PT on the QUBO fail at k = 10.
+
+  What G0 was planned to contain:
   - **Public data:** φX174 (NCBI NC_001422.1), simulated reads with errors, and a small public gene co-expression
     or protein-interaction network.
   - **Builders:** graph and Ising/QUBO builders from these.

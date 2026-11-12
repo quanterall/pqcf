@@ -1,0 +1,1987 @@
+{
+ "haplotype": [
+  {
+   "size": 16,
+   "exact": {
+    "status": "optimal",
+    "seconds": 0.002065408043563366,
+    "energy": -164,
+    "switch_errors": 1,
+    "mec": 9
+   },
+   "variables": 16,
+   "terms": 65,
+   "cpsat_on_qubo": {
+    "status": "optimal",
+    "seconds": 0.0021804319694638252,
+    "value": -164.0,
+    "reached_optimum": 1.0
+   },
+   "sa": {
+    "tts_star": 1.7696002032607794e-05,
+    "at_sweeps": 10,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 1.0,
+      "run_seconds": 1.7696002032607794e-05,
+      "tts": 1.7696002032607794e-05
+     }
+    ]
+   },
+   "pt": {
+    "tts_star": 6.92000612616539e-05,
+    "at_sweeps": 10,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 1.0,
+      "run_seconds": 6.92000612616539e-05,
+      "tts": 6.92000612616539e-05
+     }
+    ]
+   }
+  },
+  {
+   "size": 32,
+   "exact": {
+    "status": "optimal",
+    "seconds": 0.004176271962933242,
+    "energy": -380,
+    "switch_errors": 0,
+    "mec": 17
+   },
+   "variables": 32,
+   "terms": 137,
+   "cpsat_on_qubo": {
+    "status": "optimal",
+    "seconds": 1.7584939521038905,
+    "value": -380.0,
+    "reached_optimum": 1.0
+   },
+   "sa": {
+    "tts_star": 0.000471530641644229,
+    "at_sweeps": 10,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 0.2,
+      "run_seconds": 2.2848020307719707e-05,
+      "tts": 0.000471530641644229
+     },
+     {
+      "sweeps": 32,
+      "p": 0.225,
+      "run_seconds": 3.144796937704086e-05,
+      "tts": 0.0005681743999510658
+     },
+     {
+      "sweeps": 100,
+      "p": 0.4,
+      "run_seconds": 5.75199956074357e-05,
+      "tts": 0.0005185514518959893
+     },
+     {
+      "sweeps": 316,
+      "p": 0.6,
+      "run_seconds": 0.00014018395449966192,
+      "tts": 0.0007045481803524539
+     },
+     {
+      "sweeps": 1000,
+      "p": 0.95,
+      "run_seconds": 0.0004008800024166703,
+      "tts": 0.0006162502075320426
+     },
+     {
+      "sweeps": 3162,
+      "p": 1.0,
+      "run_seconds": 0.0012221839861012995,
+      "tts": 0.0012221839861012995
+     }
+    ]
+   },
+   "pt": {
+    "tts_star": 0.00016778085514048723,
+    "at_sweeps": 10,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 0.95,
+      "run_seconds": 0.00010914396261796355,
+      "tts": 0.00016778085514048723
+     },
+     {
+      "sweeps": 32,
+      "p": 1.0,
+      "run_seconds": 0.00026808801339939237,
+      "tts": 0.00026808801339939237
+     }
+    ]
+   }
+  },
+  {
+   "size": 64,
+   "exact": {
+    "status": "optimal",
+    "seconds": 0.05446192005183548,
+    "energy": -921,
+    "switch_errors": 2,
+    "mec": 32
+   },
+   "variables": 64,
+   "terms": 313,
+   "cpsat_on_qubo": {
+    "status": "feasible",
+    "seconds": 60.00195305608213,
+    "value": -921.0,
+    "reached_optimum": 1.0
+   },
+   "sa": {
+    "tts_star": 0.00253018114849411,
+    "at_sweeps": 100,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 0.025,
+      "run_seconds": 3.8551981560885906e-05,
+      "tts": 0.0070123936560827
+     },
+     {
+      "sweeps": 32,
+      "p": 0.1,
+      "run_seconds": 5.8999983593821526e-05,
+      "tts": 0.0025788120314677943
+     },
+     {
+      "sweeps": 100,
+      "p": 0.2,
+      "run_seconds": 0.00012259994400665164,
+      "tts": 0.00253018114849411
+     },
+     {
+      "sweeps": 316,
+      "p": 0.1,
+      "run_seconds": 0.0003203520318493247,
+      "tts": 0.01400216786034335
+     },
+     {
+      "sweeps": 1000,
+      "p": 0.3,
+      "run_seconds": 0.0009477840503677726,
+      "tts": 0.012237211852645431
+     },
+     {
+      "sweeps": 3162,
+      "p": 0.4,
+      "run_seconds": 0.0029312160331755877,
+      "tts": 0.026425355457216207
+     },
+     {
+      "sweeps": 10000,
+      "p": 0.8,
+      "run_seconds": 0.00917847198434174,
+      "tts": 0.02626284941386221
+     }
+    ]
+   },
+   "pt": {
+    "tts_star": 0.002226390726915201,
+    "at_sweeps": 10,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 0.35,
+      "run_seconds": 0.00020826398395001888,
+      "tts": 0.002226390726915201
+     },
+     {
+      "sweeps": 32,
+      "p": 0.65,
+      "run_seconds": 0.0005487119778990746,
+      "tts": 0.002406990653318582
+     },
+     {
+      "sweeps": 100,
+      "p": 0.95,
+      "run_seconds": 0.0015988000086508691,
+      "tts": 0.0024577450388988476
+     },
+     {
+      "sweeps": 316,
+      "p": 1.0,
+      "run_seconds": 0.0049580479972064495,
+      "tts": 0.0049580479972064495
+     }
+    ]
+   }
+  },
+  {
+   "size": 128,
+   "exact": {
+    "status": "optimal",
+    "seconds": 1.0089147840626538,
+    "energy": -1794,
+    "switch_errors": 2,
+    "mec": 68
+   },
+   "variables": 128,
+   "terms": 611,
+   "cpsat_on_qubo": {
+    "status": "feasible",
+    "seconds": 60.00271995202638,
+    "value": -1624.0,
+    "reached_optimum": 0.0
+   },
+   "sa": {
+    "tts_star": 0.0957244704892784,
+    "at_sweeps": 1000,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 0.0,
+      "run_seconds": 0.00010535202454775572,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 32,
+      "p": 0.0,
+      "run_seconds": 0.00017746409866958857,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 100,
+      "p": 0.0,
+      "run_seconds": 0.00040209601866081357,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 316,
+      "p": 0.0,
+      "run_seconds": 0.0011142960283905268,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 1000,
+      "p": 0.15,
+      "run_seconds": 0.0033781679812818766,
+      "tts": 0.0957244704892784
+     },
+     {
+      "sweeps": 3162,
+      "p": 0.275,
+      "run_seconds": 0.010476712021045387,
+      "tts": 0.15002953579308545
+     },
+     {
+      "sweeps": 10000,
+      "p": 0.575,
+      "run_seconds": 0.03287512803217396,
+      "tts": 0.17693298553579068
+     }
+    ]
+   },
+   "pt": {
+    "tts_star": 0.06316425823371807,
+    "at_sweeps": 10,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 0.05,
+      "run_seconds": 0.0007035359740257263,
+      "tts": 0.06316425823371807
+     },
+     {
+      "sweeps": 32,
+      "p": 0.1,
+      "run_seconds": 0.0019555200124159455,
+      "tts": 0.08547321928954545
+     },
+     {
+      "sweeps": 100,
+      "p": 0.15,
+      "run_seconds": 0.005804792046546936,
+      "tts": 0.16448579467775004
+     },
+     {
+      "sweeps": 316,
+      "p": 0.45,
+      "run_seconds": 0.018016527988947928,
+      "tts": 0.1387822725004579
+     },
+     {
+      "sweeps": 1000,
+      "p": 0.9,
+      "run_seconds": 0.05670480796834454,
+      "tts": 0.11340961593668906
+     },
+     {
+      "sweeps": 3162,
+      "p": 1.0,
+      "run_seconds": 0.17930563999107108,
+      "tts": 0.17930563999107108
+     }
+    ]
+   }
+  },
+  {
+   "size": 256,
+   "exact": {
+    "status": "optimal",
+    "seconds": 44.21009377599694,
+    "energy": -3601,
+    "switch_errors": 0,
+    "mec": 132
+   },
+   "variables": 256,
+   "terms": 1266,
+   "cpsat_on_qubo": {
+    "status": "feasible",
+    "seconds": 60.00274977600202,
+    "value": -3087.0,
+    "reached_optimum": 0.0
+   },
+   "sa": {
+    "tts_star": 14.140545273030828,
+    "at_sweeps": 10000,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 0.0,
+      "run_seconds": 0.00040661601815372705,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 32,
+      "p": 0.0,
+      "run_seconds": 0.0007536640041507781,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 100,
+      "p": 0.0,
+      "run_seconds": 0.0018324239645153284,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 316,
+      "p": 0.0,
+      "run_seconds": 0.005256839969661087,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 1000,
+      "p": 0.0,
+      "run_seconds": 0.016042240022215992,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 3162,
+      "p": 0.0,
+      "run_seconds": 0.05000540800392628,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 10000,
+      "p": 0.05,
+      "run_seconds": 0.15750018396647647,
+      "tts": 14.140545273030828
+     }
+    ]
+   },
+   "pt": {
+    "tts_star": 53.6094488356179,
+    "at_sweeps": 10000,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 0.0,
+      "run_seconds": 0.0031181280501186848,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 32,
+      "p": 0.0,
+      "run_seconds": 0.008890631957910955,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 100,
+      "p": 0.0,
+      "run_seconds": 0.02668944001197815,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 316,
+      "p": 0.0,
+      "run_seconds": 0.08311620797030628,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 1000,
+      "p": 0.0,
+      "run_seconds": 0.26115493598626927,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 3162,
+      "p": 0.05,
+      "run_seconds": 0.8238254400203004,
+      "tts": 73.96398301452864
+     },
+     {
+      "sweeps": 10000,
+      "p": 0.2,
+      "run_seconds": 2.5976461920072325,
+      "tts": 53.6094488356179
+     }
+    ]
+   }
+  }
+ ],
+ "assembly": [
+  {
+   "size": 6,
+   "overlap_edges": 15,
+   "exact_native": {
+    "status": "optimal",
+    "seconds": 0.0012116959551349282,
+    "overlap": 450
+   },
+   "qubo_positions": {
+    "variables": 36,
+    "terms": 366,
+    "cpsat_on_qubo": {
+     "status": "feasible",
+     "seconds": 60.00399014400318,
+     "value": -4.5,
+     "reached_optimum": 1.0
+    },
+    "sa": {
+     "tts_star": 0.0012872110546546457,
+     "at_sweeps": 316,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.05,
+       "run_seconds": 2.4952052626758814e-05,
+       "tts": 0.0022402236044297636
+      },
+      {
+       "sweeps": 32,
+       "p": 0.025,
+       "run_seconds": 3.5280012525618076e-05,
+       "tts": 0.006417240463513993
+      },
+      {
+       "sweeps": 100,
+       "p": 0.15,
+       "run_seconds": 6.686401320621371e-05,
+       "tts": 0.001894672584198785
+      },
+      {
+       "sweeps": 316,
+       "p": 0.45,
+       "run_seconds": 0.00016710400814190507,
+       "tts": 0.0012872110546546457
+      },
+      {
+       "sweeps": 1000,
+       "p": 0.65,
+       "run_seconds": 0.0004830320249311626,
+       "tts": 0.0021188776919258455
+      },
+      {
+       "sweeps": 3162,
+       "p": 1.0,
+       "run_seconds": 0.001473759999498725,
+       "tts": 0.001473759999498725
+      }
+     ]
+    },
+    "pt": {
+     "tts_star": 0.0017584000015631316,
+     "at_sweeps": 100,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.15,
+       "run_seconds": 0.00012340000830590725,
+       "tts": 0.003496688299370242
+      },
+      {
+       "sweeps": 32,
+       "p": 0.55,
+       "run_seconds": 0.00030796800274401903,
+       "tts": 0.0017761194678432585
+      },
+      {
+       "sweeps": 100,
+       "p": 0.9,
+       "run_seconds": 0.0008792000007815659,
+       "tts": 0.0017584000015631316
+      },
+      {
+       "sweeps": 316,
+       "p": 1.0,
+       "run_seconds": 0.002706520026549697,
+       "tts": 0.002706520026549697
+      }
+     ]
+    }
+   },
+   "qubo_edges": {
+    "variables": 15,
+    "terms": 120,
+    "cpsat_on_qubo": {
+     "status": "optimal",
+     "seconds": 0.11195267201401293,
+     "value": -4.5,
+     "reached_optimum": 1.0
+    },
+    "sa": {
+     "tts_star": 0.00020660554370954747,
+     "at_sweeps": 316,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.025,
+       "run_seconds": 1.7831975128501654e-05,
+       "tts": 0.003243538313822954
+      },
+      {
+       "sweeps": 32,
+       "p": 0.125,
+       "run_seconds": 2.2808031644672155e-05,
+       "tts": 0.0007865930644973129
+      },
+      {
+       "sweeps": 100,
+       "p": 0.25,
+       "run_seconds": 3.781606210395694e-05,
+       "tts": 0.0006053536818211228
+      },
+      {
+       "sweeps": 316,
+       "p": 0.85,
+       "run_seconds": 8.511205669492483e-05,
+       "tts": 0.00020660554370954747
+      },
+      {
+       "sweeps": 1000,
+       "p": 1.0,
+       "run_seconds": 0.00023228803183883429,
+       "tts": 0.00023228803183883429
+      }
+     ]
+    },
+    "pt": {
+     "tts_star": 0.00027150183107030264,
+     "at_sweeps": 32,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.5,
+       "run_seconds": 7.66319571994245e-05,
+       "tts": 0.0005091317031739482
+      },
+      {
+       "sweeps": 32,
+       "p": 0.95,
+       "run_seconds": 0.00017661601305007935,
+       "tts": 0.00027150183107030264
+      },
+      {
+       "sweeps": 100,
+       "p": 1.0,
+       "run_seconds": 0.0004885679809376597,
+       "tts": 0.0004885679809376597
+      }
+     ]
+    }
+   }
+  },
+  {
+   "size": 8,
+   "overlap_edges": 25,
+   "exact_native": {
+    "status": "optimal",
+    "seconds": 0.0004992639878764749,
+    "overlap": 600
+   },
+   "qubo_positions": {
+    "variables": 64,
+    "terms": 904,
+    "cpsat_on_qubo": {
+     "status": "feasible",
+     "seconds": 60.001196624012664,
+     "value": -1.3799999999999955,
+     "reached_optimum": 0.0
+    },
+    "sa": {
+     "tts_star": 0.014852976759103843,
+     "at_sweeps": 1000,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.0,
+       "run_seconds": 3.9087957702577114e-05,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 32,
+       "p": 0.0,
+       "run_seconds": 5.9023965150117874e-05,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 100,
+       "p": 0.0,
+       "run_seconds": 0.0001208320027217269,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 316,
+       "p": 0.075,
+       "run_seconds": 0.00031505594961345196,
+       "tts": 0.018610281925245244
+      },
+      {
+       "sweeps": 1000,
+       "p": 0.25,
+       "run_seconds": 0.0009278560755774379,
+       "tts": 0.014852976759103843
+      },
+      {
+       "sweeps": 3162,
+       "p": 0.475,
+       "run_seconds": 0.0028662800323218107,
+       "tts": 0.02048508360083052
+      },
+      {
+       "sweeps": 10000,
+       "p": 0.875,
+       "run_seconds": 0.008978544035926461,
+       "tts": 0.01988405178941832
+      }
+     ]
+    },
+    "pt": {
+     "tts_star": 0.015164783981163055,
+     "at_sweeps": 1000,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.0,
+       "run_seconds": 0.00020736001897603273,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 32,
+       "p": 0.1,
+       "run_seconds": 0.000537840009201318,
+       "tts": 0.023508282583291323
+      },
+      {
+       "sweeps": 100,
+       "p": 0.3,
+       "run_seconds": 0.001564703998155892,
+       "tts": 0.020202507422112714
+      },
+      {
+       "sweeps": 316,
+       "p": 0.65,
+       "run_seconds": 0.004830871941521764,
+       "tts": 0.02119119698305658
+      },
+      {
+       "sweeps": 1000,
+       "p": 1.0,
+       "run_seconds": 0.015164783981163055,
+       "tts": 0.015164783981163055
+      }
+     ]
+    }
+   },
+   "qubo_edges": {
+    "variables": 25,
+    "terms": 325,
+    "cpsat_on_qubo": {
+     "status": "feasible",
+     "seconds": 60.00081068801228,
+     "value": -5.999999999999943,
+     "reached_optimum": 1.0
+    },
+    "sa": {
+     "tts_star": 0.004724167589541063,
+     "at_sweeps": 10000,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.0,
+       "run_seconds": 2.1543994080275297e-05,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 32,
+       "p": 0.025,
+       "run_seconds": 2.9808026738464832e-05,
+       "tts": 0.005421916309827966
+      },
+      {
+       "sweeps": 100,
+       "p": 0.05,
+       "run_seconds": 5.658401641994715e-05,
+       "tts": 0.005080177214818288
+      },
+      {
+       "sweeps": 316,
+       "p": 0.075,
+       "run_seconds": 0.0001391120022162795,
+       "tts": 0.008217313729852394
+      },
+      {
+       "sweeps": 1000,
+       "p": 0.2,
+       "run_seconds": 0.0004024159861728549,
+       "tts": 0.008304941330250382
+      },
+      {
+       "sweeps": 3162,
+       "p": 0.6,
+       "run_seconds": 0.00121318397577852,
+       "tts": 0.00609732094959251
+      },
+      {
+       "sweeps": 10000,
+       "p": 0.975,
+       "run_seconds": 0.003784199943765998,
+       "tts": 0.004724167589541063
+      }
+     ]
+    },
+    "pt": {
+     "tts_star": 0.0035586081727084565,
+     "at_sweeps": 316,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.0,
+       "run_seconds": 0.00010539998766034842,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 32,
+       "p": 0.1,
+       "run_seconds": 0.00026451994199305773,
+       "tts": 0.011561820316273695
+      },
+      {
+       "sweeps": 100,
+       "p": 0.45,
+       "run_seconds": 0.000750223989598453,
+       "tts": 0.0057790152589168855
+      },
+      {
+       "sweeps": 316,
+       "p": 0.95,
+       "run_seconds": 0.002314927987754345,
+       "tts": 0.0035586081727084565
+      },
+      {
+       "sweeps": 1000,
+       "p": 1.0,
+       "run_seconds": 0.007194847974460572,
+       "tts": 0.007194847974460572
+      }
+     ]
+    }
+   }
+  },
+  {
+   "size": 12,
+   "overlap_edges": 37,
+   "exact_native": {
+    "status": "optimal",
+    "seconds": 0.0005615840200334787,
+    "overlap": 900
+   },
+   "qubo_positions": {
+    "variables": 144,
+    "terms": 3180,
+    "cpsat_on_qubo": {
+     "status": "feasible",
+     "seconds": 60.00375025602989,
+     "value": 478.0699999999999,
+     "reached_optimum": 0.0
+    },
+    "sa": {
+     "tts_star": 0.5256632845753747,
+     "at_sweeps": 3162,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.0,
+       "run_seconds": 0.00011556001845747232,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 32,
+       "p": 0.0,
+       "run_seconds": 0.0001792479888536036,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 100,
+       "p": 0.0,
+       "run_seconds": 0.00036888004979118705,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 316,
+       "p": 0.0,
+       "run_seconds": 0.00097142398590222,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 1000,
+       "p": 0.0,
+       "run_seconds": 0.0028788159834221005,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 3162,
+       "p": 0.075,
+       "run_seconds": 0.008899023989215493,
+       "tts": 0.5256632845753747
+      },
+      {
+       "sweeps": 10000,
+       "p": 0.15,
+       "run_seconds": 0.027923904010094702,
+       "tts": 0.7912575514807462
+      }
+     ]
+    },
+    "pt": {
+     "tts_star": 0.4732138479594141,
+     "at_sweeps": 10000,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.0,
+       "run_seconds": 0.0006391280330717564,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 32,
+       "p": 0.0,
+       "run_seconds": 0.0016775039839558303,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 100,
+       "p": 0.0,
+       "run_seconds": 0.004889615986030549,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 316,
+       "p": 0.0,
+       "run_seconds": 0.015092384011950344,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 1000,
+       "p": 0.2,
+       "run_seconds": 0.04740424797637388,
+       "tts": 0.9783147582991869
+      },
+      {
+       "sweeps": 3162,
+       "p": 0.55,
+       "run_seconds": 0.149573327973485,
+       "tts": 0.8626224066031504
+      },
+      {
+       "sweeps": 10000,
+       "p": 1.0,
+       "run_seconds": 0.4732138479594141,
+       "tts": 0.4732138479594141
+      }
+     ]
+    }
+   },
+   "qubo_edges": {
+    "variables": 37,
+    "terms": 703,
+    "cpsat_on_qubo": {
+     "status": "feasible",
+     "seconds": 60.002081407932565,
+     "value": -9.0,
+     "reached_optimum": 1.0
+    },
+    "sa": {
+     "tts_star": 0.3610311108107581,
+     "at_sweeps": 10000,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.0,
+       "run_seconds": 2.6784022338688374e-05,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 32,
+       "p": 0.0,
+       "run_seconds": 4.033598816022277e-05,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 100,
+       "p": 0.0,
+       "run_seconds": 8.241599425673485e-05,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 316,
+       "p": 0.0,
+       "run_seconds": 0.00021495198598131537,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 1000,
+       "p": 0.0,
+       "run_seconds": 0.0006384639418683946,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 3162,
+       "p": 0.0,
+       "run_seconds": 0.0019501599599607289,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 10000,
+       "p": 0.075,
+       "run_seconds": 0.006111943919677287,
+       "tts": 0.3610311108107581
+      }
+     ]
+    },
+    "pt": {
+     "tts_star": 0.10908469598507509,
+     "at_sweeps": 10000,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.0,
+       "run_seconds": 0.0001451599528081715,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 32,
+       "p": 0.0,
+       "run_seconds": 0.00038502400275319815,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 100,
+       "p": 0.0,
+       "run_seconds": 0.0011335440212860703,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 316,
+       "p": 0.05,
+       "run_seconds": 0.0034886799985542893,
+       "tts": 0.3132176497849311
+      },
+      {
+       "sweeps": 1000,
+       "p": 0.1,
+       "run_seconds": 0.010974671982694417,
+       "tts": 0.47968854271594447
+      },
+      {
+       "sweeps": 3162,
+       "p": 0.75,
+       "run_seconds": 0.034530640055891126,
+       "tts": 0.11470830333610765
+      },
+      {
+       "sweeps": 10000,
+       "p": 1.0,
+       "run_seconds": 0.10908469598507509,
+       "tts": 0.10908469598507509
+      }
+     ]
+    }
+   }
+  },
+  {
+   "size": 16,
+   "overlap_edges": 46,
+   "exact_native": {
+    "status": "optimal",
+    "seconds": 0.0006624800153076649,
+    "overlap": 1200
+   },
+   "qubo_positions": {
+    "variables": 256,
+    "terms": 7696,
+    "cpsat_on_qubo": {
+     "status": "feasible",
+     "seconds": 60.011799552012235,
+     "value": 3810.969999999999,
+     "reached_optimum": 0.0
+    },
+    "sa": {
+     "tts_star": 20.257697401509876,
+     "at_sweeps": 10000,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.0,
+       "run_seconds": 0.00035920797381550074,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 32,
+       "p": 0.0,
+       "run_seconds": 0.0006016319966875017,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 100,
+       "p": 0.0,
+       "run_seconds": 0.0013666559825651348,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 316,
+       "p": 0.0,
+       "run_seconds": 0.0037948880344629288,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 1000,
+       "p": 0.0,
+       "run_seconds": 0.011404864024370909,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 3162,
+       "p": 0.0,
+       "run_seconds": 0.035449584014713764,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 10000,
+       "p": 0.025,
+       "run_seconds": 0.11137058399617672,
+       "tts": 20.257697401509876
+      }
+     ]
+    },
+    "pt": {
+     "tts_star": 16.68734090418257,
+     "at_sweeps": 3162,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.0,
+       "run_seconds": 0.0024139920133166015,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 32,
+       "p": 0.0,
+       "run_seconds": 0.006535263964906335,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 100,
+       "p": 0.0,
+       "run_seconds": 0.01921618403866887,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 316,
+       "p": 0.0,
+       "run_seconds": 0.059437912015710026,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 1000,
+       "p": 0.0,
+       "run_seconds": 0.18668338406132534,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 3162,
+       "p": 0.15,
+       "run_seconds": 0.5889052239945158,
+       "tts": 16.68734090418257
+      },
+      {
+       "sweeps": 10000,
+       "p": 0.35,
+       "run_seconds": 1.8613203359418549,
+       "tts": 19.89794998233662
+      }
+     ]
+    }
+   },
+   "qubo_edges": {
+    "variables": 46,
+    "terms": 1081,
+    "cpsat_on_qubo": {
+     "status": "feasible",
+     "seconds": 60.004075439996086,
+     "value": -3.6800000000000637,
+     "reached_optimum": 0.0
+    },
+    "sa": {
+     "tts_star": Infinity,
+     "at_sweeps": 10,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.0,
+       "run_seconds": 3.120803739875555e-05,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 32,
+       "p": 0.0,
+       "run_seconds": 4.924798849970102e-05,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 100,
+       "p": 0.0,
+       "run_seconds": 0.00010564806871116161,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 316,
+       "p": 0.0,
+       "run_seconds": 0.0002832959871739149,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 1000,
+       "p": 0.0,
+       "run_seconds": 0.0008368320413865149,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 3162,
+       "p": 0.0,
+       "run_seconds": 0.0025956640020012856,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 10000,
+       "p": 0.0,
+       "run_seconds": 0.008098552061710507,
+       "tts": Infinity
+      }
+     ]
+    },
+    "pt": {
+     "tts_star": 0.619219621877331,
+     "at_sweeps": 1000,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.0,
+       "run_seconds": 0.00018303998513147235,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 32,
+       "p": 0.0,
+       "run_seconds": 0.0004910159623250365,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 100,
+       "p": 0.0,
+       "run_seconds": 0.0014652879908680916,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 316,
+       "p": 0.0,
+       "run_seconds": 0.00450172001728788,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 1000,
+       "p": 0.1,
+       "run_seconds": 0.014166968001518399,
+       "tts": 0.619219621877331
+      },
+      {
+       "sweeps": 3162,
+       "p": 0.2,
+       "run_seconds": 0.04475014394847676,
+       "tts": 0.9235401494530097
+      },
+      {
+       "sweeps": 10000,
+       "p": 0.45,
+       "run_seconds": 0.141586119949352,
+       "tts": 1.0906454058821644
+      }
+     ]
+    }
+   }
+  },
+  {
+   "size": 24,
+   "overlap_edges": 68,
+   "exact_native": {
+    "status": "optimal",
+    "seconds": 0.0007112319581210613,
+    "overlap": 1800
+   },
+   "qubo_positions": {
+    "variables": 576,
+    "terms": 26520,
+    "cpsat_on_qubo": {
+     "status": "feasible",
+     "seconds": 60.0225650559878,
+     "value": 6376.880000000003,
+     "reached_optimum": 0.0
+    },
+    "sa": {
+     "tts_star": Infinity,
+     "at_sweeps": 10,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.0,
+       "run_seconds": 0.0017969519831240177,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 32,
+       "p": 0.0,
+       "run_seconds": 0.002929751935880631,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 100,
+       "p": 0.0,
+       "run_seconds": 0.006482815952040255,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 316,
+       "p": 0.0,
+       "run_seconds": 0.017760912014637142,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 1000,
+       "p": 0.0,
+       "run_seconds": 0.05329821596387774,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 3162,
+       "p": 0.0,
+       "run_seconds": 0.16559411998605356,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 10000,
+       "p": 0.0,
+       "run_seconds": 0.520749464049004,
+       "tts": Infinity
+      }
+     ]
+    },
+    "pt": {
+     "tts_star": Infinity,
+     "at_sweeps": 10,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.0,
+       "run_seconds": 0.011886879976373166,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 32,
+       "p": 0.0,
+       "run_seconds": 0.03123857593163848,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 100,
+       "p": 0.0,
+       "run_seconds": 0.09140546398703009,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 316,
+       "p": 0.0,
+       "run_seconds": 0.28281245596008375,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 1000,
+       "p": 0.0,
+       "run_seconds": 0.8881769680301659,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 3162,
+       "p": 0.0,
+       "run_seconds": 2.8040295200189576,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 10000,
+       "p": 0.0,
+       "run_seconds": 8.843335039971862,
+       "tts": Infinity
+      }
+     ]
+    }
+   },
+   "qubo_edges": {
+    "variables": 68,
+    "terms": 2346,
+    "cpsat_on_qubo": {
+     "status": "feasible",
+     "seconds": 59.98187231994234,
+     "value": 32.909999999999854,
+     "reached_optimum": 0.0
+    },
+    "sa": {
+     "tts_star": Infinity,
+     "at_sweeps": 10,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.0,
+       "run_seconds": 4.5440043322741985e-05,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 32,
+       "p": 0.0,
+       "run_seconds": 7.594400085508823e-05,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 100,
+       "p": 0.0,
+       "run_seconds": 0.00017043197294697165,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 316,
+       "p": 0.0,
+       "run_seconds": 0.0004730479558929801,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 1000,
+       "p": 0.0,
+       "run_seconds": 0.0014163840096443892,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 3162,
+       "p": 0.0,
+       "run_seconds": 0.0044047359842807055,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 10000,
+       "p": 0.0,
+       "run_seconds": 0.013862512016203254,
+       "tts": Infinity
+      }
+     ]
+    },
+    "pt": {
+     "tts_star": Infinity,
+     "at_sweeps": 10,
+     "points": [
+      {
+       "sweeps": 10,
+       "p": 0.0,
+       "run_seconds": 0.0002807040000334382,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 32,
+       "p": 0.0,
+       "run_seconds": 0.0007957840571179986,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 100,
+       "p": 0.0,
+       "run_seconds": 0.002367631997913122,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 316,
+       "p": 0.0,
+       "run_seconds": 0.007392600004095584,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 1000,
+       "p": 0.0,
+       "run_seconds": 0.023256879998371005,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 3162,
+       "p": 0.0,
+       "run_seconds": 0.07357454404700547,
+       "tts": Infinity
+      },
+      {
+       "sweeps": 10000,
+       "p": 0.0,
+       "run_seconds": 0.23259004805004224,
+       "tts": Infinity
+      }
+     ]
+    }
+   }
+  }
+ ],
+ "modules": [
+  {
+   "size": 3,
+   "genes": 45,
+   "network_edges": 326,
+   "exact": {
+    "status": "optimal",
+    "seconds": 0.019514480023644865,
+    "edges": 3,
+    "module": [
+     "BRCA2",
+     "H2AX",
+     "MDC1"
+    ]
+   },
+   "variables": 45,
+   "terms": 1035,
+   "cpsat_on_qubo": {
+    "status": "feasible",
+    "seconds": 60.001546016079374,
+    "value": -3.0,
+    "reached_optimum": 1.0
+   },
+   "sa": {
+    "tts_star": 9.030400542542338e-05,
+    "at_sweeps": 100,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 0.3,
+      "run_seconds": 2.9391958378255367e-05,
+      "tts": 0.00037949111013134407
+     },
+     {
+      "sweeps": 32,
+      "p": 0.675,
+      "run_seconds": 4.423200152814388e-05,
+      "tts": 0.00018123537692485634
+     },
+     {
+      "sweeps": 100,
+      "p": 1.0,
+      "run_seconds": 9.030400542542338e-05,
+      "tts": 9.030400542542338e-05
+     }
+    ]
+   },
+   "pt": {
+    "tts_star": 0.00015885598259046674,
+    "at_sweeps": 10,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 1.0,
+      "run_seconds": 0.00015885598259046674,
+      "tts": 0.00015885598259046674
+     }
+    ]
+   }
+  },
+  {
+   "size": 5,
+   "genes": 45,
+   "network_edges": 326,
+   "exact": {
+    "status": "optimal",
+    "seconds": 0.035135744023136795,
+    "edges": 10,
+    "module": [
+     "BRCA1",
+     "MSH2",
+     "RAD51",
+     "ATM",
+     "MSH6"
+    ]
+   },
+   "variables": 45,
+   "terms": 1035,
+   "cpsat_on_qubo": {
+    "status": "feasible",
+    "seconds": 60.00186888000462,
+    "value": -4.0,
+    "reached_optimum": 0.0
+   },
+   "sa": {
+    "tts_star": 0.0011162602039423574,
+    "at_sweeps": 1000,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 0.025,
+      "run_seconds": 2.956006210297346e-05,
+      "tts": 0.005376812904854957
+     },
+     {
+      "sweeps": 32,
+      "p": 0.125,
+      "run_seconds": 4.5199994929134846e-05,
+      "tts": 0.001558836951845269
+     },
+     {
+      "sweeps": 100,
+      "p": 0.2,
+      "run_seconds": 9.345600847154856e-05,
+      "tts": 0.0019287172825738718
+     },
+     {
+      "sweeps": 316,
+      "p": 0.55,
+      "run_seconds": 0.0002457280643284321,
+      "tts": 0.0014171680010924277
+     },
+     {
+      "sweeps": 1000,
+      "p": 0.95,
+      "run_seconds": 0.0007261440041474998,
+      "tts": 0.0011162602039423574
+     },
+     {
+      "sweeps": 3162,
+      "p": 1.0,
+      "run_seconds": 0.0022353280219249427,
+      "tts": 0.0022353280219249427
+     }
+    ]
+   },
+   "pt": {
+    "tts_star": 0.0008299542821919051,
+    "at_sweeps": 10,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 0.6,
+      "run_seconds": 0.00016513600712642074,
+      "tts": 0.0008299542821919051
+     },
+     {
+      "sweeps": 32,
+      "p": 0.65,
+      "run_seconds": 0.0004372880212031305,
+      "tts": 0.0019182161538994322
+     },
+     {
+      "sweeps": 100,
+      "p": 1.0,
+      "run_seconds": 0.0012744800187647343,
+      "tts": 0.0012744800187647343
+     }
+    ]
+   }
+  },
+  {
+   "size": 8,
+   "genes": 45,
+   "network_edges": 326,
+   "exact": {
+    "status": "optimal",
+    "seconds": 2.4539944799616933,
+    "edges": 28,
+    "module": [
+     "RAD51",
+     "RAD50",
+     "ATM",
+     "TP53",
+     "MSH6",
+     "ATR",
+     "XRCC6",
+     "H2AX"
+    ]
+   },
+   "variables": 45,
+   "terms": 1035,
+   "cpsat_on_qubo": {
+    "status": "feasible",
+    "seconds": 60.00164755200967,
+    "value": -28.0,
+    "reached_optimum": 1.0
+   },
+   "sa": {
+    "tts_star": 0.2556608771546895,
+    "at_sweeps": 10000,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 0.0,
+      "run_seconds": 2.9888004064559937e-05,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 32,
+      "p": 0.0,
+      "run_seconds": 4.642398562282324e-05,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 100,
+      "p": 0.0,
+      "run_seconds": 9.744800627231598e-05,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 316,
+      "p": 0.0,
+      "run_seconds": 0.00025856797583401203,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 1000,
+      "p": 0.0,
+      "run_seconds": 0.0007716160616837442,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 3162,
+      "p": 0.0,
+      "run_seconds": 0.002373887982685119,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 10000,
+      "p": 0.125,
+      "run_seconds": 0.007413136016111821,
+      "tts": 0.2556608771546895
+     }
+    ]
+   },
+   "pt": {
+    "tts_star": 0.11787205269666738,
+    "at_sweeps": 316,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 0.0,
+      "run_seconds": 0.0001703279558569193,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 32,
+      "p": 0.0,
+      "run_seconds": 0.00045562401646748185,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 100,
+      "p": 0.0,
+      "run_seconds": 0.0013408479280769825,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 316,
+      "p": 0.15,
+      "run_seconds": 0.004159768053796142,
+      "tts": 0.11787205269666738
+     },
+     {
+      "sweeps": 1000,
+      "p": 0.15,
+      "run_seconds": 0.013074656017124653,
+      "tts": 0.37048617209195067
+     },
+     {
+      "sweeps": 3162,
+      "p": 0.35,
+      "run_seconds": 0.04116165597224608,
+      "tts": 0.4400277351031346
+     },
+     {
+      "sweeps": 10000,
+      "p": 0.7,
+      "run_seconds": 0.13016491197049618,
+      "tts": 0.4978779999967649
+     }
+    ]
+   }
+  },
+  {
+   "size": 10,
+   "genes": 45,
+   "network_edges": 326,
+   "exact": {
+    "status": "optimal",
+    "seconds": 2.4374338240595534,
+    "edges": 45,
+    "module": [
+     "BRCA1",
+     "RAD51",
+     "MRE11",
+     "RAD50",
+     "ATM",
+     "TP53",
+     "CHEK2",
+     "ATR",
+     "H2AX",
+     "BARD1"
+    ]
+   },
+   "variables": 45,
+   "terms": 1035,
+   "cpsat_on_qubo": {
+    "status": "feasible",
+    "seconds": 60.01244163198862,
+    "value": -45.0,
+    "reached_optimum": 1.0
+   },
+   "sa": {
+    "tts_star": Infinity,
+    "at_sweeps": 10,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 0.0,
+      "run_seconds": 3.016000846400857e-05,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 32,
+      "p": 0.0,
+      "run_seconds": 4.7175970394164324e-05,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 100,
+      "p": 0.0,
+      "run_seconds": 9.942398173734546e-05,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 316,
+      "p": 0.0,
+      "run_seconds": 0.0002646720386110246,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 1000,
+      "p": 0.0,
+      "run_seconds": 0.0007874239818193018,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 3162,
+      "p": 0.0,
+      "run_seconds": 0.002438304014503956,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 10000,
+      "p": 0.0,
+      "run_seconds": 0.007657568028662354,
+      "tts": Infinity
+     }
+    ]
+   },
+   "pt": {
+    "tts_star": Infinity,
+    "at_sweeps": 10,
+    "points": [
+     {
+      "sweeps": 10,
+      "p": 0.0,
+      "run_seconds": 0.00017259997548535466,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 32,
+      "p": 0.0,
+      "run_seconds": 0.00046953599667176604,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 100,
+      "p": 0.0,
+      "run_seconds": 0.0013782079913653433,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 316,
+      "p": 0.0,
+      "run_seconds": 0.004262696020305157,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 1000,
+      "p": 0.0,
+      "run_seconds": 0.013431832019705325,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 3162,
+      "p": 0.0,
+      "run_seconds": 0.04247095203027129,
+      "tts": Infinity
+     },
+     {
+      "sweeps": 10000,
+      "p": 0.0,
+      "run_seconds": 0.13411951198941097,
+      "tts": Infinity
+     }
+    ]
+   }
+  },
+  {
+   "size": 12,
+   "open": true,
+   "exact": {
+    "status": "optimal",
+    "seconds": 250.40784105600324,
+    "edges": 64,
+    "module": [
+     "BRCA1",
+     "RAD51",
+     "MRE11",
+     "RAD50",
+     "ATM",
+     "TP53",
+     "MSH6",
+     "CHEK2",
+     "ATR",
+     "XRCC6",
+     "H2AX",
+     "BARD1"
+    ]
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "haplotype n=16: CP-SAT proves the optimum",
+   "ok": true,
+   "detail": "optimal"
+  },
+  {
+   "what": "haplotype n=16: the optimum's phasing is close to the truth",
+   "ok": true,
+   "detail": "1 switch errors, MEC 9"
+  },
+  {
+   "what": "haplotype n=32: CP-SAT proves the optimum",
+   "ok": true,
+   "detail": "optimal"
+  },
+  {
+   "what": "haplotype n=32: the optimum's phasing is close to the truth",
+   "ok": true,
+   "detail": "0 switch errors, MEC 17"
+  },
+  {
+   "what": "haplotype n=64: CP-SAT proves the optimum",
+   "ok": true,
+   "detail": "optimal"
+  },
+  {
+   "what": "haplotype n=64: the optimum's phasing is close to the truth",
+   "ok": true,
+   "detail": "2 switch errors, MEC 32"
+  },
+  {
+   "what": "haplotype n=128: CP-SAT proves the optimum",
+   "ok": true,
+   "detail": "optimal"
+  },
+  {
+   "what": "haplotype n=128: the optimum's phasing is close to the truth",
+   "ok": true,
+   "detail": "2 switch errors, MEC 68"
+  },
+  {
+   "what": "haplotype n=256: CP-SAT proves the optimum",
+   "ok": true,
+   "detail": "optimal"
+  },
+  {
+   "what": "haplotype n=256: the optimum's phasing is close to the truth",
+   "ok": true,
+   "detail": "0 switch errors, MEC 132"
+  },
+  {
+   "what": "assembly n=6: the native optimum is the reads' true order",
+   "ok": true,
+   "detail": "optimal, overlap 450"
+  },
+  {
+   "what": "assembly n=8: the native optimum is the reads' true order",
+   "ok": true,
+   "detail": "optimal, overlap 600"
+  },
+  {
+   "what": "assembly n=12: the native optimum is the reads' true order",
+   "ok": true,
+   "detail": "optimal, overlap 900"
+  },
+  {
+   "what": "assembly n=16: the native optimum is the reads' true order",
+   "ok": true,
+   "detail": "optimal, overlap 1200"
+  },
+  {
+   "what": "assembly n=24: the native optimum is the reads' true order",
+   "ok": true,
+   "detail": "optimal, overlap 1800"
+  },
+  {
+   "what": "dense 3-subgraph: CP-SAT proves the optimum",
+   "ok": true,
+   "detail": "optimal"
+  },
+  {
+   "what": "dense 5-subgraph: CP-SAT proves the optimum",
+   "ok": true,
+   "detail": "optimal"
+  },
+  {
+   "what": "dense 8-subgraph: CP-SAT proves the optimum",
+   "ok": true,
+   "detail": "optimal"
+  },
+  {
+   "what": "dense 10-subgraph: CP-SAT proves the optimum",
+   "ok": true,
+   "detail": "optimal"
+  }
+ ]
+}
