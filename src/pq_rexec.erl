@@ -1,6 +1,7 @@
-%% Where reconstruction tasks run (decision record R1, phase 3): one task interface, several executors. A task is
-%% plain data, its result a pure function of it (run_task/2), so the results are the same whichever executor runs
-%% them and however the tasks are spread (D1).
+%% Where tasks run (decision records R1, phase 3, and P1): one task interface, several executors. A task is plain
+%% data, {pq_task, Module, Args} for a module implementing the pq_task behaviour (or one of the reconstruction's own
+%% tuples, pq_ff_task's), its result a pure function of it, so the results are the same whichever executor runs
+%% them and however the tasks are spread (D1). map_traced/3 also returns each result's provenance (pq_task).
 %%
 %%   local (the default)     this node: a pool with one slot per dirty CPU scheduler (the NIF work runs there).
 %%   {nodes, Nodes}          one owner's Erlang nodes, by erpc from this node (a star: the workers need no
@@ -11,14 +12,23 @@
 %% The federation executor (FVLLMP peers over HTTPS) is to come (R1, phase 5): the same tasks, another transport.
 %% Tasks fetch their programs and supports from the coordinator's store by key (pq_rstore).
 -module(pq_rexec).
--export([map/3, run_task/2]).
+-export([map/3, map_traced/3, run_task/2, run_task_traced/2]).
 
 -define(TIMEOUT, 600000).
 
 %% The results of Tasks, in their order.
--spec map([tuple()], local | {nodes, [node()]}, map()) -> [term()].
-map([], _Exec, _Opts) -> [];
+-spec map([pq_task:task()], local | {nodes, [node()]}, map()) -> [term()].
 map(Tasks, Exec, Opts) ->
+    run(Tasks, Exec, Opts#{traced => false}).
+
+%% The results of Tasks, in their order, each with its provenance record: {Result, pq_task:provenance()}. The
+%% results are map/3's.
+-spec map_traced([pq_task:task()], local | {nodes, [node()]}, map()) -> [{term(), pq_task:provenance()}].
+map_traced(Tasks, Exec, Opts) ->
+    run(Tasks, Exec, Opts#{traced => true}).
+
+run([], _Exec, _Opts) -> [];
+run(Tasks, Exec, Opts) ->
     %% slots => [Node]: the slots given outright, one entry per slot (for tests, and callers that place work)
     Slots = case maps:get(slots, Opts, none) of none -> slots(Exec, Opts); Given -> Given end,
     loop(lists:enumerate(Tasks), Slots, #{}, #{}, length(Tasks), Opts).
@@ -57,7 +67,8 @@ loop([{I, Task} | Queue], [Node | Free], Running, Done, Total, Opts) ->
     Home = node(),
     Self = self(),
     Timeout = maps:get(task_timeout, Opts, ?TIMEOUT),
-    {Pid, Ref} = spawn_monitor(fun() -> Self ! {pq_rexec, self(), attempt(Node, Task, Home, Timeout)} end),
+    Run = case maps:get(traced, Opts) of true -> run_task_traced; false -> run_task end,
+    {Pid, Ref} = spawn_monitor(fun() -> Self ! {pq_rexec, self(), attempt(Node, Run, Task, Home, Timeout)} end),
     loop(Queue, Free, Running#{Pid => {Ref, I, Task, Node}}, Done, Total, Opts);
 loop(Queue, Free, Running, Done, Total, Opts) ->
     receive
@@ -82,12 +93,12 @@ loop(Queue, Free, Running, Done, Total, Opts) ->
             error({pq_rexec, Reason})
     end.
 
-attempt(Node, Task, Home, _Timeout) when Node =:= Home ->
-    try {ok, run_task(Task, Home)}
+attempt(Node, Run, Task, Home, _Timeout) when Node =:= Home ->
+    try {ok, ?MODULE:Run(Task, Home)}
     catch Class:Why:Stack -> {task_failed, Class, Why, Stack}
     end;
-attempt(Node, Task, Home, Timeout) ->
-    try erpc:call(Node, ?MODULE, run_task, [Task, Home], Timeout) of
+attempt(Node, Run, Task, Home, Timeout) ->
+    try erpc:call(Node, ?MODULE, Run, [Task, Home], Timeout) of
         Result -> {ok, Result}
     catch
         error:{erpc, Why} -> {node_failed, Why};
@@ -99,25 +110,9 @@ attempt(Node, Task, Home, Timeout) ->
 
 %%% The tasks
 
-%% {column, ProgramKey, P, R, N, SupportKey, Suffix}: one column of Zippel's interpolation (pq_nif:ff_column/6):
-%%   {ok, Coefficients} | bad | singular | bad_prime
-%% {line_column, ProgramKey, P, Shift, R, N, SupportKey, Suffix, Ts, Dn, Dd}: one column of the coefficients of a
-%%   rational function along lines (pq_nif:ff_line_column/10): {ok, [Coefficients per output]} | bad | singular
-%% {linsys_all, BlackBox, P, Points}: a linear system's wanted component for every right-hand side at the points
-%%   (pq_nif:ff_linsys_all/3): {ok, [Values | bad]}
-%% {values, ProgramKey, P, Points}: the program's outputs at the points (pq_ff:eval/3)
--spec run_task(tuple(), node()) -> term().
-run_task({column, ProgKey, P, R, N, SupportKey, Suffix}, Home) ->
-    {ok, {ff, Ref, _, _}} = pq_rstore:prepared(ProgKey, Home),
-    {ok, Support} = pq_rstore:fetch(SupportKey, Home),
-    pq_nif:ff_column(Ref, P, R, N, Support, Suffix);
-run_task({line_column, ProgKey, P, Shift, R, N, SupportKey, Suffix, Ts, Dn, Dd}, Home) ->
-    {ok, {ff, Ref, _, _}} = pq_rstore:prepared(ProgKey, Home),
-    {ok, Support} = pq_rstore:fetch(SupportKey, Home),
-    pq_nif:ff_line_column(Ref, P, Shift, R, N, Support, Suffix, Ts, Dn, Dd);
-run_task({linsys_all, BB, P, Points}, Home) ->
-    {ok, {ff, Ref, _, _}} = pq_rstore:prepared(BB, Home),
-    pq_nif:ff_linsys_all(Ref, P, lists:append(Points));
-run_task({values, ProgKey, P, Points}, Home) ->
-    {ok, FF} = pq_rstore:prepared(ProgKey, Home),
-    pq_ff:eval(FF, P, Points).
+%% A task's result on this node; Home is the coordinating node (its store holds the tasks' data). See pq_task.
+-spec run_task(pq_task:task(), node()) -> term().
+run_task(Task, Home) -> pq_task:run(Task, Home).
+
+-spec run_task_traced(pq_task:task(), node()) -> {term(), pq_task:provenance()}.
+run_task_traced(Task, Home) -> pq_task:run_traced(Task, Home).

@@ -7,6 +7,13 @@ the public API is additive.
 
 ### Added
 
+- **The task behaviour** (`pq_task`, decision record P1): PQCF's executors run any application's work.
+  - A task is `{pq_task, Module, Args}`; `Module` implements `run/2`, and optionally `resources/1` and `describe/1`.
+  - A node runs only the modules it allows (PQCF's own, the `task_modules` environment, `pq_task:allow/1`).
+  - `pq_rexec:map_traced/3` returns each result with its provenance record: task hash, module and code checksum,
+    node, version, times.
+  - The finite-field reconstruction's tasks are now `pq_ff_task`, with their bare tuples still accepted; results
+    unchanged.
 - Feynman-integral families with **massive propagators** and **any number of loops** (`pq_ibp_family`):
   - a propagator may be `{Sign, Momentum, MassSquared}`, D = Sign (q^2 - m^2), the mass squared an expression in
     the family's variables; the masses enter the scalar products' constants and the Symanzik polynomial F (zero
