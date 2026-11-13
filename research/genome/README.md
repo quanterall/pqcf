@@ -1,4 +1,4 @@
-# Genome research: G0 (data, instances, classical baselines) and G1 (Gaussian boson sampling)
+# Genome research: G0 (baselines), G1 (Gaussian boson sampling), G2 (coherent Ising machines)
 
 Step G0 of the plan in [docs/research/genome/README.md](../../docs/research/genome/README.md). It does four things:
 - turns public genomic data into optimisation problems;
@@ -67,7 +67,8 @@ Two caveats:
 
 12 November 2026, one Cortex-X925 core. **All 19 checks hold.**
 
-**1. Haplotype phasing gets genuinely hard, and is the best target for the coherent Ising machine (G2).**
+**1. Haplotype phasing gets slow for single-worker CP-SAT** (*corrected by G2*: it is not hard. CP-SAT with 8 workers
+proves 256 sites in 0.09 s, and a banded dynamic programme in 0.011 s; see G2).
 
 | sites | exact (CP-SAT) | SA TTS\* | PT TTS\* |
 | --- | --- | --- | --- |
@@ -76,10 +77,11 @@ Two caveats:
 | 128 | 1.0 s | 0.096 s | 0.063 s |
 | 256 | 44 s | 14 s (upper bound) | 54 s |
 
-- Exact solving grows about 20,000-fold from 16 to 256 sites, and the heuristics grow similarly.
+- Exact solving on one CP-SAT worker grows about 20,000-fold from 16 to 256 sites, and the heuristics grow
+  similarly.
 - The optimum phases the reads with 0–2 switch errors against the truth.
-- This is the kind of problem the review names as a candidate: native Ising, with no translation overhead, hard at
-  a few hundred variables.
+- G0 read this as the kind of problem the review names as a candidate. G2 showed it is not: the growth was single-
+  worker CP-SAT's, and short-read phasing is solved exactly in linear time.
 
 **2. Assembly is easy natively and hard as a QUBO**, which is the review's warning, now measured on real data.
 
@@ -206,3 +208,114 @@ can change between runs (as in G0). Unweighted density favours hubs over individ
 PQ_BENCH_HOST=dgx-spark sh research/genome/g1_run.sh ["15 16 17 18 5 6 7 8"]   # about 30 minutes on 8 cores
 ```
 
+
+## G2: coherent-Ising-machine solvers for haplotype phasing and assembly
+
+**Latest run:** [RESULTS_G2.md](RESULTS_G2.md), from `g2_run.sh`: exact optima on 8 cores, then the four solvers in
+parallel, one core each.
+
+**The question:** do solvers derived from the coherent Ising machine (CIM), an optical Ising solver, find the
+optimum of genomic Ising problems faster than tuned classical heuristics, and does the gap grow with size?
+
+### What was built
+
+- **Two CIM solvers** (`cim.py`, Numba, one core, sparse couplings):
+  - **SimCIM**, as Tiunov, Ulanov & Lvovsky ([arXiv:1901.08927](https://arxiv.org/abs/1901.08927)) define it. It is
+    the simulated CIM Boev et al. used for genome assembly.
+  - **AHC**, the CIM with amplitude-heterogeneity correction of Leleu, Yamamoto & McMahon
+    ([arXiv:1810.12565](https://arxiv.org/abs/1810.12565), Eqs. 1–2). Its error variables destabilise local
+    minima. We keep its target amplitude constant; the paper also modulates it.
+- **The classical heuristics from G0:** simulated annealing (SA) and parallel tempering (PT).
+- **The same tuning budget for every solver:** 8 parameter settings, chosen by geometric-mean TTS\* on separate
+  tuning instances for each problem family.
+- **Exact optima:**
+  - CP-SAT with 8 workers, run before the solvers, alone;
+  - for short reads also a **banded dynamic programme** (`solvers.exact_banded`), whose cost is linear in the
+    number of sites.
+- **Three problem families:**
+  1. haplotype phasing from **short reads** (2–6 sites per read), 16–256 sites;
+  2. haplotype phasing from **long reads** (10–40 sites per read), 64–512 sites;
+  3. Boev et al.'s assembly QUBO for φX174 (one variable per overlap edge), 6–16 reads.
+
+  The phasing families have 3 instances per size, each with a proven optimum.
+
+### Checks: 46 of 46 hold
+
+Every optimum is proven by CP-SAT, and the dynamic programme gives the same optimum on every short-read instance.
+
+### Two corrections to G0, found on the way
+
+- **G0's exact times were CP-SAT on one worker.** On one worker, CP-SAT spent 44 s on a 256-site instance it proves
+  in 0.09 s with 8. On another it stopped after 300 s at a solution far from the optimum (−3,272 against −3,486).
+  An earlier G2 run had used that unproven value as its target; the check caught it, and the exact phase now uses
+  8 workers.
+- **Short-read phasing is not a hard problem.** A read couples only the sites it covers, so the couplings form a
+  band 5 sites wide.
+  - A dynamic programme over that band solves it exactly in linear time: 0.011 s at 256 sites, 0.18 s at 4,096.
+  - The standard phasing tools rely on the same kind of structure. WhatsHap solves the weighted
+    minimum-error-correction problem exactly, with a cost exponential only in the read coverage (Patterson et al.,
+    [J. Comput. Biol. 22, 498 (2015)](https://doi.org/10.1089/cmb.2014.0157)).
+  - G0's statement that phasing "gets genuinely hard at a few hundred sites" was an artefact of a single-worker
+    exact solver.
+
+### Results
+
+**1. Short reads: every heuristic loses to the exact dynamic programme.**
+
+| method | time at 256 sites |
+| --- | --- |
+| dynamic programme, 1 core, exact | 0.011 s |
+| CP-SAT, 8 workers, exact | 0.09 s |
+| AHC (CIM), best heuristic | 0.07–0.32 s (TTS\*) |
+| SA | about 6.6 s on two instances, not reached on the third |
+| PT and SimCIM | not reached |
+
+Among the heuristics, AHC scales best: its TTS\* grows about 14 times per doubling of the sites, against 88 for SA.
+On this family that only ranks the heuristics, since none of them is needed.
+
+**2. Long reads, where exact solving is costly, are won by a classical heuristic.** Median TTS\* at 512 sites, and its
+growth per doubling over 128–512 sites:
+
+| method | time at 512 sites | growth per doubling |
+| --- | --- | --- |
+| PT | 0.0085 s | 5.3 |
+| AHC (CIM) | 0.037 s | 9.9 |
+| SA | 0.072 s | 32 |
+| SimCIM | 0.46 s | 14 |
+| CP-SAT, 8 workers, exact | 23.5 s | 9.3 |
+
+- Every heuristic is far faster than proving the optimum, but the best is parallel tempering. It is about 4 times
+  faster than AHC at 512 sites and has the flattest growth.
+- Many PT times sit at the shortest run length tried, so they are upper bounds and PT is, if anything, faster still.
+- SimCIM, the solver used in the assembly paper, is the slowest heuristic here.
+
+**3. Assembly QUBO: no consistent winner, and none is needed.**
+- AHC is fastest at 6–12 reads.
+- At 16 reads only SA (0.033 s) and PT (0.0035 s) reach the optimum; neither CIM solver does.
+- The native exact solver needs under 1 ms at every size (G0).
+
+### Answer to G2's go/no-go question
+
+**No.** On no genomic instance class here does a CIM-derived solver beat the best classical method:
+- **Short-read phasing:** solved exactly in linear time by dynamic programming.
+- **Long-read phasing:** won by parallel tempering.
+- **Assembly:** a QUBO only makes a native one-millisecond problem harder.
+
+Of the two, AHC is a strong Ising heuristic: it beats SA and SimCIM on both phasing families. SimCIM is not.
+
+**Limits of this test, stated plainly:**
+- AHC runs without its target-amplitude modulation.
+- Tuning used small instances and only 8 settings per solver.
+- Everything ran on one CPU core; a physical CIM's speed is not modelled.
+- Phasing was solved in its Ising (Max-Cut) form, not as the minimum-error-correction problem that phasing tools
+  actually solve.
+
+None of these would change the main conclusions:
+- the short-read problem is easy;
+- the best solver for the long-read Ising problem is classical.
+
+### Running it
+
+```sh
+PQ_BENCH_HOST=dgx-spark sh research/genome/g2_run.sh ["15 16 17 18"]   # about 40 minutes
+```

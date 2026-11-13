@@ -10,10 +10,10 @@ from ortools.sat.python import cp_model
 SCALE = 1000  # CP-SAT needs integer objectives: weights are scaled and rounded
 
 
-def _solve(model, time_limit):
+def _solve(model, time_limit, workers=1):
     s = cp_model.CpSolver()
     s.parameters.max_time_in_seconds = time_limit
-    s.parameters.num_workers = 1
+    s.parameters.num_workers = workers
     t0 = time.perf_counter()
     status = s.Solve(model)
     return s, status, time.perf_counter() - t0
@@ -25,7 +25,7 @@ def _status(status):
 
 # --- exact, native ------------------------------------------------------------------------------------------------
 
-def exact_haplotype(hap, time_limit=60.0):
+def exact_haplotype(hap, time_limit=60.0, workers=1):
     """max sum W_ij s_i s_j, s_i = 1 - 2 b_i, s_0 = +1; z_ij = b_i xor b_j, s_i s_j = 1 - 2 z_ij."""
     n = len(hap.truth)
     m = cp_model.CpModel()
@@ -37,7 +37,7 @@ def exact_haplotype(hap, time_limit=60.0):
         m.AddBoolXOr([b[i], b[j], z.Not()])
         terms.append(2 * int(w) * z)
     m.Minimize(sum(terms))
-    s, status, t = _solve(m, time_limit)
+    s, status, t = _solve(m, time_limit, workers)
     spins = np.array([1 - 2 * s.Value(x) for x in b]) if status in (cp_model.OPTIMAL, cp_model.FEASIBLE) else None
     return {"status": _status(status), "seconds": t, "spins": spins,
             "energy": hap.energy(spins) if spins is not None else None}
@@ -215,3 +215,51 @@ def parallel_tempering(d, S, c, sweeps, seed, replicas=16, betas=None):
     ladder = np.geomspace(b0, b1, replicas)
     best, x = _pt(d, S, sweeps, ladder, seed)
     return best + c, x
+
+
+# --- exact by dynamic programming over a band (haplotype phasing from reads spanning at most w + 1 sites) ---------
+
+def exact_banded(n, J, h=None):
+    """min E(s) = -sum J_ij s_i s_j - sum h_i s_i when every coupling has |i - j| <= w: a Viterbi pass over the
+    last w spins, O(n 2^w w). Short reads couple only sites within one read, so w is the longest read span - 1;
+    the standard phasing tools exploit the same structure (WhatsHap's dynamic programme is exponential only in the
+    read coverage)."""
+    t0 = time.perf_counter()
+    w = max((j - i for (i, j) in J), default=0)
+    nb = [[] for _ in range(n)]          # couplings of site i to earlier sites, as (offset, weight)
+    for (i, j), v in J.items():
+        nb[j].append((j - i, v))
+    h = h or {}
+    S = 1 << w                            # state: the last w spins, bit k = spin at position i-1-k (1 = -1)
+    cost = np.full(S, np.inf)
+    cost[0] = 0.0 if w else 0.0
+    # positions before 0 do not exist: start from site 0 with every state over "virtual" earlier sites free of
+    # couplings, so all states cost 0 and only real couplings count
+    cost[:] = 0.0
+    back = []
+    for i in range(n):
+        new = np.full(S, np.inf)
+        arg = np.zeros(S, np.int64)
+        for st in range(S):
+            if not np.isfinite(cost[st]):
+                continue
+            for b in (0, 1):
+                si = -1.0 if b else 1.0
+                e = -h.get(i, 0.0) * si
+                for off, v in nb[i]:
+                    sj = -1.0 if (st >> (off - 1)) & 1 else 1.0
+                    e -= v * si * sj
+                ns = ((st << 1) | b) & (S - 1) if w else 0
+                c = cost[st] + e
+                if c < new[ns]:
+                    new[ns], arg[ns] = c, st * 2 + b
+        back.append(arg)
+        cost = new
+    st = int(np.argmin(cost))
+    best = float(cost[st])
+    spins = np.zeros(n, int)
+    for i in range(n - 1, -1, -1):
+        a = back[i][st]
+        spins[i] = -1 if a & 1 else 1
+        st = a >> 1
+    return {"energy": best, "spins": spins, "seconds": time.perf_counter() - t0, "band": w}

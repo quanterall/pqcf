@@ -259,3 +259,18 @@ def dks_qubo(net, k, penalty=None):
 
 def qubo_value(Q, c, x):
     return c + sum(w * x[i] * x[j] for (i, j), w in Q.items())
+
+
+def qubo_to_ising(Q, c):
+    """x = (1 + s)/2: x^T Q x + c = -sum_{i<j} J_ij s_i s_j - sum_i h_i s_i + offset."""
+    J, h, off = {}, {}, c
+    for (i, j), w in Q.items():
+        if i == j:
+            h[i] = h.get(i, 0) - w / 2
+            off += w / 2
+        else:
+            J[(i, j)] = J.get((i, j), 0) - w / 4
+            h[i] = h.get(i, 0) - w / 4
+            h[j] = h.get(j, 0) - w / 4
+            off += w / 4
+    return J, h, off

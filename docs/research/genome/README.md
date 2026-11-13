@@ -42,6 +42,29 @@ roles here are to:
 - run the quantum-inspired classical algorithms that come out of them (GBS-inspired samplers, simulated CIM);
 - prepare problem encodings for photonic hardware (GBS devices, CIMs) when it is available.
 
+## Status after G0–G2 (13 November 2026)
+
+We measured the two photonic routes of this plan on genomic data, each against the best classical methods, with
+every answer checked against a proven optimum. **Neither gives a practical advantage on these problems.**
+
+1. **Gaussian boson sampling (G1).** Simulated exactly by PQCF, it needs 2–21 times fewer samples than the best
+   classical sampler to find dense gene modules, a lead growing with size.
+   - But simulating it costs 800–3,000 times more time than that classical sampler.
+   - An advantage would need a programmable GBS device delivering 17,000–450,000 post-selected samples per second,
+     and none exists.
+2. **Coherent Ising machines (G2).** The CIM-derived solvers lose on every genomic problem we tried:
+   - short-read phasing is solved exactly, in linear time, by dynamic programming;
+   - long-read phasing is won by classical parallel tempering;
+   - assembly is easier in its native form than as a QUBO.
+3. **The data loading and problem translation that the critical review warns about are real.** Assembly as a QUBO
+   turns a 1 ms exact problem into one no solver finishes at 24 reads. And the problems that look hard often have
+   structure that classical exact methods exploit.
+
+**What PQCF contributed:** an exact, cross-checked simulation of the photonic devices (GBS), and a benchmark
+discipline that can be rerun when hardware appears. **What remains open:** G3 (the GBS graph kernel) and G4 (an MPS
+engine). Given G1 and G2, we would only continue them with a genomics partner and a concrete dataset where
+classical methods are known to struggle.
+
 ## The five papers
 
 ### 1. Maurizio & Mazzola, *Quantum computing for genomics: conceptual challenges and practical perspectives* (2025), [arXiv:2507.04111](https://arxiv.org/abs/2507.04111)
@@ -165,8 +188,8 @@ go/no-go question.
 
 - **G0. Data and baselines.** **Done** (12 November 2026): [research/genome](../../../research/genome/README.md),
   results in [RESULTS.md](../../../research/genome/RESULTS.md).
-  - *Haplotype phasing* is native Ising and hard at a few hundred sites (exact 44 s, SA 14 s at 256 sites): the
-    best target for G2.
+  - *Haplotype phasing* looked hard at a few hundred sites (exact 44 s, SA 14 s at 256 sites); G2 corrected this:
+    the 44 s were a single-worker exact solver, and short-read phasing is solved exactly in linear time.
   - *Assembly* is trivial natively (1 ms) but hard as a QUBO (no solver reaches the optimum at 24 reads).
   - *The densest modules* of the DNA-repair network are cliques of hub genes, and SA/PT on the QUBO fail at k = 10.
 
@@ -192,7 +215,17 @@ go/no-go question.
   - Then apply it to gene-network modules.
   - *Go/no-go:* at equal time, does GBS seeding beat both the uniform and the quantum-inspired classical sampler,
     and does the gap grow with N?
-- **G2. Coherent Ising machine for phasing and assembly.**
+- **G2. Coherent Ising machine for phasing and assembly.** **Done** (13 November 2026):
+  [research/genome](../../../research/genome/README.md#g2-coherent-ising-machine-solvers-for-haplotype-phasing-and-assembly),
+  results in [RESULTS_G2.md](../../../research/genome/RESULTS_G2.md). **No advantage on any instance class.**
+  - Short-read phasing is solved exactly in linear time by a banded dynamic programme (0.011 s at 256 sites);
+    G0's "hard" was a single-worker exact solver.
+  - Long-read phasing is won by classical parallel tempering, about 4 times faster than the best CIM-derived
+    solver (AHC) at 512 sites.
+  - The assembly QUBO only makes a 1 ms native problem harder.
+  - AHC is a strong Ising heuristic, ahead of SA and SimCIM; SimCIM, used in the assembly paper, is the weakest.
+
+  What G2 was planned to contain:
   - A mean-field CIM solver at scale, and the exact Gaussian CIM model at small N to validate it.
   - Haplotype phasing from simulated reads against a HapCUT-style method.
   - Paper 2's φX174 and synthetic assembly instances.
