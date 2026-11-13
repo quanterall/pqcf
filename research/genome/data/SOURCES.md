@@ -7,6 +7,7 @@
 | `NC_000913.3.fasta` (not in git: `fetch.sh`) | Escherichia coli K-12 MG1655, complete genome, 4,641,652 bp | NCBI RefSeq [NC_000913.3](https://www.ncbi.nlm.nih.gov/nuccore/NC_000913.3), fetched 13 Nov 2026, SHA-256 in `SHA256SUMS` | public domain (NCBI) |
 | `NC_000021.9.fasta` (not in git: `fetch.sh`) | Homo sapiens chromosome 21, GRCh38.p14, 46,709,983 bp (40,088,619 known bases) | NCBI RefSeq [NC_000021.9](https://www.ncbi.nlm.nih.gov/nuccore/NC_000021.9), fetched 13 Nov 2026, SHA-256 in `SHA256SUMS` | public domain (NCBI) |
 | `string_dna_repair.tsv` | Protein–protein associations among 45 human DNA-repair genes, combined score ≥ 0.7 | [STRING](https://string-db.org) 12.5, API `network`, species 9606, `required_score=700`, fetched 12 Nov 2026 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| `string_ecoli_replication_repair.tsv` | Protein–protein associations among 45 E. coli K-12 DNA replication and repair genes (dnaA … mutY, `example/example.py`), combined score ≥ 0.7 | [STRING](https://string-db.org) 12.5, API `network`, species 511145, `required_score=700`, fetched 13 Nov 2026 | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 
 The 45 genes and the complexes they form (the known modules used as a reference for dense-subgraph searches):
 - MRN complex: MRE11, RAD50, NBN.
