@@ -177,7 +177,16 @@ go/no-go question.
   - **Classical baselines:** an exact solver for small sizes, simulated annealing, parallel tempering, and Oh et
     al.'s quantum-inspired sampler.
   - **Measurement:** a TTS\*(N) harness on the pattern of `comparison/photonic`.
-- **G1. GBS for dense subgraphs and cliques.**
+- **G1. GBS for dense subgraphs and cliques.** **Done** (13 November 2026):
+  [research/genome](../../../research/genome/README.md#g1-gaussian-boson-sampling-for-dense-modules-and-cliques),
+  results in [RESULTS_G1.md](../../../research/genome/RESULTS_G1.md).
+  - Per sample, GBS (simulated exactly by PQCF) needs 2–21 times fewer samples than Oh et al.'s classical
+    sampler to find the densest subgraph, a lead growing with k.
+  - At equal time on a classical computer, Oh et al.'s sampler wins by about 800–3,000 times.
+  - So an advantage exists only for a programmable GBS device (break-even 17,000–450,000 post-selected samples
+    per second). For cliques, all samplers do equally well on these graphs.
+
+  What G1 was planned to contain:
   - Graph → GBS encoding in PQCF, and seeded search.
   - Reproduce Arrazola & Bromley's 30-vertex result, then Oh et al.'s comparison.
   - Then apply it to gene-network modules.

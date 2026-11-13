@@ -1,0 +1,1703 @@
+{
+ "results": [
+  {
+   "graph": "string",
+   "k": 4,
+   "vertices": 45,
+   "edges": 326,
+   "densest": {
+    "edges": 6,
+    "of": 6,
+    "seconds": 0.032712896005250514,
+    "module": [
+     "ATM",
+     "XRCC6",
+     "PRKDC",
+     "NHEJ1"
+    ]
+   },
+   "max_clique": 11,
+   "sampling_point": {
+    "mean_photons": 0.3711118203844295,
+    "cap": 10,
+    "p_k": 0.018220510442553267,
+    "mass_above_cap": 8.899185117927644e-06
+   },
+   "cost": {
+    "pqcf_gbs": {
+     "shots": 800000,
+     "kept": 2000,
+     "cpu_seconds_per_sample": 0.007429569
+    },
+    "oh": {
+     "draws": 4096,
+     "seconds_per_sample": 1.188680005725473e-06
+    },
+    "uniform": {
+     "seconds_per_sample": 3.1442639883607627e-06
+    }
+   },
+   "gbs": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.7333333333333334,
+    "dks_mean_best_edges": [
+     4.1,
+     5.0,
+     5.8,
+     5.9,
+     6.0,
+     6.0,
+     6.0,
+     6.0
+    ],
+    "dks_p_optimum": [
+     0.3,
+     0.5,
+     0.8,
+     0.9,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "clique_p_maximum": [
+     0.1,
+     0.1,
+     0.3,
+     0.5,
+     0.9,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "oh": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.6464166666666666,
+    "dks_mean_best_edges": [
+     4.1,
+     4.8,
+     5.3,
+     5.8,
+     5.9,
+     6.0,
+     6.0,
+     6.0
+    ],
+    "dks_p_optimum": [
+     0.1,
+     0.3,
+     0.4,
+     0.8,
+     0.9,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "clique_p_maximum": [
+     0.0,
+     0.0,
+     0.3,
+     0.7,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "uniform": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.32916666666666666,
+    "dks_mean_best_edges": [
+     1.4,
+     2.0,
+     3.4,
+     4.3,
+     5.1,
+     5.4,
+     5.6,
+     5.9
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.1,
+     0.3,
+     0.5,
+     0.6,
+     0.9
+    ],
+    "clique_p_maximum": [
+     0.3,
+     0.4,
+     0.8,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "equal_cost": {
+    "oh": {
+     "runs": 20,
+     "reached": 20,
+     "median_samples": 5.0,
+     "seconds_per_sample": 1.1988448037300258e-06,
+     "median_seconds": 5.994224018650129e-06
+    },
+    "uniform": {
+     "runs": 20,
+     "reached": 20,
+     "median_samples": 62.5,
+     "seconds_per_sample": 3.2116424001287667e-06,
+     "median_seconds": 0.00020072765000804792
+    },
+    "gbs": {
+     "samples_for_50pct": 2,
+     "cpu_seconds_per_sample": 0.007429569,
+     "cpu_seconds_for_50pct": 0.014859138
+    }
+   }
+  },
+  {
+   "graph": "string",
+   "k": 6,
+   "vertices": 45,
+   "edges": 326,
+   "densest": {
+    "edges": 15,
+    "of": 15,
+    "seconds": 0.06119667203165591,
+    "module": [
+     "RAD51",
+     "RAD50",
+     "TP53",
+     "CHEK2",
+     "ATR",
+     "XRCC6"
+    ]
+   },
+   "max_clique": 11,
+   "sampling_point": {
+    "mean_photons": 0.5001021957400598,
+    "cap": 12,
+    "p_k": 0.004994185384542164,
+    "mass_above_cap": 8.589062585717677e-06
+   },
+   "cost": {
+    "pqcf_gbs": {
+     "shots": 800000,
+     "kept": 2000,
+     "cpu_seconds_per_sample": 0.015908639500000002
+    },
+    "oh": {
+     "draws": 4096,
+     "seconds_per_sample": 1.637799956370145e-06
+    },
+    "uniform": {
+     "seconds_per_sample": 3.209399990737438e-06
+    }
+   },
+   "gbs": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.6910666666666667,
+    "dks_mean_best_edges": [
+     10.4,
+     11.1,
+     13.4,
+     14.0,
+     14.4,
+     14.8,
+     15.0,
+     15.0
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.2,
+     0.3,
+     0.5,
+     0.8,
+     1.0,
+     1.0
+    ],
+    "clique_p_maximum": [
+     0.0,
+     0.1,
+     0.3,
+     0.6,
+     0.8,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "oh": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.5623666666666667,
+    "dks_mean_best_edges": [
+     8.1,
+     9.1,
+     10.9,
+     12.6,
+     13.0,
+     13.9,
+     14.4,
+     14.7
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.1,
+     0.1,
+     0.1,
+     0.4,
+     0.7
+    ],
+    "clique_p_maximum": [
+     0.1,
+     0.1,
+     0.5,
+     0.9,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "uniform": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.3345,
+    "dks_mean_best_edges": [
+     4.7,
+     5.9,
+     7.2,
+     8.0,
+     9.4,
+     10.5,
+     12.5,
+     12.8
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.2,
+     0.2
+    ],
+    "clique_p_maximum": [
+     0.1,
+     0.3,
+     0.5,
+     0.6,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "equal_cost": {
+    "oh": {
+     "runs": 20,
+     "reached": 20,
+     "median_samples": 80.5,
+     "seconds_per_sample": 1.5955104026943445e-06,
+     "median_seconds": 0.00012843858741689473
+    },
+    "uniform": {
+     "runs": 20,
+     "reached": 20,
+     "median_samples": 2457.5,
+     "seconds_per_sample": 3.313289600191638e-06,
+     "median_seconds": 0.00814240919247095
+    },
+    "gbs": {
+     "samples_for_50pct": 20,
+     "cpu_seconds_per_sample": 0.015908639500000002,
+     "cpu_seconds_for_50pct": 0.31817279000000004
+    }
+   }
+  },
+  {
+   "graph": "string",
+   "k": 8,
+   "vertices": 45,
+   "edges": 326,
+   "densest": {
+    "edges": 28,
+    "of": 28,
+    "seconds": 1.251455600024201,
+    "module": [
+     "BRCA1",
+     "BRCA2",
+     "ATM",
+     "CHEK2",
+     "XRCC6",
+     "H2AX",
+     "MDC1",
+     "PRKDC"
+    ]
+   },
+   "max_clique": 11,
+   "sampling_point": {
+    "mean_photons": 0.6218095528541427,
+    "cap": 14,
+    "p_k": 0.0018019576026750616,
+    "mass_above_cap": 7.577408133396801e-06
+   },
+   "cost": {
+    "pqcf_gbs": {
+     "shots": 3200000,
+     "kept": 2000,
+     "cpu_seconds_per_sample": 0.152471272
+    },
+    "oh": {
+     "draws": 4096,
+     "seconds_per_sample": 2.205816039349884e-06
+    },
+    "uniform": {
+     "seconds_per_sample": 3.2172880019061267e-06
+    }
+   },
+   "gbs": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.6671428571428571,
+    "dks_mean_best_edges": [
+     18.3,
+     20.8,
+     23.9,
+     24.0,
+     25.5,
+     26.7,
+     27.0,
+     27.2
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.1,
+     0.2,
+     0.2,
+     0.4
+    ],
+    "clique_p_maximum": [
+     0.0,
+     0.2,
+     0.7,
+     0.9,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "oh": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.5177857142857142,
+    "dks_mean_best_edges": [
+     14.1,
+     17.7,
+     20.1,
+     23.2,
+     23.6,
+     24.6,
+     25.1,
+     25.9
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.1
+    ],
+    "clique_p_maximum": [
+     0.1,
+     0.2,
+     0.6,
+     0.7,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "uniform": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.329875,
+    "dks_mean_best_edges": [
+     7.0,
+     11.2,
+     13.0,
+     14.3,
+     15.8,
+     18.4,
+     19.4,
+     20.9
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "clique_p_maximum": [
+     0.1,
+     0.3,
+     0.7,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "equal_cost": {
+    "oh": {
+     "runs": 20,
+     "reached": 20,
+     "median_samples": 1759.5,
+     "seconds_per_sample": 2.3264600022230298e-06,
+     "median_seconds": 0.004093406373911421
+    },
+    "uniform": {
+     "runs": 20,
+     "reached": 20,
+     "median_samples": 321208.5,
+     "seconds_per_sample": 3.4013087977655234e-06,
+     "median_seconds": 1.092529296967067
+    },
+    "gbs": {
+     "samples_for_50pct": null,
+     "cpu_seconds_per_sample": 0.152471272,
+     "cpu_seconds_for_50pct": null
+    }
+   }
+  },
+  {
+   "graph": "string",
+   "k": 10,
+   "vertices": 45,
+   "edges": 326,
+   "densest": {
+    "edges": 45,
+    "of": 45,
+    "seconds": 5.703166848048568,
+    "module": [
+     "BRCA1",
+     "RAD51",
+     "MRE11",
+     "RAD50",
+     "ATM",
+     "NBN",
+     "MSH6",
+     "ATR",
+     "H2AX",
+     "BARD1"
+    ]
+   },
+   "max_clique": 11,
+   "sampling_point": {
+    "mean_photons": 0.7581178513971015,
+    "cap": 16,
+    "p_k": 0.0008688657196503099,
+    "mass_above_cap": 7.879886947947945e-06
+   },
+   "cost": {
+    "pqcf_gbs": {
+     "shots": 13100000,
+     "kept": 2000,
+     "cpu_seconds_per_sample": 2.093576781
+    },
+    "oh": {
+     "draws": 8192,
+     "seconds_per_sample": 3.938224050216377e-06
+    },
+    "uniform": {
+     "seconds_per_sample": 3.3001999836415053e-06
+    }
+   },
+   "gbs": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.6451666666666667,
+    "dks_mean_best_edges": [
+     29.4,
+     32.1,
+     34.7,
+     37.8,
+     39.7,
+     40.5,
+     41.5,
+     42.2
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "clique_p_maximum": [
+     0.0,
+     0.1,
+     0.2,
+     0.4,
+     0.7,
+     0.9,
+     1.0,
+     1.0
+    ]
+   },
+   "oh": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.4984222222222222,
+    "dks_mean_best_edges": [
+     20.5,
+     25.5,
+     29.9,
+     33.2,
+     34.1,
+     35.8,
+     36.4,
+     39.0
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "clique_p_maximum": [
+     0.0,
+     0.0,
+     0.5,
+     0.7,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "uniform": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.32755555555555554,
+    "dks_mean_best_edges": [
+     13.2,
+     16.9,
+     19.2,
+     20.8,
+     24.6,
+     26.9,
+     28.7,
+     30.0
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "clique_p_maximum": [
+     0.1,
+     0.1,
+     0.4,
+     0.9,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "equal_cost": {
+    "oh": {
+     "runs": 20,
+     "reached": 20,
+     "median_samples": 359189.0,
+     "seconds_per_sample": 3.7233167968224736e-06,
+     "median_seconds": 1.3373744369338674
+    },
+    "uniform": {
+     "runs": 20,
+     "reached": 0,
+     "median_samples": null,
+     "seconds_per_sample": 3.535301599185914e-06,
+     "median_seconds": null
+    },
+    "gbs": {
+     "samples_for_50pct": null,
+     "cpu_seconds_per_sample": 2.093576781,
+     "cpu_seconds_for_50pct": null
+    }
+   }
+  },
+  {
+   "graph": "planted",
+   "k": 4,
+   "vertices": 30,
+   "edges": 118,
+   "densest": {
+    "edges": 6,
+    "of": 6,
+    "seconds": 0.014666431932710111,
+    "module": [
+     "v10",
+     "v22",
+     "v24",
+     "v28"
+    ]
+   },
+   "max_clique": 9,
+   "sampling_point": {
+    "mean_photons": 0.4593194865811055,
+    "cap": 10,
+    "p_k": 0.024449132172188907,
+    "mass_above_cap": 8.127497843846143e-06
+   },
+   "cost": {
+    "pqcf_gbs": {
+     "shots": 800000,
+     "kept": 2000,
+     "cpu_seconds_per_sample": 0.0046163995
+    },
+    "oh": {
+     "draws": 4096,
+     "seconds_per_sample": 1.2094559497199952e-06
+    },
+    "uniform": {
+     "seconds_per_sample": 3.120256005786359e-06
+    }
+   },
+   "gbs": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.6020833333333333,
+    "dks_mean_best_edges": [
+     2.7,
+     4.1,
+     5.5,
+     5.8,
+     6.0,
+     6.0,
+     6.0,
+     6.0
+    ],
+    "dks_p_optimum": [
+     0.1,
+     0.3,
+     0.8,
+     0.9,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "clique_p_maximum": [
+     0.1,
+     0.4,
+     0.9,
+     0.9,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "oh": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.5125833333333333,
+    "dks_mean_best_edges": [
+     3.1,
+     4.0,
+     4.5,
+     5.3,
+     5.9,
+     6.0,
+     6.0,
+     6.0
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.2,
+     0.3,
+     0.4,
+     0.9,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "clique_p_maximum": [
+     0.5,
+     0.8,
+     0.9,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "uniform": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.2691666666666666,
+    "dks_mean_best_edges": [
+     1.4,
+     1.7,
+     2.1,
+     3.0,
+     3.9,
+     4.8,
+     5.3,
+     5.7
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.1,
+     0.2,
+     0.4,
+     0.6,
+     0.8
+    ],
+    "clique_p_maximum": [
+     0.2,
+     0.6,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "equal_cost": {
+    "oh": {
+     "runs": 20,
+     "reached": 20,
+     "median_samples": 9.5,
+     "seconds_per_sample": 1.1688767990563065e-06,
+     "median_seconds": 1.1104329591034912e-05
+    },
+    "uniform": {
+     "runs": 20,
+     "reached": 20,
+     "median_samples": 64.0,
+     "seconds_per_sample": 3.220225597033277e-06,
+     "median_seconds": 0.00020609443821012973
+    },
+    "gbs": {
+     "samples_for_50pct": 5,
+     "cpu_seconds_per_sample": 0.0046163995,
+     "cpu_seconds_for_50pct": 0.0230819975
+    }
+   }
+  },
+  {
+   "graph": "planted",
+   "k": 6,
+   "vertices": 30,
+   "edges": 118,
+   "densest": {
+    "edges": 15,
+    "of": 15,
+    "seconds": 0.17548881599213928,
+    "module": [
+     "v2",
+     "v5",
+     "v7",
+     "v18",
+     "v20",
+     "v21"
+    ]
+   },
+   "max_clique": 9,
+   "sampling_point": {
+    "mean_photons": 0.6296042298388466,
+    "cap": 12,
+    "p_k": 0.006916293194387604,
+    "mass_above_cap": 7.7770277181477e-06
+   },
+   "cost": {
+    "pqcf_gbs": {
+     "shots": 800000,
+     "kept": 2000,
+     "cpu_seconds_per_sample": 0.011053426000000002
+    },
+    "oh": {
+     "draws": 4096,
+     "seconds_per_sample": 1.7774320440366864e-06
+    },
+    "uniform": {
+     "seconds_per_sample": 3.203335974831134e-06
+    }
+   },
+   "gbs": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.5117999999999999,
+    "dks_mean_best_edges": [
+     7.0,
+     9.1,
+     11.0,
+     13.4,
+     14.8,
+     15.0,
+     15.0,
+     15.0
+    ],
+    "dks_p_optimum": [
+     0.1,
+     0.2,
+     0.4,
+     0.6,
+     0.8,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "clique_p_maximum": [
+     0.5,
+     0.8,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "oh": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.4069,
+    "dks_mean_best_edges": [
+     5.5,
+     7.5,
+     8.2,
+     9.0,
+     9.5,
+     11.9,
+     13.6,
+     14.6
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.2,
+     0.4,
+     0.8
+    ],
+    "clique_p_maximum": [
+     0.4,
+     0.5,
+     0.7,
+     0.8,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "uniform": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.2704,
+    "dks_mean_best_edges": [
+     4.1,
+     4.8,
+     5.6,
+     7.6,
+     8.3,
+     8.6,
+     9.6,
+     10.6
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.1
+    ],
+    "clique_p_maximum": [
+     0.3,
+     0.4,
+     0.8,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "equal_cost": {
+    "oh": {
+     "runs": 20,
+     "reached": 20,
+     "median_samples": 78.0,
+     "seconds_per_sample": 1.7323423991911113e-06,
+     "median_seconds": 0.00013512270713690667
+    },
+    "uniform": {
+     "runs": 20,
+     "reached": 20,
+     "median_samples": 3289.5,
+     "seconds_per_sample": 3.3249959989916533e-06,
+     "median_seconds": 0.010937574338683044
+    },
+    "gbs": {
+     "samples_for_50pct": 10,
+     "cpu_seconds_per_sample": 0.011053426000000002,
+     "cpu_seconds_for_50pct": 0.11053426000000002
+    }
+   }
+  },
+  {
+   "graph": "planted",
+   "k": 8,
+   "vertices": 30,
+   "edges": 118,
+   "densest": {
+    "edges": 28,
+    "of": 28,
+    "seconds": 1.52361784002278,
+    "module": [
+     "v2",
+     "v5",
+     "v7",
+     "v8",
+     "v16",
+     "v18",
+     "v20",
+     "v21"
+    ]
+   },
+   "max_clique": 9,
+   "sampling_point": {
+    "mean_photons": 0.8317014770439405,
+    "cap": 14,
+    "p_k": 0.002831469230327004,
+    "mass_above_cap": 9.432230630435079e-06
+   },
+   "cost": {
+    "pqcf_gbs": {
+     "shots": 3400000,
+     "kept": 2000,
+     "cpu_seconds_per_sample": 0.17263763949999997
+    },
+    "oh": {
+     "draws": 8192,
+     "seconds_per_sample": 2.8941439813934266e-06
+    },
+    "uniform": {
+     "seconds_per_sample": 3.289327956736088e-06
+    }
+   },
+   "gbs": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.46641071428571423,
+    "dks_mean_best_edges": [
+     12.0,
+     13.2,
+     16.4,
+     19.9,
+     21.9,
+     27.1,
+     27.4,
+     27.9
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.1,
+     0.2,
+     0.6,
+     0.9,
+     0.9
+    ],
+    "clique_p_maximum": [
+     0.6,
+     0.9,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "oh": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.3685535714285714,
+    "dks_mean_best_edges": [
+     9.7,
+     12.0,
+     14.9,
+     15.6,
+     16.5,
+     18.6,
+     19.6,
+     21.0
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "clique_p_maximum": [
+     0.6,
+     0.6,
+     0.9,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "uniform": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.27458928571428565,
+    "dks_mean_best_edges": [
+     7.9,
+     9.2,
+     11.0,
+     11.9,
+     12.6,
+     14.3,
+     14.6,
+     15.8
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "clique_p_maximum": [
+     0.4,
+     0.7,
+     0.9,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "equal_cost": {
+    "oh": {
+     "runs": 20,
+     "reached": 20,
+     "median_samples": 1039.5,
+     "seconds_per_sample": 2.7437384007498622e-06,
+     "median_seconds": 0.002852116067579482
+    },
+    "uniform": {
+     "runs": 20,
+     "reached": 20,
+     "median_samples": 221086.0,
+     "seconds_per_sample": 3.4344599989708512e-06,
+     "median_seconds": 0.7593110233324696
+    },
+    "gbs": {
+     "samples_for_50pct": 50,
+     "cpu_seconds_per_sample": 0.17263763949999997,
+     "cpu_seconds_for_50pct": 8.631881974999999
+    }
+   }
+  },
+  {
+   "graph": "planted",
+   "k": 10,
+   "vertices": 30,
+   "edges": 118,
+   "densest": {
+    "edges": 44,
+    "of": 45,
+    "seconds": 25.329368128092028,
+    "module": [
+     "v2",
+     "v3",
+     "v5",
+     "v7",
+     "v8",
+     "v13",
+     "v16",
+     "v18",
+     "v20",
+     "v21"
+    ]
+   },
+   "max_clique": 9,
+   "sampling_point": {
+    "mean_photons": 0.9751400075695759,
+    "cap": 16,
+    "p_k": 0.0011350702353634954,
+    "mass_above_cap": 7.130961832468863e-06
+   },
+   "cost": {
+    "pqcf_gbs": {
+     "shots": 21000000,
+     "kept": 2000,
+     "cpu_seconds_per_sample": 2.928946764
+    },
+    "oh": {
+     "draws": 12288,
+     "seconds_per_sample": 5.433751968666911e-06
+    },
+    "uniform": {
+     "seconds_per_sample": 3.3526080078445374e-06
+    }
+   },
+   "gbs": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.416,
+    "dks_mean_best_edges": [
+     19.8,
+     21.7,
+     23.9,
+     25.4,
+     28.8,
+     32.7,
+     35.9,
+     36.3
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.1,
+     0.1,
+     0.3,
+     0.3
+    ],
+    "clique_p_maximum": [
+     0.7,
+     0.7,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "oh": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.343,
+    "dks_mean_best_edges": [
+     17.3,
+     19.5,
+     19.7,
+     21.3,
+     24.1,
+     26.0,
+     27.3,
+     29.5
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "clique_p_maximum": [
+     0.7,
+     0.9,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "uniform": {
+    "blocks": 10,
+    "checkpoints": [
+     1,
+     2,
+     5,
+     10,
+     20,
+     50,
+     100,
+     200
+    ],
+    "mean_density_per_sample": 0.27212222222222227,
+    "dks_mean_best_edges": [
+     11.6,
+     15.0,
+     15.9,
+     16.8,
+     17.5,
+     18.8,
+     20.1,
+     20.8
+    ],
+    "dks_p_optimum": [
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    "clique_p_maximum": [
+     0.7,
+     0.9,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ]
+   },
+   "planted_found": {
+    "gbs": 0.002,
+    "oh": 0.0,
+    "uniform": 0.0
+   },
+   "equal_cost": {
+    "oh": {
+     "runs": 20,
+     "reached": 20,
+     "median_samples": 20253.5,
+     "seconds_per_sample": 5.29063839931041e-06,
+     "median_seconds": 0.10715394482043339
+    },
+    "uniform": {
+     "runs": 20,
+     "reached": 0,
+     "median_samples": null,
+     "seconds_per_sample": 3.5428464005235582e-06,
+     "median_seconds": null
+    },
+    "gbs": {
+     "samples_for_50pct": null,
+     "cpu_seconds_per_sample": 2.928946764,
+     "cpu_seconds_for_50pct": null
+    }
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "PQCF's GBS on a 10-vertex graph, k = 4: samples follow |haf(A_S)|^2",
+   "ok": true,
+   "detail": "chi-square p = 0.401, 143 degrees of freedom, 2000 samples"
+  },
+  {
+   "what": "Oh et al.'s sampler on a 10-vertex graph, k = 4: samples follow haf(A_S)",
+   "ok": true,
+   "detail": "chi-square p = 0.554, 143 degrees of freedom"
+  },
+  {
+   "what": "PQCF's GBS on a 10-vertex graph, k = 6: samples follow |haf(A_S)|^2",
+   "ok": true,
+   "detail": "chi-square p = 0.736, 138 degrees of freedom, 2000 samples"
+  },
+  {
+   "what": "Oh et al.'s sampler on a 10-vertex graph, k = 6: samples follow haf(A_S)",
+   "ok": true,
+   "detail": "chi-square p = 0.127, 186 degrees of freedom"
+  },
+  {
+   "what": "string, k = 4: the densest 4-subgraph is proven",
+   "ok": true,
+   "detail": "optimal"
+  },
+  {
+   "what": "string, k = 4: PQCF's truncated probability is negligible",
+   "ok": true,
+   "detail": "largest per chunk 6.0e-05"
+  },
+  {
+   "what": "string, k = 4: enough GBS samples",
+   "ok": true,
+   "detail": "2000 of 2000"
+  },
+  {
+   "what": "string, k = 6: the densest 6-subgraph is proven",
+   "ok": true,
+   "detail": "optimal"
+  },
+  {
+   "what": "string, k = 6: PQCF's truncated probability is negligible",
+   "ok": true,
+   "detail": "largest per chunk 5.0e-05"
+  },
+  {
+   "what": "string, k = 6: enough GBS samples",
+   "ok": true,
+   "detail": "2000 of 2000"
+  },
+  {
+   "what": "string, k = 8: the densest 8-subgraph is proven",
+   "ok": true,
+   "detail": "optimal"
+  },
+  {
+   "what": "string, k = 8: PQCF's truncated probability is negligible",
+   "ok": true,
+   "detail": "largest per chunk 4.0e-05"
+  },
+  {
+   "what": "string, k = 8: enough GBS samples",
+   "ok": true,
+   "detail": "2000 of 2000"
+  },
+  {
+   "what": "string, k = 10: the densest 10-subgraph is proven",
+   "ok": true,
+   "detail": "optimal"
+  },
+  {
+   "what": "string, k = 10: PQCF's truncated probability is negligible",
+   "ok": true,
+   "detail": "largest per chunk 9.0e-05"
+  },
+  {
+   "what": "string, k = 10: enough GBS samples",
+   "ok": true,
+   "detail": "2000 of 2000"
+  },
+  {
+   "what": "planted, k = 4: the densest 4-subgraph is proven",
+   "ok": true,
+   "detail": "optimal"
+  },
+  {
+   "what": "planted, k = 4: PQCF's truncated probability is negligible",
+   "ok": true,
+   "detail": "largest per chunk 4.0e-05"
+  },
+  {
+   "what": "planted, k = 4: enough GBS samples",
+   "ok": true,
+   "detail": "2000 of 2000"
+  },
+  {
+   "what": "planted, k = 6: the densest 6-subgraph is proven",
+   "ok": true,
+   "detail": "optimal"
+  },
+  {
+   "what": "planted, k = 6: PQCF's truncated probability is negligible",
+   "ok": true,
+   "detail": "largest per chunk 3.0e-05"
+  },
+  {
+   "what": "planted, k = 6: enough GBS samples",
+   "ok": true,
+   "detail": "2000 of 2000"
+  },
+  {
+   "what": "planted, k = 8: the densest 8-subgraph is proven",
+   "ok": true,
+   "detail": "optimal"
+  },
+  {
+   "what": "planted, k = 8: PQCF's truncated probability is negligible",
+   "ok": true,
+   "detail": "largest per chunk 6.0e-05"
+  },
+  {
+   "what": "planted, k = 8: enough GBS samples",
+   "ok": true,
+   "detail": "2000 of 2000"
+  },
+  {
+   "what": "planted, k = 10: the densest 10-subgraph is proven",
+   "ok": true,
+   "detail": "optimal"
+  },
+  {
+   "what": "planted, k = 10: PQCF's truncated probability is negligible",
+   "ok": true,
+   "detail": "largest per chunk 7.0e-05"
+  },
+  {
+   "what": "planted, k = 10: enough GBS samples",
+   "ok": true,
+   "detail": "2000 of 2000"
+  }
+ ]
+}
