@@ -63,6 +63,11 @@ every answer checked against a proven optimum. **Neither gives a practical advan
 **What PQCF contributed:** an exact, cross-checked simulation of the photonic devices (GBS), and a benchmark
 discipline that can be rerun when hardware appears.
 
+**A worked example on public genomes** runs the methods end to end: [research/genome/example](../../../research/genome/example/README.md).
+- SARS-CoV-2 and an E. coli region are assembled exactly in under 0.2 s.
+- A region of human chromosome 21 is phased exactly from long reads in 0.17 s.
+- The DNA replication and repair modules of E. coli are found with PQCF's simulated GBS.
+
 **G3 and G4 confirm it:**
 - the GBS graph kernel is classically computable at the sizes that matter, and loses to plain word counts;
 - real genomes, from a virus to a human chromosome, do not compress as quantum states at all.

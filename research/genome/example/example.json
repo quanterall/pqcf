@@ -1,0 +1,773 @@
+{
+ "assembly": [
+  {
+   "genome": "SARS-CoV-2 (NC_045512.2), whole genome",
+   "bases": 29903,
+   "reads": 599,
+   "read_length": 300,
+   "coverage": 6,
+   "overlap_edges": 2862,
+   "overlap_seconds": 0.013975152047351003,
+   "layout_status": "optimal",
+   "layout_seconds": 0.04772723198402673,
+   "layout_is_true_order": true,
+   "assembled_bases": 29903,
+   "assembly_equals_reference": true,
+   "qubo_positions_variables": 358801,
+   "qubo_edges_variables": 2862
+  },
+  {
+   "genome": "E. coli K-12 (NC_000913.3), 340,001-390,000 (the lac operon region)",
+   "bases": 50000,
+   "reads": 1000,
+   "read_length": 300,
+   "coverage": 6,
+   "overlap_edges": 4777,
+   "overlap_seconds": 0.022513567935675383,
+   "layout_status": "optimal",
+   "layout_seconds": 0.12445585592649877,
+   "layout_is_true_order": true,
+   "assembled_bases": 50000,
+   "assembly_equals_reference": true,
+   "qubo_positions_variables": 1000000,
+   "qubo_edges_variables": 4777
+  }
+ ],
+ "phasing": {
+  "region": "chr21:30,000,001-31,000,000 (GRCh38)",
+  "heterozygous_sites": 648,
+  "short_reads": {
+   "kind": "paired 2 x 150 bp, insert 500 bp, coverage 30, 0.1% errors",
+   "fragments_linking_sites": 1715,
+   "blocks": 110,
+   "largest": 6,
+   "sites_phased": 268
+  },
+  "long_reads": {
+   "kind": "15 kb, coverage 10, 1% errors",
+   "fragments_linking_sites": 666,
+   "blocks": 1,
+   "largest": 644,
+   "sites_phased": 644,
+   "exact": {
+    "status": "optimal",
+    "seconds": 0.1653964159777388,
+    "switch_errors": 0,
+    "mec": 63,
+    "band": 19
+   },
+   "pt": {
+    "params": {
+     "replicas": 8,
+     "b1": 4.0
+    },
+    "tts_star": Infinity,
+    "at_length": 10
+   },
+   "ahc": {
+    "params": {
+     "p": 0.0,
+     "eps": 0.3,
+     "beta": 0.4
+    },
+    "tts_star": Infinity,
+    "at_length": 100
+   }
+  }
+ },
+ "encoding": {
+  "source": "g4-dgx-spark-2026-11-13T1129Z.json",
+  "SARS-CoV-2": {
+   "sequence": "SARS-CoV-2",
+   "bases": 29903,
+   "qubits": 17,
+   "amplitudes": 131072,
+   "full": [
+    {
+     "eps": 0.01,
+     "max_bond": 231,
+     "bonds": [
+      2,
+      4,
+      8,
+      15,
+      30,
+      59,
+      117,
+      231,
+      192,
+      97,
+      49,
+      25,
+      13,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 0.0010335243727017662,
+     "parameters": 211440,
+     "seconds": 0.045730559970252216
+    },
+    {
+     "eps": 0.0001,
+     "max_bond": 234,
+     "bonds": [
+      2,
+      4,
+      8,
+      15,
+      30,
+      59,
+      117,
+      234,
+      194,
+      98,
+      50,
+      26,
+      14,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 4.179402720128067e-06,
+     "parameters": 215542,
+     "seconds": 0.04384256002958864
+    },
+    {
+     "eps": 1e-06,
+     "max_bond": 234,
+     "bonds": [
+      2,
+      4,
+      8,
+      15,
+      30,
+      59,
+      117,
+      234,
+      194,
+      98,
+      50,
+      26,
+      14,
+      8,
+      4,
+      2
+     ],
+     "infidelity": 0.0,
+     "parameters": 215578,
+     "seconds": 0.043384000076912344
+    }
+   ]
+  },
+  "SARS-CoV-2 random": {
+   "sequence": "random, 29903 bases",
+   "bases": 29903,
+   "qubits": 17,
+   "amplitudes": 131072,
+   "full": [
+    {
+     "eps": 0.01,
+     "max_bond": 231,
+     "bonds": [
+      2,
+      4,
+      8,
+      15,
+      30,
+      59,
+      117,
+      231,
+      192,
+      97,
+      49,
+      25,
+      13,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 0.0011326367315138697,
+     "parameters": 211440,
+     "seconds": 0.04371806397102773
+    },
+    {
+     "eps": 0.0001,
+     "max_bond": 234,
+     "bonds": [
+      2,
+      4,
+      8,
+      15,
+      30,
+      59,
+      117,
+      234,
+      194,
+      98,
+      50,
+      26,
+      14,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 4.179275884141909e-06,
+     "parameters": 215542,
+     "seconds": 0.045029280008748174
+    },
+    {
+     "eps": 1e-06,
+     "max_bond": 234,
+     "bonds": [
+      2,
+      4,
+      8,
+      15,
+      30,
+      59,
+      117,
+      234,
+      194,
+      98,
+      50,
+      26,
+      14,
+      8,
+      4,
+      2
+     ],
+     "infidelity": 9.103828801926284e-15,
+     "parameters": 215578,
+     "seconds": 0.045354287954978645
+    }
+   ]
+  },
+  "E. coli": {
+   "sequence": "E. coli K-12",
+   "bases": 4641652,
+   "qubits": 25,
+   "cut_after_qubits": 12,
+   "max_possible": 4096,
+   "seconds": 3.2618569439509884,
+   "entropy_bits": 8.9442045047116,
+   "max_entropy_bits": 12,
+   "rank": 2267,
+   "needed": {
+    "0.01": 2118,
+    "0.0001": 2265,
+    "1e-06": 2267
+   }
+  },
+  "human chr21": {
+   "sequence": "human chromosome 21 (N removed)",
+   "bases": 40088619,
+   "qubits": 28,
+   "cut_after_qubits": 14,
+   "max_possible": 16384,
+   "seconds": 197.0462684960803,
+   "entropy_bits": 10.16754869495377,
+   "max_entropy_bits": 14,
+   "rank": 9788,
+   "needed": {
+    "0.01": 7957,
+    "0.0001": 9695,
+    "1e-06": 9787
+   }
+  }
+ },
+ "modules": {
+  "genes": 45,
+  "links": 244,
+  "rows": [
+   {
+    "k": 4,
+    "densest": {
+     "edges": 6,
+     "of": 6,
+     "status": "optimal",
+     "module": [
+      "recA",
+      "polA",
+      "dnaE",
+      "dnaB"
+     ]
+    },
+    "gbs_samples": 2000,
+    "pqcf_cpu_seconds_per_sample": 0.006227491999999999,
+    "max_truncated": 0.0,
+    "max_clique": 13,
+    "gbs": {
+     "blocks": 10,
+     "checkpoints": [
+      1,
+      2,
+      5,
+      10,
+      20,
+      50,
+      100,
+      200
+     ],
+     "mean_density_per_sample": 0.689,
+     "dks_mean_best_edges": [
+      4.8,
+      5.1,
+      5.9,
+      6.0,
+      6.0,
+      6.0,
+      6.0,
+      6.0
+     ],
+     "dks_p_optimum": [
+      0.4,
+      0.6,
+      0.9,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     "clique_p_maximum": [
+      0.3,
+      0.7,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ]
+    },
+    "oh": {
+     "blocks": 10,
+     "checkpoints": [
+      1,
+      2,
+      5,
+      10,
+      20,
+      50,
+      100,
+      200
+     ],
+     "mean_density_per_sample": 0.5931666666666667,
+     "dks_mean_best_edges": [
+      3.8,
+      4.3,
+      5.0,
+      5.7,
+      6.0,
+      6.0,
+      6.0,
+      6.0
+     ],
+     "dks_p_optimum": [
+      0.2,
+      0.3,
+      0.4,
+      0.7,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ],
+     "clique_p_maximum": [
+      0.3,
+      0.4,
+      0.5,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ]
+    },
+    "uniform": {
+     "blocks": 10,
+     "checkpoints": [
+      1,
+      2,
+      5,
+      10,
+      20,
+      50,
+      100,
+      200
+     ],
+     "mean_density_per_sample": 0.2520833333333333,
+     "dks_mean_best_edges": [
+      2.5,
+      3.1,
+      3.6,
+      4.0,
+      4.8,
+      5.2,
+      5.7,
+      6.0
+     ],
+     "dks_p_optimum": [
+      0.1,
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.4,
+      0.7,
+      1.0
+     ],
+     "clique_p_maximum": [
+      0.1,
+      0.2,
+      0.8,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   },
+   {
+    "k": 6,
+    "densest": {
+     "edges": 15,
+     "of": 15,
+     "status": "optimal",
+     "module": [
+      "dnaN",
+      "dnaE",
+      "dnaC",
+      "dnaA",
+      "dnaG",
+      "dnaX"
+     ]
+    },
+    "gbs_samples": 2000,
+    "pqcf_cpu_seconds_per_sample": 0.0211585505,
+    "max_truncated": 2e-05,
+    "max_clique": 13,
+    "gbs": {
+     "blocks": 10,
+     "checkpoints": [
+      1,
+      2,
+      5,
+      10,
+      20,
+      50,
+      100,
+      200
+     ],
+     "mean_density_per_sample": 0.6303,
+     "dks_mean_best_edges": [
+      9.2,
+      11.5,
+      13.5,
+      14.2,
+      14.8,
+      15.0,
+      15.0,
+      15.0
+     ],
+     "dks_p_optimum": [
+      0.0,
+      0.1,
+      0.4,
+      0.7,
+      0.9,
+      1.0,
+      1.0,
+      1.0
+     ],
+     "clique_p_maximum": [
+      0.4,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ]
+    },
+    "oh": {
+     "blocks": 10,
+     "checkpoints": [
+      1,
+      2,
+      5,
+      10,
+      20,
+      50,
+      100,
+      200
+     ],
+     "mean_density_per_sample": 0.5064666666666667,
+     "dks_mean_best_edges": [
+      6.0,
+      8.6,
+      10.2,
+      12.6,
+      13.7,
+      14.0,
+      14.8,
+      15.0
+     ],
+     "dks_p_optimum": [
+      0.0,
+      0.0,
+      0.2,
+      0.3,
+      0.5,
+      0.5,
+      0.9,
+      1.0
+     ],
+     "clique_p_maximum": [
+      0.1,
+      0.5,
+      0.9,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ]
+    },
+    "uniform": {
+     "blocks": 10,
+     "checkpoints": [
+      1,
+      2,
+      5,
+      10,
+      20,
+      50,
+      100,
+      200
+     ],
+     "mean_density_per_sample": 0.24336666666666668,
+     "dks_mean_best_edges": [
+      4.1,
+      5.0,
+      6.3,
+      8.0,
+      9.4,
+      10.0,
+      10.4,
+      10.9
+     ],
+     "dks_p_optimum": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "clique_p_maximum": [
+      0.3,
+      0.5,
+      0.9,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   },
+   {
+    "k": 8,
+    "densest": {
+     "edges": 28,
+     "of": 28,
+     "status": "optimal",
+     "module": [
+      "recA",
+      "recQ",
+      "recR",
+      "ruvA",
+      "ruvB",
+      "recJ",
+      "recF",
+      "recO"
+     ]
+    },
+    "gbs_samples": 2000,
+    "pqcf_cpu_seconds_per_sample": 0.24097273,
+    "max_truncated": 2e-05,
+    "max_clique": 13,
+    "gbs": {
+     "blocks": 10,
+     "checkpoints": [
+      1,
+      2,
+      5,
+      10,
+      20,
+      50,
+      100,
+      200
+     ],
+     "mean_density_per_sample": 0.584375,
+     "dks_mean_best_edges": [
+      18.7,
+      18.9,
+      21.8,
+      22.7,
+      26.2,
+      27.3,
+      28.0,
+      28.0
+     ],
+     "dks_p_optimum": [
+      0.1,
+      0.1,
+      0.1,
+      0.1,
+      0.7,
+      0.8,
+      1.0,
+      1.0
+     ],
+     "clique_p_maximum": [
+      0.6,
+      0.9,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ]
+    },
+    "oh": {
+     "blocks": 10,
+     "checkpoints": [
+      1,
+      2,
+      5,
+      10,
+      20,
+      50,
+      100,
+      200
+     ],
+     "mean_density_per_sample": 0.4645178571428571,
+     "dks_mean_best_edges": [
+      14.1,
+      15.9,
+      18.9,
+      19.1,
+      19.6,
+      22.8,
+      24.5,
+      25.6
+     ],
+     "dks_p_optimum": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.1,
+      0.3
+     ],
+     "clique_p_maximum": [
+      0.3,
+      0.6,
+      0.8,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ]
+    },
+    "uniform": {
+     "blocks": 10,
+     "checkpoints": [
+      1,
+      2,
+      5,
+      10,
+      20,
+      50,
+      100,
+      200
+     ],
+     "mean_density_per_sample": 0.24683928571428573,
+     "dks_mean_best_edges": [
+      7.0,
+      8.7,
+      10.8,
+      11.7,
+      13.3,
+      14.6,
+      16.4,
+      17.5
+     ],
+     "dks_p_optimum": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "clique_p_maximum": [
+      0.1,
+      0.6,
+      0.9,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  ]
+ },
+ "checks": [
+  {
+   "what": "SARS-CoV-2 (NC_045512.2), whole genome: the assembly equals the reference",
+   "ok": true,
+   "detail": "29,903 bases"
+  },
+  {
+   "what": "E. coli K-12 (NC_000913.3), 340,001-390,000 (the lac operon region): the assembly equals the reference",
+   "ok": true,
+   "detail": "50,000 bases"
+  },
+  {
+   "what": "chr21 region, long reads: the exact phasing is proven",
+   "ok": true,
+   "detail": "0.2 s"
+  },
+  {
+   "what": "E. coli network, k = 4: densest module proven, PQCF's truncation negligible",
+   "ok": true,
+   "detail": "optimal, truncated 0.0e+00"
+  },
+  {
+   "what": "E. coli network, k = 6: densest module proven, PQCF's truncation negligible",
+   "ok": true,
+   "detail": "optimal, truncated 2.0e-05"
+  },
+  {
+   "what": "E. coli network, k = 8: densest module proven, PQCF's truncation negligible",
+   "ok": true,
+   "detail": "optimal, truncated 2.0e-05"
+  }
+ ]
+}

@@ -11,7 +11,8 @@ Step G0 of the plan in [docs/research/genome/README.md](../../docs/research/geno
 That is the benchmarking Maurizio & Mazzola ask for ([arXiv:2507.04111](https://arxiv.org/abs/2507.04111)): exact
 optima, tuned classical heuristics, and the optimal time to solution (TTS\*) as the problem grows.
 
-**Latest run:** [RESULTS.md](RESULTS.md). **Every run:** [`results/`](results).
+**Latest run:** [RESULTS.md](RESULTS.md). **Every run:** [`results/`](results). **A worked example on public
+genomes** (SARS-CoV-2, E. coli, human chromosome 21): [example/](example/README.md).
 
 ## Data
 
