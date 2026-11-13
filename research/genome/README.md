@@ -1,4 +1,4 @@
-# Genome research: G0 (baselines), G1 (Gaussian boson sampling), G2 (coherent Ising machines)
+# Genome research: G0 (baselines), G1 (Gaussian boson sampling), G2 (coherent Ising machines), G3 (the GBS graph kernel), G4 (genomes as matrix product states)
 
 Step G0 of the plan in [docs/research/genome/README.md](../../docs/research/genome/README.md). It does four things:
 - turns public genomic data into optimisation problems;
@@ -319,3 +319,112 @@ None of these would change the main conclusions:
 ```sh
 PQ_BENCH_HOST=dgx-spark sh research/genome/g2_run.sh ["15 16 17 18"]   # about 40 minutes
 ```
+
+## G3: the GBS graph kernel for telling organisms apart
+
+**Latest run:** [RESULTS_G3.md](RESULTS_G3.md), from `g3_run.sh`. The large genomes come from `data/fetch.sh`
+(NCBI, checked by SHA-256).
+
+**The question:** Schuld et al. ([arXiv:1905.12646](https://arxiv.org/abs/1905.12646)) proposed a GBS device's
+photon statistics as features for comparing graphs. Do such features help genome analysis?
+
+**The task:** tell which organism a window of DNA comes from:
+- SARS-CoV-2 (NC_045512.2);
+- E. coli K-12 (NC_000913.3);
+- human chromosome 21 (NC_000021.9).
+
+Windows are 100, 250 and 500 bases long, with balanced classes: 150 windows per class, fewer for long windows, as
+the virus has only 29,903 bases.
+
+### What was built
+
+- **A window as a graph** (`gbs_kernel.py`). The 16 two-letter words are the nodes, and an edge's weight counts the
+  three-letter words that join two of them.
+- **The GBS feature vector**: the probabilities of the photon-pattern "orbits" (e.g. [2, 1, 1]) given 4, 6 and 8
+  photons, for a device programmed with the graph.
+  - **Computed exactly and classically.** Given the photon number, a pattern's probability is ∝ |haf(A_n)|²/∏ nᵢ!,
+    whatever the squeezing scale. So all patterns are summed directly: 25 features in 0.07 s per graph.
+  - **For few photons, the GBS kernel needs no quantum device.** The cost grows with the photon number, not the
+    graph's size.
+- **PQCF's simulated GBS device** checks those exact probabilities on two genome windows.
+- **The comparison methods**, each through the same RBF support-vector machine, with an inner cross-validation to
+  choose its parameters:
+  - classical graph features: closed walks Tr(Aᵏ) and the spectrum of A;
+  - the standard alignment-free classifier, three-letter-word frequencies, with no graph at all.
+
+### Checks: 11 of 11 hold
+
+PQCF's simulated device gives the exact pattern probabilities on a SARS-CoV-2 window and a human window (chi-square
+p = 0.48 and 0.12, 4,000 samples each). Every class has its full number of windows.
+
+### Results
+
+Accuracy; chance is 33%.
+
+| window | GBS orbits | closed walks | spectrum | three-letter words |
+| --- | --- | --- | --- | --- |
+| 100 bp | 47% | 47% | 51% | **84%** |
+| 250 bp | 56% | 52% | 61% | **91%** |
+| 500 bp | 60% | 58% | 70% | **96%** |
+
+- **The GBS features carry some information, about as much as the closed walks.** They are below the spectrum of
+  the same graph at every length.
+- **The plain three-letter-word frequencies beat every graph method by 26–33 points,** at a thousandth of the GBS
+  features' cost.
+- The graph throws away information the word counts keep. GBS features of the graph cannot recover it.
+
+### Answer
+
+**No.** The GBS kernel is computable exactly and classically at the photon numbers that matter here, and it is
+weaker than the classical graph spectrum. It is far weaker than the standard method, which needs no graph.
+
+## G4: genomes as matrix product states
+
+**Latest run:** [RESULTS_G4.md](RESULTS_G4.md), from `g4_run.sh`.
+
+**The question:** Creevey et al. ([arXiv:2508.06184](https://arxiv.org/abs/2508.06184)) encode a genome as a quantum
+state, |ψ⟩ = L^(−1/2) Σᵢ |i⟩|bᵢ⟩, and compile it into a circuit through a matrix product state (MPS). How much
+does a real genome compress this way? That decides the cost of loading it into a quantum computer, the objection
+of Maurizio & Mazzola ([arXiv:2507.04111](https://arxiv.org/abs/2507.04111)).
+
+### What was built
+
+`mps.py`:
+- **The encoding:** the position on ⌈log₂ L⌉ qubits, then the base on 2.
+- **The MPS by sequential SVDs** (TT-SVD), truncated to an error budget, with the result's fidelity computed
+  exactly.
+- **For large genomes, the Schmidt values at the middle cut,** without building the state. They are the eigenvalues
+  of the overlap matrix of the genome's blocks (how many positions two blocks share). Human chromosome 21 needs a
+  16,384 × 16,384 matrix there, against 2²⁸ amplitudes for the state.
+- **Controls:** a random sequence of the same length (no structure), and a 100-base unit repeated (all structure).
+
+### Checks: 2 of 2 hold
+
+- **φX174 needs bond dimension 98 for an error below 10⁻⁶,** exactly as Creevey et al. report.
+- **The block-overlap spectrum equals the state's SVD** at the middle cut of SARS-CoV-2.
+
+### Results
+
+| sequence | bases | qubits | Schmidt values needed (error ≤ 10⁻⁶) | most possible | as random? |
+| --- | --- | --- | --- | --- | --- |
+| φX174 | 5,386 | 15 | largest bond 98 | — | random: 98 |
+| SARS-CoV-2 | 29,903 | 17 | largest bond 234 | — | random: 234 |
+| E. coli K-12 (middle cut) | 4,641,652 | 25 | 2,267 | 2,267 | random: 2,267 |
+| human chromosome 21, N removed (middle cut) | 40,088,619 | 28 | 9,787 | 9,788 | — |
+| 100 bases repeated | any | — | 26 | — | — |
+
+- **Real genomes do not compress in this encoding: they need exactly what a random sequence needs.**
+  - For φX174 and SARS-CoV-2, the exact MPS has *more* parameters than the state has amplitudes: 39,930 against
+    32,768, and 215,578 against 131,072.
+  - At the middle cut of E. coli and of human chromosome 21, every block of the genome needs its own Schmidt value.
+- **Only at a 1% error does the human chromosome compress a little:** 7,957 values instead of 9,788 (19% fewer),
+  against 7% for E. coli. That is probably its repeats, and still far from the repeated sequence's 26.
+
+### Answer
+
+Preparing a genome as a quantum state costs as many operations as the genome has bases. Creevey et al. found the
+same for φX174 ("close to no redundancy"); here it is measured for a virus, a bacterium and a human chromosome.
+- Any quantum algorithm that first loads a genome this way therefore starts with a linear-cost step, which classical
+  algorithms already match. That is the data-loading objection, now measured.
+- The MPS engine itself (`mps.py`, numpy) is general. Porting it into PQCF would serve photonic simulation (lossy
+  boson sampling is simulated with MPS), not genome encoding.

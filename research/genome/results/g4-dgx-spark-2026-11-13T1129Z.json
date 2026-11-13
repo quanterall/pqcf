@@ -1,0 +1,562 @@
+{
+ "checks": [
+  {
+   "what": "phiX174: bond dimension 98 for an error below 1e-6, as Creevey et al. report",
+   "ok": true,
+   "detail": "max bond 98, infidelity 3.3e-15"
+  },
+  {
+   "what": "the block-overlap spectrum equals the SVD of the state (SARS-CoV-2, middle cut)",
+   "ok": true,
+   "detail": "largest difference 1.1e-16"
+  }
+ ],
+ "small": [
+  {
+   "sequence": "phiX174",
+   "bases": 5386,
+   "qubits": 15,
+   "amplitudes": 32768,
+   "full": [
+    {
+     "eps": 0.01,
+     "max_bond": 96,
+     "bonds": [
+      2,
+      3,
+      6,
+      11,
+      22,
+      43,
+      85,
+      96,
+      49,
+      25,
+      13,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 0.0006541686981507144,
+     "parameters": 38956,
+     "seconds": 0.009484415990300477
+    },
+    {
+     "eps": 0.0001,
+     "max_bond": 98,
+     "bonds": [
+      2,
+      3,
+      6,
+      11,
+      22,
+      43,
+      85,
+      98,
+      50,
+      26,
+      14,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 3.3306690738754696e-15,
+     "parameters": 39930,
+     "seconds": 0.007483936031349003
+    },
+    {
+     "eps": 1e-06,
+     "max_bond": 98,
+     "bonds": [
+      2,
+      3,
+      6,
+      11,
+      22,
+      43,
+      85,
+      98,
+      50,
+      26,
+      14,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 3.3306690738754696e-15,
+     "parameters": 39930,
+     "seconds": 0.006919151986949146
+    }
+   ]
+  },
+  {
+   "sequence": "random, 5386 bases",
+   "bases": 5386,
+   "qubits": 15,
+   "amplitudes": 32768,
+   "full": [
+    {
+     "eps": 0.01,
+     "max_bond": 97,
+     "bonds": [
+      2,
+      3,
+      6,
+      11,
+      22,
+      43,
+      85,
+      97,
+      49,
+      25,
+      13,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 0.0002677607152113959,
+     "parameters": 39224,
+     "seconds": 0.007339071948081255
+    },
+    {
+     "eps": 0.0001,
+     "max_bond": 98,
+     "bonds": [
+      2,
+      3,
+      6,
+      11,
+      22,
+      43,
+      85,
+      98,
+      50,
+      26,
+      14,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 1.9984014443252818e-15,
+     "parameters": 39930,
+     "seconds": 0.007404175936244428
+    },
+    {
+     "eps": 1e-06,
+     "max_bond": 98,
+     "bonds": [
+      2,
+      3,
+      6,
+      11,
+      22,
+      43,
+      85,
+      98,
+      50,
+      26,
+      14,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 1.9984014443252818e-15,
+     "parameters": 39930,
+     "seconds": 0.007243071915581822
+    }
+   ]
+  },
+  {
+   "sequence": "periodic (a 100-base unit repeated), 5386 bases",
+   "bases": 5386,
+   "qubits": 15,
+   "amplitudes": 32768,
+   "full": [
+    {
+     "eps": 0.01,
+     "max_bond": 26,
+     "bonds": [
+      2,
+      3,
+      6,
+      11,
+      22,
+      26,
+      26,
+      26,
+      25,
+      23,
+      13,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 0.0006909285427203482,
+     "parameters": 7822,
+     "seconds": 0.004533919971436262
+    },
+    {
+     "eps": 0.0001,
+     "max_bond": 26,
+     "bonds": [
+      2,
+      3,
+      6,
+      11,
+      22,
+      26,
+      26,
+      26,
+      26,
+      25,
+      14,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 4.367306559394102e-06,
+     "parameters": 8140,
+     "seconds": 0.004453120054677129
+    },
+    {
+     "eps": 1e-06,
+     "max_bond": 26,
+     "bonds": [
+      2,
+      3,
+      6,
+      11,
+      22,
+      26,
+      26,
+      26,
+      26,
+      26,
+      14,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 3.1086244689504383e-15,
+     "parameters": 8220,
+     "seconds": 0.004380287951789796
+    }
+   ]
+  },
+  {
+   "sequence": "SARS-CoV-2",
+   "bases": 29903,
+   "qubits": 17,
+   "amplitudes": 131072,
+   "full": [
+    {
+     "eps": 0.01,
+     "max_bond": 231,
+     "bonds": [
+      2,
+      4,
+      8,
+      15,
+      30,
+      59,
+      117,
+      231,
+      192,
+      97,
+      49,
+      25,
+      13,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 0.0010335243727017662,
+     "parameters": 211440,
+     "seconds": 0.045730559970252216
+    },
+    {
+     "eps": 0.0001,
+     "max_bond": 234,
+     "bonds": [
+      2,
+      4,
+      8,
+      15,
+      30,
+      59,
+      117,
+      234,
+      194,
+      98,
+      50,
+      26,
+      14,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 4.179402720128067e-06,
+     "parameters": 215542,
+     "seconds": 0.04384256002958864
+    },
+    {
+     "eps": 1e-06,
+     "max_bond": 234,
+     "bonds": [
+      2,
+      4,
+      8,
+      15,
+      30,
+      59,
+      117,
+      234,
+      194,
+      98,
+      50,
+      26,
+      14,
+      8,
+      4,
+      2
+     ],
+     "infidelity": 0.0,
+     "parameters": 215578,
+     "seconds": 0.043384000076912344
+    }
+   ]
+  },
+  {
+   "sequence": "random, 29903 bases",
+   "bases": 29903,
+   "qubits": 17,
+   "amplitudes": 131072,
+   "full": [
+    {
+     "eps": 0.01,
+     "max_bond": 231,
+     "bonds": [
+      2,
+      4,
+      8,
+      15,
+      30,
+      59,
+      117,
+      231,
+      192,
+      97,
+      49,
+      25,
+      13,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 0.0011326367315138697,
+     "parameters": 211440,
+     "seconds": 0.04371806397102773
+    },
+    {
+     "eps": 0.0001,
+     "max_bond": 234,
+     "bonds": [
+      2,
+      4,
+      8,
+      15,
+      30,
+      59,
+      117,
+      234,
+      194,
+      98,
+      50,
+      26,
+      14,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 4.179275884141909e-06,
+     "parameters": 215542,
+     "seconds": 0.045029280008748174
+    },
+    {
+     "eps": 1e-06,
+     "max_bond": 234,
+     "bonds": [
+      2,
+      4,
+      8,
+      15,
+      30,
+      59,
+      117,
+      234,
+      194,
+      98,
+      50,
+      26,
+      14,
+      8,
+      4,
+      2
+     ],
+     "infidelity": 9.103828801926284e-15,
+     "parameters": 215578,
+     "seconds": 0.045354287954978645
+    }
+   ]
+  },
+  {
+   "sequence": "periodic (a 100-base unit repeated), 29903 bases",
+   "bases": 29903,
+   "qubits": 17,
+   "amplitudes": 131072,
+   "full": [
+    {
+     "eps": 0.01,
+     "max_bond": 26,
+     "bonds": [
+      2,
+      4,
+      8,
+      15,
+      26,
+      26,
+      26,
+      26,
+      25,
+      25,
+      25,
+      22,
+      13,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 0.0009430653193729377,
+     "parameters": 10890,
+     "seconds": 0.018885631929151714
+    },
+    {
+     "eps": 0.0001,
+     "max_bond": 26,
+     "bonds": [
+      2,
+      4,
+      8,
+      15,
+      26,
+      26,
+      26,
+      26,
+      26,
+      26,
+      26,
+      25,
+      13,
+      7,
+      4,
+      2
+     ],
+     "infidelity": 8.128512164029544e-06,
+     "parameters": 11424,
+     "seconds": 0.01767764799296856
+    },
+    {
+     "eps": 1e-06,
+     "max_bond": 26,
+     "bonds": [
+      2,
+      4,
+      8,
+      15,
+      26,
+      26,
+      26,
+      26,
+      26,
+      26,
+      26,
+      26,
+      14,
+      8,
+      4,
+      2
+     ],
+     "infidelity": 0.0,
+     "parameters": 11604,
+     "seconds": 0.017268975963816047
+    }
+   ]
+  }
+ ],
+ "large": [
+  {
+   "sequence": "E. coli K-12",
+   "bases": 4641652,
+   "qubits": 25,
+   "cut_after_qubits": 12,
+   "max_possible": 4096,
+   "seconds": 3.2618569439509884,
+   "entropy_bits": 8.9442045047116,
+   "max_entropy_bits": 12,
+   "rank": 2267,
+   "needed": {
+    "0.01": 2118,
+    "0.0001": 2265,
+    "1e-06": 2267
+   }
+  },
+  {
+   "sequence": "random, 4,641,652 bases",
+   "bases": 4641652,
+   "qubits": 25,
+   "cut_after_qubits": 12,
+   "max_possible": 4096,
+   "seconds": 3.0701735039474443,
+   "entropy_bits": 8.968203062096155,
+   "max_entropy_bits": 12,
+   "rank": 2267,
+   "needed": {
+    "0.01": 2123,
+    "0.0001": 2266,
+    "1e-06": 2267
+   }
+  },
+  {
+   "sequence": "periodic (a 100-base unit repeated), 4,641,652 bases",
+   "bases": 4641652,
+   "qubits": 25,
+   "cut_after_qubits": 12,
+   "max_possible": 4096,
+   "seconds": 3.0482969280565158,
+   "entropy_bits": 4.074214258078162,
+   "max_entropy_bits": 12,
+   "rank": 26,
+   "needed": {
+    "0.01": 25,
+    "0.0001": 26,
+    "1e-06": 26
+   }
+  },
+  {
+   "sequence": "human chromosome 21 (N removed)",
+   "bases": 40088619,
+   "qubits": 28,
+   "cut_after_qubits": 14,
+   "max_possible": 16384,
+   "seconds": 197.0462684960803,
+   "entropy_bits": 10.16754869495377,
+   "max_entropy_bits": 14,
+   "rank": 9788,
+   "needed": {
+    "0.01": 7957,
+    "0.0001": 9695,
+    "1e-06": 9787
+   }
+  }
+ ]
+}

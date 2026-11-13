@@ -42,7 +42,7 @@ roles here are to:
 - run the quantum-inspired classical algorithms that come out of them (GBS-inspired samplers, simulated CIM);
 - prepare problem encodings for photonic hardware (GBS devices, CIMs) when it is available.
 
-## Status after G0–G2 (13 November 2026)
+## Status after G0–G4 (13 November 2026)
 
 We measured the two photonic routes of this plan on genomic data, each against the best classical methods, with
 every answer checked against a proven optimum. **Neither gives a practical advantage on these problems.**
@@ -61,9 +61,11 @@ every answer checked against a proven optimum. **Neither gives a practical advan
    structure that classical exact methods exploit.
 
 **What PQCF contributed:** an exact, cross-checked simulation of the photonic devices (GBS), and a benchmark
-discipline that can be rerun when hardware appears. **What remains open:** G3 (the GBS graph kernel) and G4 (an MPS
-engine). Given G1 and G2, we would only continue them with a genomics partner and a concrete dataset where
-classical methods are known to struggle.
+discipline that can be rerun when hardware appears.
+
+**G3 and G4 confirm it:**
+- the GBS graph kernel is classically computable at the sizes that matter, and loses to plain word counts;
+- real genomes, from a virus to a human chromosome, do not compress as quantum states at all.
 
 ## The five papers
 
@@ -230,9 +232,21 @@ go/no-go question.
   - Haplotype phasing from simulated reads against a HapCUT-style method.
   - Paper 2's φX174 and synthetic assembly instances.
   - *Go/no-go:* is TTS\*(N) better than tuned simulated annealing or parallel tempering on any instance class?
-- **G3. The GBS graph kernel** for assembly and pangenome graphs, against standard graph kernels.
-- **G4 (optional). An MPS engine.** Reproduce paper 4's φX174 encoding, and use the engine for lossy photonic
-  simulation.
+- **G3. The GBS graph kernel.** **Done** (13 November 2026):
+  [research/genome](../../../research/genome/README.md#g3-the-gbs-graph-kernel-for-telling-organisms-apart),
+  results in [RESULTS_G3.md](../../../research/genome/RESULTS_G3.md).
+  - Task: telling a virus, a bacterium and a human chromosome apart from 100–500-base windows.
+  - The GBS features are computed exactly and classically at the photon numbers used, and checked against PQCF's
+    simulated device.
+  - They reach 47–60%, below the graph's classical spectrum (51–70%) and far below plain three-letter-word counts
+    (84–96%).
+- **G4. An MPS engine.** **Done** (13 November 2026):
+  [research/genome](../../../research/genome/README.md#g4-genomes-as-matrix-product-states), results in
+  [RESULTS_G4.md](../../../research/genome/RESULTS_G4.md).
+  - It reproduces paper 4's φX174 result (bond dimension 98).
+  - φX174, SARS-CoV-2, E. coli and human chromosome 21 need exactly the bond dimension a random sequence needs,
+    with no compression; the exact MPS of φX174 has more parameters than the state has amplitudes.
+  - So loading a genome costs as much as its length, the data-loading objection, measured.
 
 ## Risks, stated plainly
 

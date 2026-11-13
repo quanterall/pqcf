@@ -1,0 +1,209 @@
+{
+ "results": [
+  {
+   "length": 100,
+   "windows": 450,
+   "per_class": 150,
+   "classes": [
+    "SARS-CoV-2",
+    "E. coli K-12",
+    "human chr21"
+   ],
+   "methods": {
+    "GBS orbits (N = 4, 6, 8)": {
+     "mean": 0.4740740740740741,
+     "sd": 0.042487793776888834,
+     "features": 25,
+     "seconds_per_window": 0.05094944984910803
+    },
+    "closed walks Tr(A^k), k = 2..8": {
+     "mean": 0.46518518518518526,
+     "sd": 0.04386035953507396,
+     "features": 7,
+     "seconds_per_window": 1.4325084630399942e-05
+    },
+    "spectrum of A": {
+     "mean": 0.5096296296296295,
+     "sd": 0.04034147793834103,
+     "features": 16,
+     "seconds_per_window": 1.0418382266329394e-05
+    },
+    "three-letter words (no graph)": {
+     "mean": 0.834814814814815,
+     "sd": 0.039516973832145606,
+     "features": 64,
+     "seconds_per_window": 1.609642653622561e-05
+    }
+   }
+  },
+  {
+   "length": 250,
+   "windows": 354,
+   "per_class": 118,
+   "classes": [
+    "SARS-CoV-2",
+    "E. coli K-12",
+    "human chr21"
+   ],
+   "methods": {
+    "GBS orbits (N = 4, 6, 8)": {
+     "mean": 0.5610596914822267,
+     "sd": 0.05769707277167385,
+     "features": 25,
+     "seconds_per_window": 0.0675035861694375
+    },
+    "closed walks Tr(A^k), k = 2..8": {
+     "mean": 0.520710932260228,
+     "sd": 0.04939154751146246,
+     "features": 7,
+     "seconds_per_window": 1.3831276762283454e-05
+    },
+    "spectrum of A": {
+     "mean": 0.6074312541918175,
+     "sd": 0.06614958431198058,
+     "features": 16,
+     "seconds_per_window": 9.922666533055616e-06
+    },
+    "three-letter words (no graph)": {
+     "mean": 0.9105030181086519,
+     "sd": 0.025731377926233027,
+     "features": 64,
+     "seconds_per_window": 3.514856482871761e-05
+    }
+   }
+  },
+  {
+   "length": 500,
+   "windows": 174,
+   "per_class": 58,
+   "classes": [
+    "SARS-CoV-2",
+    "E. coli K-12",
+    "human chr21"
+   ],
+   "methods": {
+    "GBS orbits (N = 4, 6, 8)": {
+     "mean": 0.6038095238095238,
+     "sd": 0.08781029655365576,
+     "features": 25,
+     "seconds_per_window": 0.07219830068997803
+    },
+    "closed walks Tr(A^k), k = 2..8": {
+     "mean": 0.582296918767507,
+     "sd": 0.038022421757856736,
+     "features": 7,
+     "seconds_per_window": 1.4747126996731278e-05
+    },
+    "spectrum of A": {
+     "mean": 0.6993837535014006,
+     "sd": 0.08314967403673336,
+     "features": 16,
+     "seconds_per_window": 1.067485079576058e-05
+    },
+    "three-letter words (no graph)": {
+     "mean": 0.9598319327731093,
+     "sd": 0.02713682929485577,
+     "features": 64,
+     "seconds_per_window": 6.86877241208293e-05
+    }
+   }
+  }
+ ],
+ "checks": [
+  {
+   "what": "check-SARS-CoV-2: PQCF's simulated GBS device gives the exact pattern probabilities, 4 photons",
+   "ok": true,
+   "detail": "chi-square p = 0.482, 215 degrees of freedom, 4000 samples"
+  },
+  {
+   "what": "check-human: PQCF's simulated GBS device gives the exact pattern probabilities, 4 photons",
+   "ok": true,
+   "detail": "chi-square p = 0.119, 177 degrees of freedom, 4000 samples"
+  },
+  {
+   "what": "SARS-CoV-2, 100 bp: 150 windows without N",
+   "ok": true,
+   "detail": "150"
+  },
+  {
+   "what": "E. coli K-12, 100 bp: 150 windows without N",
+   "ok": true,
+   "detail": "150"
+  },
+  {
+   "what": "human chr21, 100 bp: 150 windows without N",
+   "ok": true,
+   "detail": "150"
+  },
+  {
+   "what": "SARS-CoV-2, 250 bp: 118 windows without N",
+   "ok": true,
+   "detail": "118"
+  },
+  {
+   "what": "E. coli K-12, 250 bp: 118 windows without N",
+   "ok": true,
+   "detail": "118"
+  },
+  {
+   "what": "human chr21, 250 bp: 118 windows without N",
+   "ok": true,
+   "detail": "118"
+  },
+  {
+   "what": "SARS-CoV-2, 500 bp: 58 windows without N",
+   "ok": true,
+   "detail": "58"
+  },
+  {
+   "what": "E. coli K-12, 500 bp: 58 windows without N",
+   "ok": true,
+   "detail": "58"
+  },
+  {
+   "what": "human chr21, 500 bp: 58 windows without N",
+   "ok": true,
+   "detail": "58"
+  }
+ ],
+ "feature_names": [
+  "N=4:[4]",
+  "N=4:[3, 1]",
+  "N=4:[2, 2]",
+  "N=4:[2, 1, 1]",
+  "N=4:[1, 1, 1, 1]",
+  "N=6:[6]",
+  "N=6:[5, 1]",
+  "N=6:[4, 2]",
+  "N=6:[4, 1, 1]",
+  "N=6:[3, 3]",
+  "N=6:[3, 2, 1]",
+  "N=6:[3, 1, 1, 1]",
+  "N=6:[2, 2, 2]",
+  "N=6:[2, 2, 1, 1]",
+  "N=6:[2, 1, 1, 1, 1]",
+  "N=6:[1, 1, 1, 1, 1, 1]",
+  "N=8:[8]",
+  "N=8:[7, 1]",
+  "N=8:[6, 2]",
+  "N=8:[6, 1, 1]",
+  "N=8:[5, 3]",
+  "N=8:[5, 2, 1]",
+  "N=8:[5, 1, 1, 1]",
+  "N=8:[4, 4]",
+  "N=8:[4, 3, 1]",
+  "N=8:[4, 2, 2]",
+  "N=8:[4, 2, 1, 1]",
+  "N=8:[4, 1, 1, 1, 1]",
+  "N=8:[3, 3, 2]",
+  "N=8:[3, 3, 1, 1]",
+  "N=8:[3, 2, 2, 1]",
+  "N=8:[3, 2, 1, 1, 1]",
+  "N=8:[3, 1, 1, 1, 1, 1]",
+  "N=8:[2, 2, 2, 2]",
+  "N=8:[2, 2, 2, 1, 1]",
+  "N=8:[2, 2, 1, 1, 1, 1]",
+  "N=8:[2, 1, 1, 1, 1, 1, 1]",
+  "N=8:[1, 1, 1, 1, 1, 1, 1, 1]"
+ ]
+}
