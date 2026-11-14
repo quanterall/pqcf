@@ -127,3 +127,33 @@ weyl_anomaly_test_() ->
         {ok, Cc} = pq_symbolic:subs(C, Units),
         ?assertEqual({ok, true}, pq_symbolic:equiv(Cc, {mul, [{rat, 1, 4}, {pow, ?S(n), 2}]}, #{}))
     end}.
+
+%%% Gubser-Nellore (arXiv:0804.0434, https://arxiv.org/abs/0804.0434), comparison/holographic/gubser.erl
+
+load_gubser() ->
+    Dir = filename:dirname(code:which(?MODULE)),
+    Src = hd([F || F <- [filename:join([Dir, "..", "comparison", "holographic", "gubser.erl"]),
+                         filename:join([Dir, "..", "..", "..", "..", "comparison", "holographic", "gubser.erl"]),
+                         "comparison/holographic/gubser.erl"], filelib:is_regular(F)]),
+    {ok, gubser, Bin} = compile:file(Src, [binary]),
+    {module, gubser} = code:load_binary(gubser, Src, Bin).
+
+gubser_test_() ->
+    {timeout, 900, fun() ->
+        load_gubser(),
+        % Chamblin-Reall: V = -12 e^(phi/2), G = -1/(3 gamma) = -2/3 kept exactly by the master equation
+        Ex = {exp, {mul, [{rat, 1, 2}, ?S(phi)]}},
+        {ok, [G1, Gp1, _, _]} = pq_jet:integrate(gubser:rhs({mul, [-12, Ex]}, {mul, [-6, Ex]}, {mul, [-3, Ex]}, none), phi,
+                                                [g, gp, i1, i2], 3, [{rat, -2, 3}, 0, 0, 0], 1, #{digits => 30}),
+        ?assert(abs(pq_mp:to_float(G1) + 2 / 3) < 1.0e-25),
+        ?assert(abs(pq_mp:to_float(Gp1)) < 1.0e-25),
+        % the paper's parameters: Delta = 3.93; c_s^2 -> 1/3 in the UV; 0.070171 at phi_H = 4 (an independent SciPy
+        % solution agrees to 6 digits there)
+        Dm4 = gubser:delta_minus_4({606, 1000}, {206, 100}),
+        ?assert(abs(pq_mp:to_float(Dm4) + 4 - 3.93) < 0.005),
+        Pot = gubser:pot({rat, 606, 1000}, {rat, 206, 100}),
+        {C1, _} = gubser:cs2(Pot, Dm4, 0.2, 0.001, 20),
+        {C4, _} = gubser:cs2(Pot, Dm4, 4.0, 0.001, 20),
+        ?assert(abs(C1 - 1 / 3) < 2.0e-5),
+        ?assert(abs(C4 - 0.070171) < 2.0e-6)
+    end}.

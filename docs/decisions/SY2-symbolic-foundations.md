@@ -209,6 +209,17 @@ Bessel's equation.
     1.6, 2.9, 4.5, and m_a1^2/m_rho^2 = 2.344 against its ~2.4.
   - **Checks:** an independent SciPy shooting agrees as its cutoff grows (0.66931458 at Z = 16000), and the result
     does not depend on the match point.
+- **14 Nov 2026: phase 6, Gubser-Nellore** (`comparison/holographic/gubser.erl`, `GUBSER.md`; `pq_jet`, a new
+  arbitrary-precision Taylor-series integrator for nonlinear systems).
+  - **Method:** the master equation (34) is integrated from the horizon series (36), with the integrals of (45) and
+    (51) alongside; then c_s^2 = d log T / d log s.
+  - **Checks:**
+    - Chamblin-Reall (G = -1/(3 gamma)) is kept exactly;
+    - Delta = 3.927 (paper 3.93), and the infrared limit is 0.1497 (paper 0.15);
+    - c_s^2 dips to about 0.06 near T_c, as the paper's figures 3 and 4 show.
+  - **Against SciPy:** a double-precision solution of the same equations agrees to 6 digits up to phi_H = 4 and
+    becomes unstable beyond (the 0/0 at the horizon). PQCF's values do not change from 20 to 30 digits.
+  - **Limit of the comparison:** the paper gives figures, not tables, so the dip agrees qualitatively.
 - **14 Nov 2026: phase 4, component tensors** (`pq_geometry:curvature/2`). The acceptance checks of phase 4 that
   concern components pass exactly:
   - AdS_5: R = -20/L^2, R_ab = -(4/L^2) g_ab, Weyl tensor zero (Kretschmann 40/L^4);

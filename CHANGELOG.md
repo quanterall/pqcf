@@ -75,6 +75,14 @@ the public API is additive.
   - **Checked against mpmath 1.3:** 37 values and 8 zeros to 48 digits (`test/oracle/gt_mp.py`).
   - **Integer relations:** `pq_mp:pslq/3` (Ferguson-Bailey PSLQ) finds exact forms of high-precision numbers. It
     recovers 6 zeta(2) = pi^2 and Y_0's series constant (2/pi)(gamma - log 2).
+- **The Taylor-series method for nonlinear ODE systems** (SY2 phase 6): `pq_jet:integrate/6,7`.
+  - **What it does:** solves y' = F(x, y), with F built from +, *, powers, exp, log, sin, cos, sinh, cosh, sqrt, by
+    automatic differentiation on truncated series, in arbitrary precision.
+  - **Gubser-Nellore** (arXiv:0804.0434, `comparison/holographic/GUBSER.md`): the nonlinear master equation from the
+    horizon series, then the entropy, the temperature and the speed of sound.
+    - **Checks:** the exact Chamblin-Reall solution is kept to 25 digits; Delta = 3.927 (paper 3.93); c_s^2 goes from
+      1/3 in the UV through a dip at the crossover toward 1/3 - gamma^2/2 = 0.1497 (paper 0.15).
+    - **Against SciPy:** a double-precision solution agrees to 6 digits where it is stable.
 - **Truncated series and limits** (SY2 phase 2): `pq_symbolic:series/3,4` and `limit/3,4`, `pq_series`.
   - **Terms:** C x^e log(x)^m, e rational, at 0, at a point or at infinity.
   - **Coefficients:** exact rational functions of the other symbols. Constants that are not rational (log 2, pi,
