@@ -12,7 +12,7 @@ Produced by `walls.erl` (decision record SY2, phase 3), PQCF 31cf623, 2026-11-14
    (`pq_ode:eigenvalues_collocation/3`): Chebyshev collocation of phi / z^s, then shifted inverse iteration.
 
 The "equal" column means that shooting equals the closed form in all 30 digits and that
-collocation agrees with them in its first 25.
+collocation agrees with them to 24 significant digits (its 25th digit is rounded).
 
 ## Soft wall
 
@@ -29,7 +29,7 @@ Phi = z^2 (c = 1), and the decaying solution is imposed at z = 10.
 | 2 | `1.20000000000000000000000000000e1` | `1.200000000000000000000000e1` | `1.20000000000000000000000000000e1` | equal |
 | 3 | `1.60000000000000000000000000000e1` | `1.600000000000000000000000e1` | `1.60000000000000000000000000000e1` | equal |
 
-Times: potential 0.01 s, spectrum 7.75 s.
+Times: potential 0.01 s, spectrum 7.79 s.
 
 ## Hard wall
 
@@ -42,7 +42,7 @@ dilaton, 0 < z =< z_m with z_m = 1, and psi'(z_m) = 0, which is phi'(1) + phi(1)
 
 | n | (m_n z_m)^2, shooting | collocation (25 digits) | j_(0,n)^2 | |
 | --- | --- | --- | --- | --- |
-| 1 | `5.78318596294678452117599575846e0` | `5.783185962946784521175996e0` | `5.78318596294678452117599575846e0` | differ |
+| 1 | `5.78318596294678452117599575846e0` | `5.783185962946784521175996e0` | `5.78318596294678452117599575846e0` | equal |
 | 2 | `3.04712623436620863990781631750e1` | `3.047126234366208639907816e1` | `3.04712623436620863990781631750e1` | equal |
 | 3 | `7.48870067906951834448890413101e1` | `7.488700679069518344488904e1` | `7.48870067906951834448890413101e1` | equal |
 

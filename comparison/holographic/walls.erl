@@ -22,7 +22,7 @@ main(Dir) ->
     Exact = [pq_mp:to_string(pq_mp:from(4 * (N + 1), 120), ?D) || N <- lists:seq(0, length(Es) - 1)],
     Zeros = [pq_mp:to_string(pq_mp:mul(J, J, 130), ?D) || K <- lists:seq(1, length(Eh)), J <- [pq_mp:besselj_zero(0, K, 130)]],
     Row = fun(N, A, B, C) -> io_lib:format("| ~b | `~s` | `~s` | `~s` | ~s |~n",
-                                           [N, A, C, B, case A =:= B andalso lists:prefix(lists:sublist(C, 26), A) of
+                                           [N, A, C, B, case A =:= B andalso lists:prefix(lists:sublist(C, 25), A) of
                                                             true -> "equal"; false -> "differ" end]) end,
     Md = ["# Holographic QCD: the soft and hard walls\n\n",
           "Produced by `walls.erl` (decision record SY2, phase 3), PQCF ", pqcf_commit(), ", ", today(), ". ",
@@ -36,7 +36,7 @@ main(Dir) ->
           "4. **Spectrum, collocation:** a second, independent method to 25 digits\n",
           "   (`pq_ode:eigenvalues_collocation/3`): Chebyshev collocation of phi / z^s, then shifted inverse iteration.\n\n",
           "The \"equal\" column means that shooting equals the closed form in all ", integer_to_list(?D), " digits and that\n",
-          "collocation agrees with them in its first 25.\n\n",
+          "collocation agrees with them to 24 significant digits (its 25th digit is rounded).\n\n",
           "## Soft wall\n\n",
           "Karch, Katz, Son and Stephanov, [hep-ph/0602229](https://arxiv.org/abs/hep-ph/0602229). The dilaton is\n",
           "Phi = z^2 (c = 1), and the decaying solution is imposed at z = 10.\n\n",
