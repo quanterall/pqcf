@@ -6,7 +6,7 @@
 %% Read from a canonical expression: sums of products of numbers, symbols to integer powers and powers of sums (the
 %% opaque atoms, recursively), combined over the lcm of the denominators and reduced by gcds (pq_sym_gcd).
 -module(pq_sym_ratfun).
--export([from_ast/2, to_ast/2, equal/2]).
+-export([from_ast/2, to_ast/2, equal/2, add/2, mul/2, inv/1]).
 
 -type poly() :: pq_sym_gcd:poly().
 -type ratfun() :: {poly(), poly()}.
@@ -32,6 +32,7 @@ rf({mul, Fs}, Index, N) -> lists:foldl(fun(F, Acc) -> mul(Acc, rf(F, Index, N)) 
 rf(_, _, _) -> throw({symbolic_unsupported, rational}).
 
 %% N1/D1 + N2/D2 over lcm(D1, D2)
+-spec add(ratfun(), ratfun()) -> ratfun().
 add({N1, _}, B) when map_size(N1) =:= 0 -> B;
 add(A, {N2, _}) when map_size(N2) =:= 0 -> A;
 add({N1, D1}, {N2, D2}) ->
@@ -41,12 +42,17 @@ add({N1, D1}, {N2, D2}) ->
     norm({padd(pq_sym_gcd:mul(N1, A2), pq_sym_gcd:mul(N2, A1)), pq_sym_gcd:mul(A1, D2)}).
 
 %% (N1 N2) / (D1 D2), the cross gcds taken out first
+-spec mul(ratfun(), ratfun()) -> ratfun().
 mul({N1, _} = A, _) when map_size(N1) =:= 0 -> A;
 mul(_, {N2, _} = B) when map_size(N2) =:= 0 -> B;
 mul({N1, D1}, {N2, D2}) ->
     {A1, B2} = cancel(N1, D2),
     {A2, B1} = cancel(N2, D1),
     norm({pq_sym_gcd:mul(A1, A2), pq_sym_gcd:mul(B1, B2)}).
+
+%% 1 / (N / D), N not zero
+-spec inv(ratfun()) -> ratfun().
+inv({N, D}) when map_size(N) > 0 -> norm({D, N}).
 
 cancel(N, D) ->
     G = pq_sym_gcd:gcd(N, D),

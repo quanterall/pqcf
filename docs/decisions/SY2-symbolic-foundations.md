@@ -169,4 +169,11 @@ Bessel's equation.
   - `equiv/3` now decides rational functions of symbols: `(x^2 - 1)/(x - 1)` against `x + 1` is true. It was
     `unknown` at the old fence (SY 10.3).
   - **Phase 1 done**, apart from exact algebraic numbers, which come with phase 2's needs.
-  - **Next:** phase 2 (series and function atoms).
+- **14 Nov 2026: phase 2, first part: series and limits** (`pq_symbolic:series/3,4`, `limit/3,4`, `pq_series`).
+  - **Series:** generalised power series with logarithms. Coefficients are rational functions of the parameters,
+    with opaque atoms for the transcendental constants.
+  - **Functions:** elementary ones, Bessel J_nu and Y_n, Laguerre, 2F1 and Gamma.
+  - **Check:** the 32 expansions of `test/fixtures/gt_series.json` (SymPy 1.14, mpmath) agree in every coefficient.
+  - **Convention:** the terms returned have exponents below N. SymPy also keeps x^N log(x)^m.
+  - **Next:** high-precision evaluation (the functions and the atoms to 50 digits against mpmath; the zeros of
+    Bessel functions), then phase 3.

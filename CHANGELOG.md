@@ -17,6 +17,15 @@ the public API is additive.
     - Chinese remaindering in Erlang;
     - each candidate accepted only when it divides both inputs exactly.
   - Square-free decomposition, `pq_sym_gcd:squarefree/1` (Yun's algorithm, contents recursively).
+- **Truncated series and limits** (SY2 phase 2): `pq_symbolic:series/3,4` and `limit/3,4`, `pq_series`.
+  - **Terms:** C x^e log(x)^m, e rational, at 0, at a point or at infinity.
+  - **Coefficients:** exact rational functions of the other symbols. Constants that are not rational (log 2, pi,
+    Euler's gamma, zeta(k), Gamma(q), ...) are kept as opaque atoms.
+  - **Functions:** sums, products, powers (integer, rational, symbolic), exp, log, sin, cos, sqrt; Bessel J_nu (nu
+    rational) and Y_n (with its logarithms); Laguerre L_n^alpha; 2F1; Gamma at any rational point.
+  - **Precision:** the working order rises until cancellations are covered.
+  - **Checked against SymPy 1.14 and mpmath:** 32 expansions (`test/oracle/gt_series.py`,
+    `test/fixtures/gt_series.json`), every coefficient to 1e-10.
 - **Rational functions in normal form** (SY2): `pq_symbolic:cancel/1,2` (N D^-1, N and D coprime, D primitive with a
   positive leading coefficient: equal rational functions give equal results) and `numer_denom/1,2`;
   `pq_sym_ratfun`.

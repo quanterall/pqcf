@@ -13,7 +13,8 @@
          shape/1, free_symbols/1, size/1, hash/1, domain_of/2,
          pretty/1, pretty/2, to_latex/1, parse/1, parse/2,
          resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, gaussian_evolve/2, is_unitary/1, is_unitary/2, permanent/1, bs_probability/3, compile/2, compile/3, glynn_reference/2, eval_slp/2, eval_batch/2, equiv/3,
-         substitute/2, gcd/2, gcd/3, factor/1, factor/2, cancel/1, cancel/2, numer_denom/1, numer_denom/2]).
+         substitute/2, gcd/2, gcd/3, factor/1, factor/2, cancel/1, cancel/2, numer_denom/1, numer_denom/2,
+         series/3, series/4, limit/3, limit/4]).
 
 -export_type([sym_expr/0, binding/0, opts/0]).
 
@@ -547,6 +548,56 @@ ratfun_equiv(X, Y) ->
     try pq_sym_ratfun:equal(pq_sym_ratfun:from_ast(X, Vars), pq_sym_ratfun:from_ast(Y, Vars))
     catch throw:{symbolic_unsupported, rational} -> none
     end.
+
+%% The series of E in the symbol X up to (not including) X^N (decision record SY2, phase 2): {ok, Sum}, Sum a sum of
+%% terms C X^e log(X)^m, e rational, sorted by e then m, each C exact (rational functions of the other symbols, with
+%% opaque atoms such as {log, 2}, {const, pi}, {const, euler_gamma}, {zeta, 3}, {gamma, {rat, 1, 3}}). Opts: at => 0 |
+%% A | infinity, and the expression limits. The functions: those of pq_series. Refused:
+%% {error, {symbolic_unsupported, #{series => Why}}}.
+-spec series(sym_expr(), atom(), integer()) -> result(sym_expr()).
+series(E, X, N) -> series(E, X, N, #{}).
+
+-spec series(sym_expr(), atom(), integer(), opts()) -> result(sym_expr()).
+series(E, X, N, Opts) when is_atom(X), is_integer(N) ->
+    case run(E, Opts, fun(_) -> pq_series:series(E, X, N, Opts) end) of
+        {ok, {ok, S}} -> {ok, S};
+        {ok, {error, _} = Err} -> Err;
+        Err -> Err
+    end.
+
+%% The limit of E as X tends to A (0, an expression free of X, or infinity), from its series' leading term: {ok, L}
+%% for a finite limit, {ok, {diverges, Term}} (Term the leading term C X^e log(X)^m) otherwise.
+-spec limit(sym_expr(), atom(), term()) -> result(term()).
+limit(E, X, A) -> limit(E, X, A, #{}).
+
+-spec limit(sym_expr(), atom(), term(), opts()) -> result(term()).
+limit(E, X, A, Opts) ->
+    limit_order(E, X, A, Opts, 1).
+
+limit_order(_, _, _, _, N) when N > 64 -> {error, {symbolic_unsupported, #{limit => no_leading_term}}};
+limit_order(E, X, A, Opts, N) ->
+    case run(E, Opts, fun(_) -> pq_series:terms(E, X, N, Opts#{at => A}) end) of
+        {ok, {ok, {[], _}}} -> limit_order(E, X, A, Opts, 2 * N);
+        {ok, {ok, {Ts, _}}} ->
+            Key = fun({Ex, M, _}) -> {-ex_value(Ex, A), M} end,
+            % the dominant term: at infinity the highest power, at a point the lowest; then the highest log power
+            {Ex, M, C} = hd(lists:sort(fun(T1, T2) -> Key(T1) >= Key(T2) end, Ts)),
+            case {ex_sign(Ex, A), M} of
+                {pos, _} -> {ok, 0};
+                {zero, 0} -> {ok, C};
+                _ -> {ok, {diverges, {mul, [C] ++ [{pow, {sym, X}, Ex} || Ex =/= 0] ++ [{pow, {log, {sym, X}}, M} || M > 0]}}}
+            end;
+        {ok, {error, _} = Err} -> Err;
+        Err -> Err
+    end.
+
+ex_value(K, A) when is_integer(K) -> ex_value({rat, K, 1}, A);
+ex_value({rat, P, Q}, infinity) -> -P / Q;
+ex_value({rat, P, Q}, _) -> P / Q.
+
+ex_sign(Ex, A) ->
+    V = ex_value(Ex, A),
+    if V > 0 -> pos; V == 0 -> zero; true -> neg end.
 
 gcd_out(G, Vars, Ctx) -> output_deferred(pq_sym_norm:norm(pq_sym_gcd:to_ast(G, Vars), Ctx), Ctx).
 
