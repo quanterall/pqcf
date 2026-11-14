@@ -108,6 +108,15 @@ the public API is additive.
 
 ### Changed
 
+- **The symbolic engine, faster where FORM was ahead** (found by profiling the FORM comparison, 14 Nov 2026):
+  - a result kept in Rust comes back as its handle, its node count taken in Rust (`pq_nif:rpoly_nodes/2`, exactly
+    `pq_symbolic:size/1`, so `max_expr_nodes` refuses at the same count, before building), and is built in the caller
+    with a faster `rpoly_to_ast`;
+  - powers of a base of up to 64 terms multiply by merging instead of hashing;
+  - the permanent of a matrix of symbols with integer coefficients runs in Rust (`pq_sym_poly:kernel_permanent/3`).
+
+  Results unchanged. Old against new on one core, same load: powers 1.6-2.2x faster, the sparse product 1.6-1.9x,
+  permanents 2.9-5.3x (now faster than FORM), the 8-mode mesh 1.5x.
 - Programs are evaluated over finite fields in Montgomery arithmetic (`Mont` in `ffslp.rs`: three 64-bit products per
   multiplication, no 128-bit division, which is a library call on aarch64): a double-box sample 2.86 -> 2.14 ms,
   the same values.
