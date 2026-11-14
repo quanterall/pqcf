@@ -17,6 +17,12 @@ the public API is additive.
     - Chinese remaindering in Erlang;
     - each candidate accepted only when it divides both inputs exactly.
   - Square-free decomposition, `pq_sym_gcd:squarefree/1` (Yun's algorithm, contents recursively).
+- **Holographic renormalisation, first result** (SY2 phase 5):
+  - **What:** the AdS_5 black brane's free energy from its renormalised on-shell action. Bulk, Gibbons-Hawking and
+    counterterm, the eps^-4 divergences cancelling.
+  - **Result:** F = -L^3/(16 pi G z_h^4) = -pi^2 N^2 T^4/8 (`comparison/holographic/BRANE.md`,
+    `test/pq_holo_tests.erl`).
+  - **New:** `pq_symbolic:integrate/2` for Laurent polynomials, the first case of integration.
 - **Curvature in components** (SY2 phase 4): `pq_geometry:curvature/2`.
   - **Output:** the inverse metric, Christoffel symbols, Riemann, Ricci, scalar curvature, Einstein, a Weyl test and
     the Kretschmann scalar, in any dimension.

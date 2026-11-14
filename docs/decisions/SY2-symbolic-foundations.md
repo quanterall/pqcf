@@ -202,3 +202,17 @@ Bessel's equation.
 
   Each takes a fraction of a second. Open in phase 4: abstract indices with Butler-Portugal canonicalisation,
   against Cadabra2.
+- **14 Nov 2026: phase 5, the black brane's free energy** (`comparison/holographic/brane.erl`, `BRANE.md`,
+  `test/pq_holo_tests.erl`).
+  - **Computed in PQCF, from the metric up:**
+    - the curvature;
+    - sqrt(g) and the bulk integral;
+    - the extrinsic curvature;
+    - the Gibbons-Hawking term and the counterterm (3/L) sqrt(gamma);
+    - the series in the cutoff, where the eps^-4 terms (1/8 - 1/2 + 3/8) cancel;
+    - the finite limit -L^3/(16 pi G z_h^4), which is -pi^2 N^2 T^4/8.
+  - **Two limitations found:**
+    - the engine does not cancel f f^-1 inside an expanded product (det g goes through `cancel` first);
+    - `pq_series` keeps sqrt(L^8) as an atom, since it does not know the sign of L (sqrt(gamma) is factored by hand
+      as sqrt(A^4) sqrt(f)).
+  - **Open in phase 5:** the Weyl anomaly a = c = N^2/4 (a curved boundary).

@@ -14,7 +14,7 @@
          pretty/1, pretty/2, to_latex/1, parse/1, parse/2,
          resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, gaussian_evolve/2, is_unitary/1, is_unitary/2, permanent/1, bs_probability/3, compile/2, compile/3, glynn_reference/2, eval_slp/2, eval_batch/2, equiv/3,
          substitute/2, gcd/2, gcd/3, factor/1, factor/2, cancel/1, cancel/2, numer_denom/1, numer_denom/2,
-         series/3, series/4, limit/3, limit/4, evaluate_digits/3]).
+         series/3, series/4, limit/3, limit/4, evaluate_digits/3, integrate/2]).
 
 -export_type([sym_expr/0, binding/0, opts/0]).
 
@@ -604,6 +604,41 @@ ex_sign(Ex, A) ->
 %% polygamma, Bessel J and Y, Laguerre, 2F1 (pq_mp; checked against mpmath to 48 digits).
 -spec evaluate_digits(sym_expr(), map(), pos_integer()) -> result(string()).
 evaluate_digits(E, Bindings, D) when is_integer(D), D > 0 -> pq_mp:evaluate(E, Bindings, D).
+
+%% An antiderivative in X of a Laurent polynomial in X (a sum of C X^k, k an integer, C free of X): X^(k+1)/(k+1), and
+%% C log(X) for k = -1 (decision record SY2; the first case of integration). Anything else:
+%% {error, {symbolic_unsupported, #{integrate => Term}}}. The power terms are canonical; a log(X) term is appended as
+%% {mul, [C, {log, X}]} (the canonical form has no log).
+-spec integrate(sym_expr(), atom()) -> result(sym_expr()).
+integrate(E, X) ->
+    case canonicalise(E) of
+        {ok, C} ->
+            Terms = case C of {add, Ts} -> Ts; 0 -> []; One -> [One] end,
+            try
+                Parts = [integrate_term(T, X) || T <- Terms],
+                % the log(X) terms stay outside the canonical form, which has no log (their coefficients canonical)
+                {Logs, Pows} = lists:partition(fun({log, _}) -> true; (_) -> false end, Parts),
+                {ok, P} = canonicalise({add, [E2 || {pow_term, E2} <- Pows]}),
+                LogTerms = [begin {ok, Cc} = canonicalise({mul, Cs}), {mul, [Cc, {log, {sym, X}}]} end || {log, Cs} <- Logs],
+                {ok, case LogTerms of [] -> P; _ -> {add, [P | LogTerms]} end}
+            catch throw:{integrate, Bad} -> {error, {symbolic_unsupported, #{integrate => Bad}}}
+            end;
+        Err -> Err
+    end.
+
+integrate_term(T, X) ->
+    Fs = case T of {mul, L} -> L; _ -> [T] end,
+    {Xs, Cs} = lists:partition(fun(F) -> lists:member(X, raw_symbols(F)) end, Fs),
+    K = lists:foldl(fun({sym, Y}, Acc) when Y =:= X -> Acc + 1;
+                       ({pow, {sym, Y}, N}, Acc) when Y =:= X, is_integer(N) -> Acc + N;
+                       (F, _) -> throw({integrate, F})
+                    end, 0, Xs),
+    case K of
+        -1 -> {log, Cs};
+        _ ->
+            Coef = case K + 1 of 1 -> 1; -1 -> -1; M when M > 0 -> {rat, 1, M}; M -> {rat, -1, -M} end,
+            {pow_term, {mul, Cs ++ [Coef, {pow, {sym, X}, K + 1}]}}
+    end.
 
 gcd_out(G, Vars, Ctx) -> output_deferred(pq_sym_norm:norm(pq_sym_gcd:to_ast(G, Vars), Ctx), Ctx).
 
