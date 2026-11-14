@@ -54,3 +54,17 @@ hard_wall_spectrum_test_() ->
              ?assert(agree(E, pq_mp:to_string(pq_mp:mul(J, J, 130), 30), 28), {K, E})
          end || {K, E} <- lists:enumerate(1, Es)]
     end}.
+
+%% the second, independent solver (Chebyshev collocation, inverse iteration) agrees with the closed forms to 25 digits
+collocation_test_() ->
+    {timeout, 600, fun() ->
+        Vs = {add, [{pow, ?Z, 2}, {mul, [{rat, 3, 4}, {pow, ?Z, -2}]}]},
+        {ok, Es} = pq_ode:eigenvalues_collocation(Vs, z, #{right => {dirichlet, 10}, range => {1, 17}, grid => 64, digits => 25, points => 64}),
+        [?assert(agree(E, pq_mp:to_string(pq_mp:from(4 * (N + 1), 120), 25), 25), {soft, N, E}) || {N, E} <- lists:enumerate(0, Es)],
+        Vh = {mul, [{rat, 3, 4}, {pow, ?Z, -2}]},
+        {ok, Eh} = pq_ode:eigenvalues_collocation(Vh, z, #{right => {robin, 1, {1, 2}, 1}, range => {1, 80}, grid => 80, digits => 25, points => 32}),
+        [begin
+             J = pq_mp:besselj_zero(0, K, 130),
+             ?assert(agree(E, pq_mp:to_string(pq_mp:mul(J, J, 130), 25), 24), {hard, K, E})
+         end || {K, E} <- lists:enumerate(1, Eh)]
+    end}.

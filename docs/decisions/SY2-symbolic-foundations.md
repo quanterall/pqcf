@@ -187,8 +187,9 @@ Bessel's equation.
     m_n^2 = 4(n+1) exactly (hep-ph/0602229).
   - **Hard wall:** from the action, PQCF derives V = 3/(4 z^2), and the eigenvalues equal j_(0,n)^2 to 30 digits
     (hep-ph/0501128). The zeros come from `pq_mp:besselj_zero/3`, independent of the ODE solver.
+  - **Second solver:** Chebyshev collocation of phi / z^s with inverse iteration (`pq_ode:eigenvalues_collocation/3`).
+    It agrees with the closed forms to 25 digits on both walls (64 and 32 points), so the plan's "two methods that
+    must agree" holds.
   - **Open in phase 3:**
-    - the second eigenvalue solver (Chebyshev collocation) that the plan asks for: the two acceptance checks so far
-      rest on one solver and on exact references;
     - PSLQ;
     - the hard wall's pion and a_1 sector, with the paper's fitted observables.

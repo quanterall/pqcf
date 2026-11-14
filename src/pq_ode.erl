@@ -11,8 +11,12 @@
 %%   - At the right end: phi = 0 (Dirichlet), or alpha phi + beta phi' = 0 (Robin).
 %%   - The eigenvalues are bracketed on a grid at low precision, then refined by the Illinois method at full
 %%     precision.
+%% - eigenvalues_collocation/3: the same eigenvalues by an independent method, for the left end at a regular singular
+%%   point 0. phi = z^s u, u analytic, is discretised by Chebyshev-Lobatto collocation on [0, B]; the equation divided
+%%   by z, (D/z) u'' + 2 s d u' + ((s(s-1) d - N)/z) u + lambda z d u = 0 (D = z^2 d), makes z = 0 its natural regularity
+%%   condition; the generalised eigenproblem is solved by shifted inverse iteration in arbitrary precision.
 -module(pq_ode).
--export([euler_lagrange/5, schrodinger/5, eigenvalues/3]).
+-export([euler_lagrange/5, schrodinger/5, eigenvalues/3, eigenvalues_collocation/3]).
 
 %%% Symbolic: Euler-Lagrange and Schrödinger form
 
@@ -369,3 +373,171 @@ synth([H | T], A, W) ->
                                     {[Prev | Qs], V}
                             end, {[], H}, T),
     {lists:reverse(Q), Last}.
+
+%%% Numeric: eigenvalues by Chebyshev collocation and inverse iteration (independent of the shooting method)
+
+%% Opts as for eigenvalues/3 (left must be {frobenius, 0}), plus points => N (default 64); the starting shifts are
+%% the midpoints of the low-precision brackets (only where to look: the values are the collocation's)
+-spec eigenvalues_collocation(term(), atom(), map()) -> {ok, [string()]} | {error, term()}.
+eigenvalues_collocation(V0, Z, Opts) ->
+    try
+        Params = maps:get(params, Opts, #{}),
+        V = case map_size(Params) of
+                0 -> V0;
+                _ -> {ok, S0} = pq_symbolic:subs(V0, maps:map(fun(_, X) -> num_ast(X) end, Params)), S0
+            end,
+        {ok, {N, Dd}} = pq_symbolic:numer_denom(V),
+        Np = coeffs(N, Z), Dp = coeffs(Dd, Z),
+        Digits = maps:get(digits, Opts, 30),
+        P = ceil(Digits * 3.3219280948873622) + 24,
+        W = P + 32,
+        Prob = #{n => Np, d => Dp, roots => roots(Dp), left => {frobenius, 0}, right => maps:get(right, Opts)},
+        {Lo, Hi} = maps:get(range, Opts),
+        Count = maps:get(count, Opts, 1000),
+        Shifts = [(A + B) / 2 || {A, B} <- lists:sublist(brackets(Prob, Lo, Hi, maps:get(grid, Opts, 200), 80), Count)],
+        {A0, A1} = collocation(Np, Dp, maps:get(right, Opts), maps:get(points, Opts, 64), W),
+        Es = [inverse_iteration(A0, A1, pq_mp:from(S, W), W, P) || S <- Shifts],
+        {ok, [pq_mp:to_string(E, Digits) || E <- Es]}
+    catch throw:{ode, Why} -> {error, {symbolic_unsupported, #{eigenvalues => Why}}}
+    end.
+
+%% the matrices A0, A1 (lists of rows of mp) of the collocation: A0 u + lambda A1 u = 0
+collocation(Np, Dp, Right, N, W) ->
+    case Dp of
+        [{0, _}, {0, _}, {D2n, _} | _] when D2n =/= 0 -> ok;
+        _ -> throw({ode, {not_a_double_pole_at_0, Dp}})
+    end,
+    B = case Right of {dirichlet, Bb} -> Bb; {robin, Bb, _, _} -> Bb end,
+    L = pq_mp:from(B, W),
+    Pi = pq_mp:pi(W),
+    % Chebyshev-Lobatto points x_j = cos(pi j / N) on [-1, 1]; z_j = L (1 - x_j) / 2, from 0 to L
+    Xs = [pq_mp:cos(pq_mp:divide(pq_mp:mul(pq_mp:from(J, W), Pi, W), pq_mp:from(N, W), W), W) || J <- lists:seq(0, N)],
+    Zs = [pq_mp:ldexp(pq_mp:mul(L, pq_mp:sub({mp, 1, 0}, X, W), W), -1) || X <- Xs],
+    Dx = cheb_matrix(Xs, N, W),
+    % d/dz = -(2/L) d/dx
+    F = pq_mp:neg(pq_mp:divide({mp, 2, 0}, L, W)),
+    D1 = [[pq_mp:mul(F, E, W) || E <- Row] || Row <- Dx],
+    D2 = matmul(D1, D1, W),
+    % the indicial exponent: d0 s (s - 1) - N0 = 0, the larger root
+    Dc = [pq_mp:from(X, W) || X <- lists:nthtail(2, Dp)],      % d(z) = D / z^2
+    Nc = [pq_mp:from(X, W) || X <- Np],
+    D0 = hd(Dc), N0 = hd(Nc),
+    Disc = pq_mp:add({mp, 1, 0}, pq_mp:ldexp(pq_mp:divide(N0, D0, W), 2), W),
+    S = pq_mp:ldexp(pq_mp:add({mp, 1, 0}, pq_mp:sqrt(Disc, W), W), -1),
+    % polynomials: D/z = z d, 2 s d, (s(s-1) d - N)/z, z d
+    Ss1 = pq_mp:mul(S, pq_mp:sub(S, {mp, 1, 0}, W), W),
+    Q0 = padd([pq_mp:mul(Ss1, X, W) || X <- Dc], [pq_mp:neg(X) || X <- Nc], W),   % s(s-1) d - N, Q0(0) = 0
+    Qz = tl(Q0),                                                                 % divided by z
+    Zd = [{mp, 0, 0} | Dc],                                                      % z d
+    TwoSd = [pq_mp:mul(pq_mp:ldexp(S, 1), X, W) || X <- Dc],
+    Ev = fun(Poly, Zj) -> horner(Poly, Zj, W) end,
+    Rows = lists:zip3(lists:seq(0, N), Zs, lists:zip(D1, D2)),
+    A0 = [case J of
+              N -> bc_row(Right, N, S, L, lists:nth(N + 1, D1), W);
+              _ ->
+                  C2 = Ev(Zd, Zj), C1 = Ev(TwoSd, Zj), C0 = Ev(Qz, Zj),
+                  [pq_mp:add(pq_mp:add(pq_mp:mul(C2, E2, W), pq_mp:mul(C1, E1, W), W),
+                             case K of J -> C0; _ -> {mp, 0, 0} end, W)
+                   || {K, E1, E2} <- lists:zip3(lists:seq(0, N), R1, R2)]
+          end || {J, Zj, {R1, R2}} <- Rows],
+    A1 = [case J of
+              N -> [{mp, 0, 0} || _ <- lists:seq(0, N)];
+              _ -> C = Ev(Zd, Zj), [case K of J -> C; _ -> {mp, 0, 0} end || K <- lists:seq(0, N)]
+          end || {J, Zj, _} <- Rows],
+    {A0, A1}.
+
+bc_row({dirichlet, _}, N, _, _, _, _) -> [case K of N -> {mp, 1, 0}; _ -> {mp, 0, 0} end || K <- lists:seq(0, N)];
+bc_row({robin, _, Al, Be}, N, S, L, D1row, W) ->
+    % alpha phi + beta phi' = z^s [ (alpha + beta s / z) u + beta u' ] at z = L
+    A = pq_mp:add(pq_mp:from(Al, W), pq_mp:divide(pq_mp:mul(pq_mp:from(Be, W), S, W), L, W), W),
+    Bm = pq_mp:from(Be, W),
+    [pq_mp:add(pq_mp:mul(Bm, E, W), case K of N -> A; _ -> {mp, 0, 0} end, W) || {K, E} <- lists:enumerate(0, D1row)].
+
+%% the Chebyshev differentiation matrix on the points Xs (Trefethen, Spectral Methods in MATLAB, cheb.m), the
+%% diagonal as minus the row sums
+cheb_matrix(Xs, N, W) ->
+    C = fun(I) -> (case I of 0 -> 2; N -> 2; _ -> 1 end) * (case I rem 2 of 0 -> 1; 1 -> -1 end) end,
+    Xt = list_to_tuple(Xs),
+    Off = [[case I of
+                J -> {mp, 0, 0};
+                _ -> pq_mp:divide(pq_mp:from({C(I) * sign(C(J)), abs(C(J))}, W),
+                                  pq_mp:sub(element(I + 1, Xt), element(J + 1, Xt), W), W)
+            end || J <- lists:seq(0, N)] || I <- lists:seq(0, N)],
+    [begin
+         Sum = lists:foldl(fun(E, A) -> pq_mp:add(A, E, W) end, {mp, 0, 0}, Row),
+         setnth(I + 1, Row, pq_mp:neg(Sum))
+     end || {I, Row} <- lists:enumerate(0, Off)].
+
+sign(X) when X < 0 -> -1;
+sign(_) -> 1.
+
+setnth(1, [_ | T], X) -> [X | T];
+setnth(K, [H | T], X) -> [H | setnth(K - 1, T, X)].
+
+matmul(A, B, W) ->
+    Bt = transpose(B),
+    [[dot(Row, Col, W) || Col <- Bt] || Row <- A].
+
+transpose([[] | _]) -> [];
+transpose(M) -> [[hd(R) || R <- M] | transpose([tl(R) || R <- M])].
+
+dot(A, B, W) -> lists:foldl(fun({X, Y}, S) -> pq_mp:add(S, pq_mp:mul(X, Y, W), W) end, {mp, 0, 0}, lists:zip(A, B)).
+
+padd(A, B, W) ->
+    N = max(length(A), length(B)),
+    Pad = fun(L) -> L ++ [{mp, 0, 0} || _ <- lists:seq(1, N - length(L))] end,
+    [pq_mp:add(X, Y, W) || {X, Y} <- lists:zip(Pad(A), Pad(B))].
+
+horner(Poly, X, W) -> lists:foldl(fun(C, Acc) -> pq_mp:add(pq_mp:mul(Acc, X, W), C, W) end, {mp, 0, 0}, lists:reverse(Poly)).
+
+%% (A0 + sigma A1) y = A1 x; lambda = sigma - x_k / y_k (k the largest component); sigma := lambda, repeated
+inverse_iteration(A0, A1, Sigma0, W, P) ->
+    N = length(A0),
+    X0 = [{mp, 1, 0} || _ <- lists:seq(1, N)],
+    inv_it(A0, A1, Sigma0, X0, W, P, 0).
+
+inv_it(_, _, Sigma, _, _, _, 60) -> Sigma;
+inv_it(A0, A1, Sigma, X, W, P, I) ->
+    M = [[pq_mp:add(E0, pq_mp:mul(Sigma, E1, W), W) || {E0, E1} <- lists:zip(R0, R1)] || {R0, R1} <- lists:zip(A0, A1)],
+    Rhs = [dot(R1, X, W) || R1 <- A1],
+    Y = solve(M, Rhs, W),
+    {K, _} = lists:foldl(fun({J, Yj}, {Kb, Mb}) -> case abs(pq_mp:to_float(Yj)) > Mb of true -> {J, abs(pq_mp:to_float(Yj))}; false -> {Kb, Mb} end end,
+                         {1, -1.0}, lists:enumerate(Y)),
+    Lambda = pq_mp:sub(Sigma, pq_mp:divide(lists:nth(K, X), lists:nth(K, Y), W), W),
+    Yk = lists:nth(K, Y),
+    X2 = [pq_mp:divide(Yj, Yk, W) || Yj <- Y],
+    Change = pq_mp:sub(Lambda, Sigma, W),
+    case small(Change, Lambda, P) andalso I > 1 of
+        true -> Lambda;
+        false -> inv_it(A0, A1, Lambda, X2, W, P, I + 1)
+    end.
+
+%% Gaussian elimination with partial pivoting
+solve(M, B, W) ->
+    Aug = [Row ++ [Bi] || {Row, Bi} <- lists:zip(M, B)],
+    back(elim(Aug, W), W).
+
+elim([], _) -> [];
+elim(Rows, W) ->
+    {Piv, Rest} = pivot(Rows),
+    [P0 | Pt] = Piv,
+    Red = [begin
+               [R0 | Rt] = R,
+               F = pq_mp:divide(R0, P0, W),
+               [pq_mp:sub(E, pq_mp:mul(F, Pe, W), W) || {E, Pe} <- lists:zip(Rt, Pt)]
+           end || R <- Rest],
+    [Piv | elim(Red, W)].
+
+pivot(Rows) ->
+    {_, I} = lists:max([{abs(pq_mp:to_float(hd(R))), I} || {I, R} <- lists:enumerate(Rows)]),
+    Piv = lists:nth(I, Rows),
+    {Piv, lists:sublist(Rows, I - 1) ++ lists:nthtail(I, Rows)}.
+
+%% the triangular rows (each one shorter, the right-hand side last) back-substituted
+back(Tri, W) ->
+    lists:foldr(fun(Row, Xs) ->
+                        [Diag | Rest] = Row,
+                        {Coefs, [Rhs]} = lists:split(length(Rest) - 1, Rest),
+                        S = lists:foldl(fun({C, X}, A) -> pq_mp:add(A, pq_mp:mul(C, X, W), W) end, {mp, 0, 0}, lists:zip(Coefs, Xs)),
+                        [pq_mp:divide(pq_mp:sub(Rhs, S, W), Diag, W) | Xs]
+                end, [], Tri).
