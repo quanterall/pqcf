@@ -7,6 +7,18 @@ the public API is additive.
 
 ### Added
 
+- **Master equations** (`pq_lindblad`, quantum optics Q2).
+  - **Matrices:** pq_qop operators in a truncated basis (Fock states of each mode, levels of each atom), the
+    coefficients evaluated at given parameters; the Liouvillian as a sparse superoperator.
+  - **Time evolution:** the Schrödinger and master equations by the Taylor series to the working precision, in
+    arbitrary precision (pq_mp); expectation values.
+  - **Steady states** by sparse Gaussian elimination; **quantum trajectories** (Monte Carlo wave functions,
+    Dalibard, Castin and Mølmer, [PRL 68, 580](https://doi.org/10.1103/PhysRevLett.68.580)).
+  - **Checks, to 100-200 bits:** vacuum Rabi oscillations cos^2(g t); Jaynes-Cummings collapse and revival against
+    the closed-form sum of Eberly, Narozhny and Sanchez-Mondragon ([PRL 44, 1323](https://doi.org/10.1103/PhysRevLett.44.1323));
+    a damped coherent state, alpha e^(-kappa t/2); atomic decay e^(-gamma t); the steady state of resonance
+    fluorescence (Mollow) and of the driven damped cavity; the average of 400 trajectories against the master
+    equation, within four standard errors.
 - **Operator algebra for quantum optics** (`pq_qop`, the first step of quantum optics in PQCF).
   - **Objects:** bosonic modes and N-level atoms (sigma^-, sigma^+, sigma_z for two levels), with exact coefficients.
   - **Canonical form:** normal-ordered within each mode, subsystems commuting, the ground projector eliminated by
