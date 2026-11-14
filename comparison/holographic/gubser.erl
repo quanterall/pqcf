@@ -106,6 +106,6 @@ main(Dir) ->
           "  with h halved.\n\n",
           "## Results (T_c: the temperature of the minimum of c_s^2 on this grid)\n\n",
           "| phi_H | T/T_c | c_s^2 |\n| --- | --- | --- |\n", Table,
-          io_lib:format("~nTime: ~.0f s.~n", [T / 1.0e6])],
+          io_lib:format("~nTime: ~.1f s.~n", [T / 1.0e6])],
     ok = file:write_file(filename:join(Dir, "GUBSER.md"), unicode:characters_to_binary(Md)),
     io:format("~s", [Md]).
