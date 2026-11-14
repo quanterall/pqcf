@@ -193,3 +193,12 @@ Bessel's equation.
   - **PSLQ** (`pq_mp:pslq/3`): integer relations among high-precision numbers, tested on known identities.
   - **Open in phase 3:**
     - the hard wall's pion and a_1 sector, with the paper's fitted observables.
+- **14 Nov 2026: phase 4, component tensors** (`pq_geometry:curvature/2`). The acceptance checks of phase 4 that
+  concern components pass exactly:
+  - AdS_5: R = -20/L^2, R_ab = -(4/L^2) g_ab, Weyl tensor zero (Kretschmann 40/L^4);
+  - the AdS_5 black brane solves Einstein's equations with Lambda = -6/L^2, and its Hawking temperature is
+    T = 1/(pi z_h); its Kretschmann scalar is (40 + 72 z^8/z_h^8)/L^4;
+  - Schwarzschild, in x = cos theta: Ricci flat, Kretschmann 48 M^2/r^6.
+
+  Each takes a fraction of a second. Open in phase 4: abstract indices with Butler-Portugal canonicalisation,
+  against Cadabra2.

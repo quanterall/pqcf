@@ -17,6 +17,15 @@ the public API is additive.
     - Chinese remaindering in Erlang;
     - each candidate accepted only when it divides both inputs exactly.
   - Square-free decomposition, `pq_sym_gcd:squarefree/1` (Yun's algorithm, contents recursively).
+- **Curvature in components** (SY2 phase 4): `pq_geometry:curvature/2`.
+  - **Output:** the inverse metric, Christoffel symbols, Riemann, Ricci, scalar curvature, Einstein, a Weyl test and
+    the Kretschmann scalar, in any dimension.
+  - **Components:** exact rational functions in normal form.
+  - **Checks:**
+    - AdS_5: R = -20/L^2, R_ab = -(4/L^2) g_ab, Weyl 0, Kretschmann 40/L^4;
+    - the black brane solves G_ab + Lambda g_ab = 0 with Lambda = -6/L^2, has Kretschmann
+      (40 + 72 z^8/z_h^8)/L^4, and T = 1/(pi z_h);
+    - Schwarzschild: Ricci flat, Kretschmann 48 M^2/r^6.
 - **Equations of motion and spectra** (SY2 phase 3): `pq_ode`.
   - `euler_lagrange/5` and `schrodinger/5`: from a mode's Lagrangian to -phi'' + V phi = lambda phi, symbolically.
   - `eigenvalues/3`: the spectrum to any number of digits, for V a rational function. It uses a Frobenius start at a
