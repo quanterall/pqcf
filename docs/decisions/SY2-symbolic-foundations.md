@@ -175,5 +175,10 @@ Bessel's equation.
   - **Functions:** elementary ones, Bessel J_nu and Y_n, Laguerre, 2F1 and Gamma.
   - **Check:** the 32 expansions of `test/fixtures/gt_series.json` (SymPy 1.14, mpmath) agree in every coefficient.
   - **Convention:** the terms returned have exponents below N. SymPy also keeps x^N log(x)^m.
-  - **Next:** high-precision evaluation (the functions and the atoms to 50 digits against mpmath; the zeros of
-    Bessel functions), then phase 3.
+- **14 Nov 2026: phase 2, second part: high-precision evaluation** (`pq_symbolic:evaluate_digits/3`, `pq_mp`).
+  - **Coverage:** the constants, the elementary and special functions, every atom the series produce, and the zeros
+    of J_nu.
+  - **Check:** against mpmath 1.3 to 48 digits (37 values, 8 zeros: `test/fixtures/gt_mp.json`), among them the
+    phase 3 hard-wall values, the zeros of J_0.
+  - **Phase 2 done.**
+  - **Next:** phase 3 (Euler-Lagrange equations, Schrödinger form, two eigenvalue solvers; the soft and hard walls).

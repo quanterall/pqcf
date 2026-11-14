@@ -14,7 +14,7 @@
          pretty/1, pretty/2, to_latex/1, parse/1, parse/2,
          resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, gaussian_evolve/2, is_unitary/1, is_unitary/2, permanent/1, bs_probability/3, compile/2, compile/3, glynn_reference/2, eval_slp/2, eval_batch/2, equiv/3,
          substitute/2, gcd/2, gcd/3, factor/1, factor/2, cancel/1, cancel/2, numer_denom/1, numer_denom/2,
-         series/3, series/4, limit/3, limit/4]).
+         series/3, series/4, limit/3, limit/4, evaluate_digits/3]).
 
 -export_type([sym_expr/0, binding/0, opts/0]).
 
@@ -598,6 +598,12 @@ ex_value({rat, P, Q}, _) -> P / Q.
 ex_sign(Ex, A) ->
     V = ex_value(Ex, A),
     if V > 0 -> pos; V == 0 -> zero; true -> neg end.
+
+%% The value of E to D significant decimal digits (decision record SY2, phase 2): {ok, "d.ddd...e±k"}, the symbols
+%% bound by Bindings to exact or floating-point numbers. Elementary functions, pi, Euler's gamma, zeta(k), Gamma,
+%% polygamma, Bessel J and Y, Laguerre, 2F1 (pq_mp; checked against mpmath to 48 digits).
+-spec evaluate_digits(sym_expr(), map(), pos_integer()) -> result(string()).
+evaluate_digits(E, Bindings, D) when is_integer(D), D > 0 -> pq_mp:evaluate(E, Bindings, D).
 
 gcd_out(G, Vars, Ctx) -> output_deferred(pq_sym_norm:norm(pq_sym_gcd:to_ast(G, Vars), Ctx), Ctx).
 

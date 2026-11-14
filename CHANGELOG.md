@@ -17,6 +17,13 @@ the public API is additive.
     - Chinese remaindering in Erlang;
     - each candidate accepted only when it divides both inputs exactly.
   - Square-free decomposition, `pq_sym_gcd:squarefree/1` (Yun's algorithm, contents recursively).
+- **Arbitrary-precision evaluation** (SY2 phase 2): `pq_symbolic:evaluate_digits/3`, `pq_mp`.
+  - **Numbers:** binary floating point on Erlang's integers.
+  - **Constants:** pi, log 2, Euler's gamma (Brent-McMillan), zeta(k) (Borwein).
+  - **Functions:** exp, log, sin, cos, powers; Gamma and polygamma (Stirling with exact Bernoulli numbers); Bessel J
+    and Y; Laguerre; 2F1.
+  - **Bessel zeros:** `pq_mp:besselj_zero/3`.
+  - **Checked against mpmath 1.3:** 37 values and 8 zeros to 48 digits (`test/oracle/gt_mp.py`).
 - **Truncated series and limits** (SY2 phase 2): `pq_symbolic:series/3,4` and `limit/3,4`, `pq_series`.
   - **Terms:** C x^e log(x)^m, e rational, at 0, at a point or at infinity.
   - **Coefficients:** exact rational functions of the other symbols. Constants that are not rational (log 2, pi,
