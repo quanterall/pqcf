@@ -1,0 +1,192 @@
+{
+ "meta": {
+  "host": "dgx-spark",
+  "date": "2026-11-14T2045Z",
+  "commit": "c0131ad",
+  "cpu": "Cortex-A725+Cortex-X925",
+  "core": 8
+ },
+ "versions": {
+  "pqcf": "1.4.0",
+  "qutip-default": "5.3.1",
+  "qutip-tight": "5.3.1"
+ },
+ "closed_form": [
+  {
+   "task": "rabi",
+   "tool": "pqcf",
+   "digits": 36,
+   "error": 2.74031160394494e-37,
+   "seconds": 0.00015
+  },
+  {
+   "task": "rabi",
+   "tool": "qutip-default",
+   "digits": 6,
+   "error": 9.005788473026504e-07,
+   "seconds": 0.00011393602471798658
+  },
+  {
+   "task": "rabi",
+   "tool": "qutip-tight",
+   "digits": 11,
+   "error": 1.0098410606054216e-12,
+   "seconds": 0.00028448004741221666
+  },
+  {
+   "task": "revival",
+   "tool": "pqcf",
+   "digits": 36,
+   "error": 4.403821451887245e-37,
+   "seconds": 0.0117
+  },
+  {
+   "task": "revival",
+   "tool": "qutip-default",
+   "digits": 5,
+   "error": 7.238098826499419e-06,
+   "seconds": 0.0011351360008120537
+  },
+  {
+   "task": "revival",
+   "tool": "qutip-tight",
+   "digits": 9,
+   "error": 1.2450738076293435e-10,
+   "seconds": 0.009961279924027622
+  },
+  {
+   "task": "cavity_decay",
+   "tool": "pqcf",
+   "digits": 36,
+   "error": 1.528698507222684e-37,
+   "seconds": 0.013734
+  },
+  {
+   "task": "cavity_decay",
+   "tool": "qutip-default",
+   "digits": 6,
+   "error": 1.7710015235480266e-07,
+   "seconds": 0.0003872639499604702
+  },
+  {
+   "task": "cavity_decay",
+   "tool": "qutip-tight",
+   "digits": 12,
+   "error": 2.1475096085719322e-13,
+   "seconds": 0.0009548799134790897
+  },
+  {
+   "task": "fluorescence",
+   "tool": "pqcf",
+   "digits": 36,
+   "error": 4.736842105263159e-37,
+   "seconds": 0.00051
+  },
+  {
+   "task": "fluorescence",
+   "tool": "qutip-default",
+   "digits": 16,
+   "error": 9.394194823751324e-17,
+   "seconds": 0.037256320007145405
+  },
+  {
+   "task": "fluorescence",
+   "tool": "qutip-tight",
+   "digits": 16,
+   "error": 9.394194823751324e-17,
+   "seconds": 0.03750134399160743
+  }
+ ],
+ "damped_jc": [
+  {
+   "size": 4,
+   "dim": 10,
+   "pqcf": {
+    "seconds": 0.024443
+   },
+   "qutip-default": {
+    "seconds": 0.00071412802208215,
+    "diff": 1.3870770028769738e-07
+   },
+   "qutip-tight": {
+    "seconds": 0.002038575941696763,
+    "diff": 1.3992605022538332e-13
+   }
+  },
+  {
+   "size": 8,
+   "dim": 18,
+   "pqcf": {
+    "seconds": 0.093617
+   },
+   "qutip-default": {
+    "seconds": 0.0014475680654868484,
+    "diff": 8.037545332423633e-08
+   },
+   "qutip-tight": {
+    "seconds": 0.004784255987033248,
+    "diff": 3.721672626910478e-14
+   }
+  },
+  {
+   "size": 12,
+   "dim": 26,
+   "pqcf": {
+    "seconds": 0.345915
+   },
+   "qutip-default": {
+    "seconds": 0.002771920058876276,
+    "diff": 5.633058129208541e-08
+   },
+   "qutip-tight": {
+    "seconds": 0.008890416007488966,
+    "diff": 1.2765150410024754e-14
+   }
+  },
+  {
+   "size": 16,
+   "dim": 34,
+   "pqcf": {
+    "seconds": 1.080228
+   },
+   "qutip-default": {
+    "seconds": 0.004557376028969884,
+    "diff": 7.629948777486199e-08
+   },
+   "qutip-tight": {
+    "seconds": 0.014505743980407715,
+    "diff": 6.264195418721249e-15
+   }
+  },
+  {
+   "size": 24,
+   "dim": 50,
+   "pqcf": {
+    "seconds": 2.687063
+   },
+   "qutip-default": {
+    "seconds": 0.010038544074632227,
+    "diff": 1.13072684308712e-07
+   },
+   "qutip-tight": {
+    "seconds": 0.027749391971156,
+    "diff": 7.780853674397576e-14
+   }
+  },
+  {
+   "size": 32,
+   "dim": 66,
+   "pqcf": {
+    "seconds": 4.864108
+   },
+   "qutip-default": {
+    "seconds": 0.01735385600477457,
+    "diff": 1.6925354123488027e-07
+   },
+   "qutip-tight": {
+    "seconds": 0.051776624051854014,
+    "diff": 6.100376729322846e-14
+   }
+  }
+ ]
+}

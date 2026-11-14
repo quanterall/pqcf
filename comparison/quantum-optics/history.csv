@@ -1,0 +1,13 @@
+date,host,commit,tool,task,digits,seconds
+2026-11-14T2045Z,dgx-spark,c0131ad,pqcf,rabi,36,0.00015
+2026-11-14T2045Z,dgx-spark,c0131ad,qutip-default,rabi,6,0.000113936
+2026-11-14T2045Z,dgx-spark,c0131ad,qutip-tight,rabi,11,0.00028448
+2026-11-14T2045Z,dgx-spark,c0131ad,pqcf,revival,36,0.0117
+2026-11-14T2045Z,dgx-spark,c0131ad,qutip-default,revival,5,0.00113514
+2026-11-14T2045Z,dgx-spark,c0131ad,qutip-tight,revival,9,0.00996128
+2026-11-14T2045Z,dgx-spark,c0131ad,pqcf,cavity_decay,36,0.013734
+2026-11-14T2045Z,dgx-spark,c0131ad,qutip-default,cavity_decay,6,0.000387264
+2026-11-14T2045Z,dgx-spark,c0131ad,qutip-tight,cavity_decay,12,0.00095488
+2026-11-14T2045Z,dgx-spark,c0131ad,pqcf,fluorescence,36,0.00051
+2026-11-14T2045Z,dgx-spark,c0131ad,qutip-default,fluorescence,16,0.0372563
+2026-11-14T2045Z,dgx-spark,c0131ad,qutip-tight,fluorescence,16,0.0375013
