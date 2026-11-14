@@ -216,6 +216,7 @@ write_results(Dir, Env, Rows) ->
            "- **check:** `ok` means native and bridge are exactly equal and all term counts agree.\n\n",
            "![The latest run](charts/comparison.svg)\n\n",
            "![Before and after the algorithm change of 2 Nov 2026](charts/improvement.svg)\n\n",
+           "![Before and after the change of 14 Nov 2026](charts/improvement-2026-11-14.svg)\n\n",
            "![The ratio over the weekly runs](charts/history.svg)\n\n",
            "| Task | What | Terms | FORM | native | ratio | bridge | check |\n",
            "| --- | --- | --- | --- | --- | --- | --- | --- |\n", Table],
@@ -326,6 +327,7 @@ write_charts(Dir, Env, Rows) ->
                                   [{1, "FORM 5"}, {2, "PQCF native"}, {3, "PQCF bridge to FORM"}], Latest,
                                   axis_lo(Rows), axis_hi(Rows))),
     ok = file:write_file(filename:join([Dir, "charts", "improvement.svg"]), improvement()),
+    ok = file:write_file(filename:join([Dir, "charts", "improvement-2026-11-14.svg"]), improvement_nov14()),
     ok = file:write_file(filename:join([Dir, "charts", "history.svg"]), history(Dir)).
 
 %% the charts again from history.csv's latest run, without running the tasks (after a change to the charts); its
@@ -365,6 +367,19 @@ improvement() ->
     dot_plot("pq_symbolic before and after the algorithm change",
              "2 Nov 2026: multinomial powers, plain products, the pruned permanent. Same answers, exactly.",
              [{1, "FORM 5"}, {3, "PQCF before"}, {2, "PQCF now"}], Plot, -2, 3, 130).
+
+%% The change of 14 Nov 2026 (results kept in Rust brought back faster, powers by merging, the permanent in Rust):
+%% PQCF before and after, run one after the other on core 8 under the same load, best of 3 each (old 3d9b28f,
+%% new 79b87ad); FORM's time from the run of 14 Nov 2026 06:18 UTC on the same core.
+improvement_nov14() ->
+    Rows = [{"(1 + x1..x6)^16", 0.046, 0.120, 0.054}, {"(1 + x1..x6)^20", 0.143, 0.517, 0.317},
+            {"sparse product n = 8", 0.738, 1.293, 0.813}, {"permanent 8 x 8", 0.185, 0.557, 0.127},
+            {"mesh k = 8", 0.603, 0.879, 0.570}],
+    Plot = [{L, [{1, "FORM 5", Tf}, {3, "PQCF before", B}, {2, "PQCF now", A}], [times(B / A), " faster"]}
+            || {L, Tf, B, A} <- Rows],
+    dot_plot("pq_symbolic before and after the change of 14 Nov 2026",
+             "Results back from Rust faster, powers by merging, the permanent in Rust. Same answers, exactly.",
+             [{1, "FORM 5"}, {3, "PQCF before"}, {2, "PQCF now"}], Plot, -2, 1, 130).
 
 %% a speed-up for reading: 2.6x, 95x, 21,450x
 times(X) when X < 10 -> io_lib:format("~.1fx", [X]);
