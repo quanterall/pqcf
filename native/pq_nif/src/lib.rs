@@ -17,6 +17,7 @@ pub mod gpu;
 pub mod hcount;
 pub mod hafnian;
 pub mod mesh;
+pub mod mfactor;
 pub mod mgcd;
 pub mod num;
 pub mod perm;
@@ -1598,6 +1599,30 @@ fn mgcd_mod(env: Env, p: u64, nvars: usize, a: Vec<(Vec<u32>, u64)>, b: Vec<(Vec
         Some(g) => (atoms::ok(), g.terms).encode(env),
         None => atoms::failed().encode(env),
     }))
+}
+
+/// mfactor_lift(P, NVars, F, Pts, Us, Lc) -> {ok, [Terms]} | failed: Wang's multivariate Hensel lifting modulo the
+/// prime P of F = prod U_i, the U_i given at x_j = Pts (j = 2..NVars) as dense univariate polynomials, every U_i's
+/// leading coefficient in x1 forced to Lc (mfactor.rs; decision record SY2)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn mfactor_lift(env: Env, p: u64, nvars: usize, f: Vec<(Vec<u32>, u64)>, pts: Vec<u64>, us: Vec<Vec<u64>>, lc: Vec<(Vec<u32>, u64)>) -> NifResult<Term> {
+    if !(3..1 << 63).contains(&p) || pts.len() + 1 != nvars || f.iter().chain(&lc).any(|(e, _)| e.len() != nvars) || us.len() < 2 {
+        return Err(rustler::Error::BadArg);
+    }
+    Ok(guarded(env, || match mfactor::lift(p, nvars, f, pts, us, lc) {
+        Some(fs) => (atoms::ok(), fs).encode(env),
+        None => atoms::failed().encode(env),
+    }))
+}
+
+/// factor_mod(P, F, CountOnly) -> {Count, Factors}: the monic irreducible factors of a monic square-free F
+/// (dense, the constant first) modulo the odd prime P (mfactor.rs)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn factor_mod(p: u64, f: Vec<u64>, count_only: bool) -> NifResult<(usize, Vec<Vec<u64>>)> {
+    if !(3..1 << 63).contains(&p) || p.is_multiple_of(2) || f.len() < 2 || f.last() != Some(&1) {
+        return Err(rustler::Error::BadArg);
+    }
+    Ok(mfactor::factor_mod(p, f, count_only))
 }
 
 /// rpoly_scale(A, Re, Im, Den) -> {ok, Resource} | overflow: A times (Re + i Im) / Den

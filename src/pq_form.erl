@@ -12,7 +12,7 @@
 %% sum-of-terms output (megabytes, beyond pq_sym_parse's 64 KB) and returned in pq_symbolic's canonical form, so a
 %% result from FORM and one from pq_symbolic compare with =:=.
 -module(pq_form).
--export([available/0, available/1, version/0, expand/1, expand/2, permanent/1, permanent/2, gcd/2, gcd/3]).
+-export([available/0, available/1, version/0, expand/1, expand/2, permanent/1, permanent/2, gcd/2, gcd/3, factor/1, factor/2]).
 
 -define(TIMEOUT, 600000).
 
@@ -110,6 +110,49 @@ Drop E1,E2;
             {_, P} = pq_sym_gcd:primitive(pq_sym_gcd:from_ast(F, Vars)),
             pq_symbolic:canonicalise(pq_sym_gcd:to_ast(P, Vars), Opts);
         Err -> Err
+    end.
+
+%% the factorisation of a polynomial by FORM (#factdollar), in pq_symbolic:factor/1's form
+-spec factor(pq_symbolic:sym_expr()) -> {ok, {pq_symbolic:sym_expr(), [{pq_symbolic:sym_expr(), pos_integer()}]}} | {error, pq_core:reason()}.
+factor(E) -> factor(E, #{}).
+
+-spec factor(pq_symbolic:sym_expr(), map()) -> {ok, {pq_symbolic:sym_expr(), [{pq_symbolic:sym_expr(), pos_integer()}]}} | {error, pq_core:reason()}.
+factor(E, Opts) ->
+    case executable(Opts) of
+        false -> {error, {symbolic_unsupported, #{form => not_available}}};
+        Exe ->
+            Dir = tmpdir(),
+            try
+                Syms = lists:usort(syms(E)),
+                Names = maps:from_list([{S, "s" ++ integer_to_list(K)} || {K, S} <- lists:enumerate(Syms)]),
+                Out = filename:join(Dir, "out.txt"),
+                Script = iolist_to_binary(
+                           [[["Symbols ", lists:join(",", maps:values(Names)), ";\n"] || map_size(Names) > 0],
+                            "Local E1 = ", to_form(E, Names), ";\n.sort\n#$f = E1;\n#factdollar $f\n",
+                            "#do i = 1, `$f[0]'\n#write <", Out, "> \"%$;\", $f[`i']\n#enddo\n.end\n"]),
+                File = filename:join(Dir, "in.frm"),
+                ok = file:write_file(File, Script),
+                case run(Exe, File, Opts) of
+                    {ok, _Log} ->
+                        {ok, Text} = file:read_file(Out),
+                        Back = maps:from_list([{list_to_binary(N), S} || S := N <- Names]),
+                        Vars = Syms,
+                        Polys = [pq_sym_gcd:from_ast(element(2, pq_symbolic:canonicalise(from_form(L, Back), Opts)), Vars)
+                                 || L <- binary:split(Text, <<";">>, [global, trim_all]),
+                                    binary:replace(binary:replace(L, <<"\n">>, <<>>, [global]), <<" ">>, <<>>, [global]) =/= <<>>],
+                        Parts = [pq_sym_gcd:primitive(P) || P <- Polys],
+                        C = lists:foldl(fun({{N, D}, _}, {A, B}) -> {A * N, B * D} end, {1, 1}, Parts),
+                        Fs = [{F, 1} || {_, F} <- Parts, not (map_size(F) =:= 1 andalso lists:all(fun(X) -> X =:= 0 end, hd(maps:keys(F))))],
+                        G = pq_sym_exact:gcd(abs(element(1, C)), element(2, C)),
+                        {ok, pq_sym_factor:result({element(1, C) div G, element(2, C) div G}, Fs, Vars)};
+                    {error, _} = Err -> Err
+                end
+            catch
+                throw:{unsupported, Node} -> {error, {symbolic_unsupported, #{form => Node}}};
+                throw:{form_output, What} -> {error, {symbolic_unsupported, #{form_output => What}}}
+            after
+                _ = file:del_dir_r(Dir)
+            end
     end.
 
 with_form(Opts, Body, Exprs) ->
@@ -230,10 +273,10 @@ term(<<$-, T/binary>>, Back) -> {mul, [-1, product(T, Back)]};
 term(<<$+, T/binary>>, Back) -> product(T, Back);
 term(T, Back) -> product(T, Back).
 
-product(T, Back) -> {mul, [factor(F, Back) || F <- binary:split(T, <<"*">>, [global])]}.
+product(T, Back) -> {mul, [pfactor(F, Back) || F <- binary:split(T, <<"*">>, [global])]}.
 
-factor(<<"i_">>, _) -> {complex, 0, 1};
-factor(F, Back) ->
+pfactor(<<"i_">>, _) -> {complex, 0, 1};
+pfactor(F, Back) ->
     case binary:split(F, <<"^">>) of
         [Base, Exp] -> {pow, base(Base, Back), int(Exp)};
         [Base] -> base(Base, Back)

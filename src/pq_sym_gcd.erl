@@ -8,7 +8,7 @@
 %% exponents, lexicographically, the first variable most significant. A gcd is returned primitive, with integer
 %% coefficients and a positive leading coefficient: unique, since over Q a gcd is defined up to a constant factor.
 -module(pq_sym_gcd).
--export([gcd/2, divide/2, primitive/1, from_ast/2, to_ast/2, squarefree/1, mul/2, derivative/2]).
+-export([gcd/2, divide/2, primitive/1, from_ast/2, to_ast/2, squarefree/1, mul/2, derivative/2, content/2]).
 
 -export_type([poly/0]).
 -type poly() :: #{[non_neg_integer()] => integer() | {integer(), pos_integer()}}.
@@ -180,7 +180,15 @@ qnorm({N, D}) ->
 squarefree(P0) when map_size(P0) =:= 0 -> {{0, 1}, []};
 squarefree(P0) ->
     {C, P} = primitive(P0),
-    {C, lists:keysort(2, sqf(P))}.
+    % the monomial content first: x_i^e contributes x_i with multiplicity e
+    N = length(hd(maps:keys(P))),
+    Low = [lists:min([lists:nth(I, E) || E <- maps:keys(P)]) || I <- lists:seq(1, N)],
+    Rest = case lists:all(fun(X) -> X =:= 0 end, Low) of
+               true -> P;
+               false -> maps:from_list([{[X - Y || {X, Y} <- lists:zip(E, Low)], V} || E := V <- P])
+           end,
+    Mono = [{#{[case J of I -> 1; _ -> 0 end || J <- lists:seq(1, N)] => 1}, E} || {I, E} <- lists:enumerate(Low), E > 0],
+    {C, lists:keysort(2, merge(Mono, sqf(Rest)))}.
 
 sqf(P) ->
     N = length(hd(maps:keys(P))),
@@ -218,6 +226,7 @@ merge(As, Bs) ->
      || M <- Ms, Fs <- [[F || {F, M2} <- As ++ Bs, M2 =:= M]]].
 
 %% the gcd of P's coefficients in variable V
+-spec content(poly(), pos_integer()) -> poly().
 content(P, V) ->
     Groups = maps:groups_from_list(fun({E, _}) -> lists:nth(V, E) end,
                                    fun({E, C}) -> {setnth(V, E, 0), C} end, maps:to_list(P)),

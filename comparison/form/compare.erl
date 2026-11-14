@@ -58,6 +58,12 @@ tasks() ->
       fun() -> gcds(fun pq_symbolic:gcd/2, Kind) end,
       fun() -> gcds(fun pq_form:gcd/2, Kind) end,
       form_gcds(Kind)} || Kind <- ["nontrivial", "coprime"]] ++
+    %% factorisations as in polybench: factor(a b) (nontrivial) and factor(a b + c) (most likely irreducible), the
+    %% same basic polynomials; 5 problems each
+    [{io_lib:format("T8 factor ~s", [Kind]), io_lib:format("5 polynomial factorisations, ~s, 5 variables (polybench defaults)", [Kind]),
+      fun() -> factors(fun pq_symbolic:factor/1, Kind) end,
+      fun() -> factors(fun pq_form:factor/1, Kind) end,
+      form_factors(Kind)} || Kind <- ["nontrivial", "irreducible"]] ++
     [{io_lib:format("T4 mesh k=~b", [K]), io_lib:format("symbolic unitary of a ~b-mode Clements mesh, every angle a symbol", [K]),
       fun() -> pq_symbolic:circuit_unitary(mesh(K), ?LIMITS) end,
       none,                                    % trigonometric entries: outside pq_form's polynomial fragment
@@ -98,6 +104,7 @@ run_task({Name, What, Native, Bridge, Script}) ->
 terms({matrix, Rows}) -> lists:sum([terms(E) || Row <- Rows, E <- Row]);
 terms({add, L}) -> length(L);
 terms(0) -> 0;
+terms({constants, _}) -> 0;   % T8's numeric factors: compared through the bridge, not counted
 terms(_) -> 1.
 
 %% FORM alone: its wall time (best of 3) and the total terms of the expressions it ends with
@@ -143,6 +150,44 @@ gcd_problems(Kind) ->
             Ps;
         Ps -> Ps
     end.
+
+factor_problems(Kind) ->
+    Key = {?MODULE, factor_problems, Kind},
+    case get(Key) of
+        undefined ->
+            rand:seed(exsss, {7, 15, case Kind of "nontrivial" -> 1; _ -> 2 end}),
+            E = fun(X) -> {ok, Y} = pq_symbolic:canonicalise(X), Y end,
+            Ps = [case Kind of
+                      "nontrivial" -> E({mul, [basic(), basic()]});
+                      _ -> E({add, [{mul, [basic(), basic()]}, basic()]})
+                  end || _ <- lists:seq(1, 5)],
+            put(Key, Ps),
+            Ps;
+        Ps -> Ps
+    end.
+
+%% the factorisations as a matrix whose entries count as FORM's do: one per distinct non-constant factor (the
+%% multiplicities and the numeric factor are compared through the bridge)
+factors(F, Kind) ->
+    Rs = [case F(P) of
+              {ok, {C, Fs}} -> [C | [{X, M} || {X, M} <- Fs]];
+              Err -> throw(Err)
+          end || P <- factor_problems(Kind)],
+    {ok, {matrix, [[{fac, X} || [_ | R] <- Rs, X <- R] ++ [{constants, [C || [C | _] <- Rs]}]]}}.
+
+%% FORM factorising each expression (#factdollar: in FORM 5 much faster than the Factorize statement, 0.23 s against
+%% 7.7 s for the five nontrivial problems); the final terms: one per distinct non-constant factor (repeated factors
+%% merge into one term)
+form_factors(Kind) ->
+    Ps = factor_problems(Kind),
+    Ks = lists:seq(1, length(Ps)),
+    lists:flatten(
+      ["* final: Fr\nSymbols x1,x2,x3,x4,x5;\nCFunction fac;\n",
+       [io_lib:format("Local P~b = ~s;\n", [K, form_poly(P)]) || {K, P} <- lists:zip(Ks, Ps)],
+       ".sort\n",
+       [io_lib:format("#$f = P~b;\n#factdollar $f\nLocal Fr~b = 0\n#do i = 1, `$f[0]'\n + fac($f[`i'])\n#enddo\n;\n.sort\n", [K, K])
+        || K <- Ks],
+       ".sort\nDrop ", lists:join(",", [io_lib:format("P~b", [K]) || K <- Ks]), ";\nid fac(x1?number_) = 0;\n.sort\n.end\n"]).
 
 %% a basic polynomial: 22-30 terms, each of degree 22-30 (variables drawn with repetition), coefficients nonzero
 %% in [-16384, 16384]

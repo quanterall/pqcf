@@ -24,6 +24,7 @@ The decision record behind it is [`docs/decisions/SY-FORM-comparison.md`](../../
 | T3, permanent | the permanent of an n × n matrix of symbols, n = 6, 7, 8: boson sampling's building block |
 | T4, mesh | the symbolic unitary of a k-mode Clements mesh with every angle a symbol, k = 4, 6, 8: the engine's own workload |
 | T7, gcd | 10 multivariate polynomial gcds each, as in T. Ueda's polybench (its defaults: 5 variables, factors of 22–30 terms of degree 22–30, coefficients up to 2¹⁴): gcd(a·g, b·g) (nontrivial) and gcd(a·b, c·d) (coprime); added with decision record SY2 |
+| T8, factor | 5 factorisations each, polybench's: factor(a·b) (nontrivial) and factor(a·b + c) (most likely irreducible); FORM by `#factdollar`; added with SY2 |
 
 Each task runs three ways:
 

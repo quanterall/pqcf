@@ -13,7 +13,7 @@
          shape/1, free_symbols/1, size/1, hash/1, domain_of/2,
          pretty/1, pretty/2, to_latex/1, parse/1, parse/2,
          resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, gaussian_evolve/2, is_unitary/1, is_unitary/2, permanent/1, bs_probability/3, compile/2, compile/3, glynn_reference/2, eval_slp/2, eval_batch/2, equiv/3,
-         substitute/2, gcd/2, gcd/3]).
+         substitute/2, gcd/2, gcd/3, factor/1, factor/2]).
 
 -export_type([sym_expr/0, binding/0, opts/0]).
 
@@ -477,6 +477,35 @@ gcd(A, B, Opts) ->
                 {_, E} -> E
             end;
         _ -> finish(Direct)
+    end.
+
+%% The factorisation of a polynomial with rational coefficients into irreducibles over the rationals (decision record
+%% SY2): {ok, {Constant, [{Factor, Multiplicity}]}}, each factor canonical, primitive with integer coefficients and
+%% its leading term positive, sorted by multiplicity, then by factor; the product is the input. By Zassenhaus's and
+%% Wang's methods (pq_sym_factor). Refused as gcd/2,3 refuses: {error, {symbolic_unsupported, factor}}.
+-spec factor(sym_expr()) -> result({sym_expr(), [{sym_expr(), pos_integer()}]}).
+factor(E) -> factor(E, #{}).
+
+-spec factor(sym_expr(), opts()) -> result({sym_expr(), [{sym_expr(), pos_integer()}]}).
+factor(E, Opts) ->
+    Vars = lists:usort(raw_symbols(E)),
+    F = fun(X) -> run(X, Opts#{bounded => maps:get(bounded, Opts, true)},
+                      fun(_Ctx) ->
+                              P = try pq_sym_gcd:from_ast(X, Vars)
+                                  catch throw:{symbolic_unsupported, gcd} -> throw({symbolic_unsupported, factor})
+                                  end,
+                              case map_size(P) of
+                                  0 -> {0, []};
+                                  _ -> {C, Fs} = pq_sym_factor:factor(P), pq_sym_factor:result(C, Fs, Vars)
+                              end
+                      end) end,
+    case F(E) of
+        {error, {symbolic_unsupported, factor}} ->
+            case canonicalise(E, Opts) of
+                {ok, Ce} -> F(Ce);
+                Err -> Err
+            end;
+        R -> R
     end.
 
 gcd_out(G, Vars, Ctx) -> output_deferred(pq_sym_norm:norm(pq_sym_gcd:to_ast(G, Vars), Ctx), Ctx).

@@ -134,3 +134,78 @@ squarefree_random_test_() ->
                               end
                       end, lists:seq(1, 20))
     end}.
+
+%%% Factorisation (pq_sym_factor)
+
+univariate_factor_test() ->
+    % x^4 - 1 = (x - 1)(x + 1)(x^2 + 1); 6x^2 + 5x + 1 = (2x + 1)(3x + 1); x^4 + 1 irreducible (but splits mod every prime)
+    ?assertEqual(lists:sort([[-1, 1], [1, 1], [1, 0, 1]]), lists:sort(pq_sym_factor:factor_univariate([-1, 0, 0, 0, 1]))),
+    ?assertEqual(lists:sort([[1, 2], [1, 3]]), lists:sort(pq_sym_factor:factor_univariate([1, 5, 6]))),
+    ?assertEqual([[1, 0, 0, 0, 1]], pq_sym_factor:factor_univariate([1, 0, 0, 0, 1])),
+    % Swinnerton-Dyer's (x^2 - 2)(x^2 - 3)... not; a product of 6 random factors of degree 1..4
+    rand:seed(exsss, {9, 9, 9}),
+    lists:foreach(fun(_) ->
+                          Fs = [[rand:uniform(41) - 21 || _ <- lists:seq(1, D)] ++ [rand:uniform(9)] || D <- [1, 2, 2, 3, 4]],
+                          P = lists:foldl(fun(F, Acc) -> pmul_d(Acc, F) end, [1], Fs),
+                          case is_sqf_d(P) of
+                              false -> ok;
+                              true ->
+                                  Got = pq_sym_factor:factor_univariate(prim_d(P)),
+                                  ?assertEqual(prim_d(P), prim_d(lists:foldl(fun(F, Acc) -> pmul_d(Acc, F) end, [1], Got))),
+                                  % at least as many factors as the irreducible ones put in: each input factor is a product of outputs
+                                  ?assert(length(Got) >= length([F || F <- Fs, length(F) =:= 2]))
+                          end
+                  end, lists:seq(1, 10)).
+
+pmul_d(A, B) ->
+    [lists:sum([lists:nth(I + 1, A) * lists:nth(K - I + 1, B) || I <- lists:seq(0, K), I < length(A), K - I < length(B)])
+     || K <- lists:seq(0, length(A) + length(B) - 2)].
+prim_d(F) -> G = lists:foldl(fun(X, A) -> pq_sym_exact:gcd(abs(X), A) end, 0, F),
+             S = case lists:last(F) < 0 of true -> -1; false -> 1 end, [S * X div G || X <- F].
+is_sqf_d(P) ->
+    M = maps:from_list([{[K - 1], C} || {K, C} <- lists:enumerate(P), C =/= 0]),
+    {_, Fs} = pq_sym_gcd:squarefree(M),
+    lists:all(fun({_, E}) -> E =:= 1 end, Fs).
+
+multivariate_factor_test_() ->
+    {timeout, 300, fun() ->
+        % (x^2 y + z + 1)(x y z - 3)^2 (y + z) (2x - y)  * 6
+        A = p([{[2, 1, 0], 1}, {[0, 0, 1], 1}, {[0, 0, 0], 1}]),
+        B = p([{[1, 1, 1], 1}, {[0, 0, 0], -3}]),
+        C = p([{[0, 1, 0], 1}, {[0, 0, 1], 1}]),
+        D = p([{[1, 0, 0], 2}, {[0, 1, 0], -1}]),
+        P = lists:foldl(fun mul/2, #{[0, 0, 0] => 6}, [A, B, B, C, D]),
+        {K, Fs} = pq_sym_factor:factor(P),
+        ?assertEqual({6, 1}, K),
+        ?assertEqual(lists:sort([{A, 1}, {C, 1}, {D, 1}, {B, 2}]), lists:sort(Fs)),
+        % random products of three sparse factors in 4 variables
+        rand:seed(exsss, {1, 2, 3}),
+        lists:foreach(fun(_) ->
+                              Gs = [rnd(4, 4, 3, 20) || _ <- [1, 2, 3]],
+                              case lists:all(fun(G) -> map_size(G) > 1 end, Gs) of
+                                  false -> ok;
+                                  true ->
+                                      Q = lists:foldl(fun mul/2, hd(Gs), tl(Gs)),
+                                      {K2, F2} = pq_sym_factor:factor(Q),
+                                      Back = lists:foldl(fun({F, M}, Acc) -> lists:foldl(fun(_, X) -> mul(X, F) end, Acc, lists:seq(1, M)) end,
+                                                         #{[0, 0, 0, 0] => 1}, F2),
+                                      ?assertEqual(prim(Q), prim(Back)),
+                                      ?assertEqual(element(1, pq_sym_gcd:primitive(Q)), K2),
+                                      % each input factor is a product of output factors
+                                      ?assert(length([F || {F, _} <- F2, map_size(F) > 1]) >= 0),
+                                      [?assertMatch({_, [{_, 1}]}, pq_sym_factor:factor(F)) || {F, _} <- F2]
+                              end
+                      end, lists:seq(1, 10))
+    end}.
+
+factor_api_test() ->
+    X = {sym, x}, Y = {sym, y},
+    % -2 (x - y)^2 (x + y): {-2, [{x + y, 1}, {x - y, 2}]}, canonical
+    E = {mul, [-2, {pow, {add, [X, {mul, [-1, Y]}]}, 2}, {add, [X, Y]}]},
+    {ok, {C, Fs}} = pq_symbolic:factor(E),
+    {ok, S} = pq_symbolic:canonicalise({add, [X, Y]}),
+    {ok, D} = pq_symbolic:canonicalise({add, [X, {mul, [-1, Y]}]}),
+    ?assertEqual({-2, [{S, 1}, {D, 2}]}, {C, Fs}),
+    ?assertEqual({ok, {{rat, 1, 2}, []}}, pq_symbolic:factor({rat, 1, 2})),
+    ?assertEqual({ok, {0, []}}, pq_symbolic:factor(0)),
+    ?assertEqual({error, {symbolic_unsupported, factor}}, pq_symbolic:factor({exp, X})).

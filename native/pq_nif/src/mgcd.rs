@@ -19,20 +19,20 @@ pub struct MPoly {
 }
 
 /// Univariate polynomials mod p, dense, coefficient i of x^i, no trailing zero (the zero polynomial is empty).
-type UPoly = Vec<u64>;
+pub(crate) type UPoly = Vec<u64>;
 
 #[inline]
-fn addm(a: u64, b: u64, p: &Fp) -> u64 {
+pub(crate) fn addm(a: u64, b: u64, p: &Fp) -> u64 {
     let s = a + b;
     if s >= p.p { s - p.p } else { s }
 }
 
 #[inline]
-fn subm(a: u64, b: u64, p: &Fp) -> u64 {
+pub(crate) fn subm(a: u64, b: u64, p: &Fp) -> u64 {
     if a >= b { a - b } else { a + p.p - b }
 }
 
-fn inv(a: u64, p: &Fp) -> u64 {
+pub(crate) fn inv(a: u64, p: &Fp) -> u64 {
     p.m.to(invmod(p.m.from(a), p.p).expect("inverse of 0 mod p"))
 }
 
@@ -40,8 +40,8 @@ fn inv(a: u64, p: &Fp) -> u64 {
 /// division, a library call on aarch64. Sums and differences are the usual ones.
 pub struct Fp {
     pub p: u64,
-    m: Mont,
-    one: u64,
+    pub(crate) m: Mont,
+    pub(crate) one: u64,
 }
 
 impl Fp {
@@ -51,37 +51,37 @@ impl Fp {
     }
 
     #[inline]
-    fn mul(&self, a: u64, b: u64) -> u64 {
+    pub(crate) fn mul(&self, a: u64, b: u64) -> u64 {
         self.m.mul(a, b)
     }
 }
 
-fn u_trim(mut a: UPoly) -> UPoly {
+pub(crate) fn u_trim(mut a: UPoly) -> UPoly {
     while a.last() == Some(&0) {
         a.pop();
     }
     a
 }
 
-fn u_eval(a: &[u64], x: u64, p: &Fp) -> u64 {
+pub(crate) fn u_eval(a: &[u64], x: u64, p: &Fp) -> u64 {
     a.iter().rev().fold(0, |acc, &c| addm(p.mul(acc, x), c, p))
 }
 
-fn u_scale(a: &[u64], k: u64, p: &Fp) -> UPoly {
+pub(crate) fn u_scale(a: &[u64], k: u64, p: &Fp) -> UPoly {
     if k == 0 {
         return vec![];
     }
     a.iter().map(|&c| p.mul(c, k)).collect()
 }
 
-fn u_monic(a: &[u64], p: &Fp) -> UPoly {
+pub(crate) fn u_monic(a: &[u64], p: &Fp) -> UPoly {
     match a.last() {
         None => vec![],
         Some(&l) => u_scale(a, inv(l, p), p),
     }
 }
 
-fn u_mul(a: &[u64], b: &[u64], p: &Fp) -> UPoly {
+pub(crate) fn u_mul(a: &[u64], b: &[u64], p: &Fp) -> UPoly {
     if a.is_empty() || b.is_empty() {
         return vec![];
     }
@@ -97,7 +97,7 @@ fn u_mul(a: &[u64], b: &[u64], p: &Fp) -> UPoly {
     u_trim(r)
 }
 
-fn u_add(a: &[u64], b: &[u64], p: &Fp) -> UPoly {
+pub(crate) fn u_add(a: &[u64], b: &[u64], p: &Fp) -> UPoly {
     let mut r: UPoly = (0..a.len().max(b.len()))
         .map(|i| addm(*a.get(i).unwrap_or(&0), *b.get(i).unwrap_or(&0), p))
         .collect();
@@ -106,7 +106,7 @@ fn u_add(a: &[u64], b: &[u64], p: &Fp) -> UPoly {
 }
 
 /// (quotient, remainder) of a by b (b nonzero)
-fn u_divrem(a: &[u64], b: &[u64], p: &Fp) -> (UPoly, UPoly) {
+pub(crate) fn u_divrem(a: &[u64], b: &[u64], p: &Fp) -> (UPoly, UPoly) {
     let mut r = a.to_vec();
     if r.len() < b.len() {
         return (vec![], r);
@@ -127,7 +127,7 @@ fn u_divrem(a: &[u64], b: &[u64], p: &Fp) -> (UPoly, UPoly) {
 }
 
 /// the monic gcd (0 when both are 0)
-fn u_gcd(a: &[u64], b: &[u64], p: &Fp) -> UPoly {
+pub(crate) fn u_gcd(a: &[u64], b: &[u64], p: &Fp) -> UPoly {
     let (mut x, mut y) = (a.to_vec(), b.to_vec());
     while !y.is_empty() {
         let r = u_divrem(&x, &y, p).1;

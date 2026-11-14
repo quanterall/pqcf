@@ -144,4 +144,25 @@ Bessel's equation.
   - **Why the monomial contents mattered:** random polybench factors have every variable in nearly every term, so
     even the "coprime" pairs share a monomial. Left in, it drove about 10,000 recursive gcds per problem.
   - **Square-free decomposition** (`pq_sym_gcd:squarefree/1`, Yun's algorithm) done the same day.
-  - **Next:** factorisation, then rational functions in normal form.
+- **14 Nov 2026: factorisation** (`pq_symbolic:factor/1,2`, `pq_sym_factor`, Rust `mfactor.rs`).
+  - **How it works:**
+    - one variable by Zassenhaus's method;
+    - several variables by Wang's method, with the multivariate Hensel lifting in Rust modulo 63-bit primes and
+      Chinese remaindering;
+    - every result checked by multiplying back.
+  - **FORM comparison** (task T8, polybench's factorisation problems, 5 each, core 8): results equal to FORM's,
+    factor for factor.
+
+    | version | factor(a b) | factor(a b + c) |
+    | --- | --- | --- |
+    | first, all in Erlang modulo one large prime | 59 s | 0.49 s |
+    | lifting in Rust modulo 63-bit primes | 2.0 s | 0.49 s |
+    | monomial content first in the square-free step; univariate factoring mod p in Rust; every variable tried as the main one | **1.02 s** | **0.077 s** |
+    | *FORM 5 with FLINT (`#factdollar`)* | *0.13 s* | *0.019 s* |
+
+  - **Notes:**
+    - FORM's `Factorize` statement takes 7.7 s for the same five nontrivial problems; its `#factdollar` route is
+      the one compared here.
+    - The remaining gap (8×) is in the lifting: each factor carries the whole leading coefficient, and its powers of
+      (x_j - a_j) are dense. Wang's distribution of the leading coefficient's factors would remove the first.
+  - **Next:** rational functions in normal form; then phase 2 (series and function atoms).

@@ -17,6 +17,22 @@ the public API is additive.
     - Chinese remaindering in Erlang;
     - each candidate accepted only when it divides both inputs exactly.
   - Square-free decomposition, `pq_sym_gcd:squarefree/1` (Yun's algorithm, contents recursively).
+- **Factorisation over the rationals** (SY2): `pq_symbolic:factor/1,2` -> `{ok, {Constant, [{Factor, Multiplicity}]}}`,
+  `pq_sym_factor`, `pq_form:factor/1,2` for comparison.
+  - **One variable:** Zassenhaus's method. Factors modulo a small prime in Rust (`pq_nif:factor_mod/3`:
+    distinct-degree by the Frobenius matrix, then Cantor-Zassenhaus), quadratic Hensel lifting on a factor tree,
+    recombination by trial division.
+  - **Several variables:** Wang's method.
+    - Every variable is tried as the main one: a content splits the polynomial, and an irreducible image proves
+      irreducibility.
+    - The leading coefficient is imposed on each factor.
+    - Lifting runs in Rust modulo 63-bit primes (`pq_nif:mfactor_lift/6`, in powers of (x_j - a_j)), followed by
+      Chinese remaindering.
+    - A two-factor subset search is the fallback.
+  - Every factorisation is checked by multiplying back.
+  - **FORM comparison:** new task T8, polybench's factorisation problems (5 each). Results equal to FORM's, factor
+    for factor. On core 8: factor(a b) 1.02 s for PQCF against 0.13 s for FORM 5; factor(a b + c) 0.077 s against
+    0.019 s.
   - `pq_simplify`'s gcd now uses it; the old pseudo-remainder gcd stays as `gcd_prs/2`, the reference in the tests.
   - **FORM comparison:** new task T7, polybench's defaults (T. Ueda; 5 variables, 10 problems each), results equal
     to FORM's. On core 8, 10 nontrivial gcds take PQCF 0.083 s and FORM 5 with FLINT 0.075 s; 10 with a monomial
