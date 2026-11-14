@@ -215,4 +215,10 @@ Bessel's equation.
     - the engine does not cancel f f^-1 inside an expanded product (det g goes through `cancel` first);
     - `pq_series` keeps sqrt(L^8) as an atom, since it does not know the sign of L (sqrt(gamma) is factored by hand
       as sqrt(A^4) sqrt(f)).
-  - **Open in phase 5:** the Weyl anomaly a = c = N^2/4 (a curved boundary).
+- **14 Nov 2026: phase 5, the Weyl anomaly** (`comparison/holographic/weyl.erl`, `WEYL.md`).
+  - **Method:** the Fefferman-Graham expansion on two Einstein boundaries, S^4 (W = 0) and S^2 x S^2 (W^2 /= 0).
+    The 5-dimensional Einstein equations, solved order by order, give:
+    - g_(2) = -(1/2r^2) g0 and -(1/6r^2) g0, the Henningson-Skenderis -(R_ij - R g_ij/6)/2;
+    - Tr g_(4) = (1/4) Tr g_(2)^2.
+  - **Result:** the log divergence gives a = c = N^2/4.
+  - **Phase 5 done.**

@@ -58,3 +58,72 @@ integrate_test() ->
     {ok, W} = pq_mp:evaluate({add, [{rat, 13, 6}, {log, 2}]}, #{}, 30),
     ?assertEqual(W, V),
     ?assertMatch({error, {symbolic_unsupported, #{integrate := _}}}, pq_symbolic:integrate({exp, X}, x)).
+
+%%% The holographic Weyl anomaly (Henningson, Skenderis, hep-th/9806087, https://arxiv.org/abs/hep-th/9806087):
+%%% <T> = (c W^2 - a E_4) / (16 pi^2) with a = c = N^2/4 for N = 4 super-Yang-Mills. The bulk metric in
+%%% Fefferman-Graham form, L^2 [d rho^2 / (4 rho^2) + g(rho)_ij dx^i dx^j / rho], g(rho) = g0 (1 + rho m + rho^2 tau) for an
+%%% Einstein boundary g0; m and tau (which fixes Tr g_(4)) from Einstein's equations order by order; the volume
+%%% coefficient a_4 (rho^2 in sqrt(det g(rho)) / sqrt(det g0)) gives <T> = -(L^3 / (2 pi G)) a_4 (the log divergence of the
+%%% on-shell action under a constant rescaling of g0). S^4 (W = 0) gives a; S^2 x S^2 (equal radii, W^2 /= 0) then c.
+
+%% the lowest-order coefficient of E's series in rho at exponent K (log power 0)
+coef(E, K) ->
+    {ok, {Ts, _}} = pq_series:terms(E, rho, K + 1, #{}),
+    case [C || {Ex, 0, C} <- Ts, Ex =:= K] of [C] -> C; [] -> 0 end.
+
+%% X with X linear: alpha + beta X = 0
+solve_linear(E, X) ->
+    {ok, B} = pq_symbolic:differentiate(E, X),
+    {ok, A} = pq_symbolic:subs(E, #{X => 0}),
+    {ok, R} = pq_symbolic:cancel({mul, [-1, A, {pow, B, -1}]}),
+    R.
+
+%% {m, tau, <T>, E_4, W^2} for the boundary metric G0 (diagonal, Einstein) in Coords
+fefferman_graham(G0Diag, Coords) ->
+    L = ?S(l), Rho = ?S(rho),
+    Mult = {add, [1, {mul, [Rho, ?S(m)]}, {mul, [{pow, Rho, 2}, ?S(tau)]}]},
+    Ds = [{mul, [{pow, L, 2}, {rat, 1, 4}, {pow, Rho, -2}]} |
+          [{mul, [{pow, L, 2}, X, Mult, {pow, Rho, -1}]} || X <- G0Diag]],
+    N = length(Ds),
+    Metric = [[case I of J -> X; _ -> 0 end || J <- lists:seq(1, N)] || {I, X} <- lists:enumerate(Ds)],
+    {ok, #{ricci := Ric}} = pq_geometry:curvature(Metric, [rho | Coords]),
+    E = fun(I) -> {ok, V} = pq_symbolic:cancel({add, [lists:nth(I, lists:nth(I, Ric)), {mul, [4, {pow, L, -2}, lists:nth(I, Ds)]}]}), V end,
+    % E_xx at rho^0 fixes m; then E_rho rho at rho^0 fixes tau
+    M = solve_linear(coef(E(2), 0), m),
+    {ok, Err} = pq_symbolic:subs(E(1), #{m => M}),
+    Tau = solve_linear(coef(Err, 0), tau),
+    % a_4: rho^2 in sqrt(det g(rho)/det g0) = (1 + rho m + rho^2 tau)^(n/2), n = 4
+    {ok, A4} = pq_symbolic:cancel({add, [{pow, M, 2}, {mul, [2, Tau]}]}),
+    T = {mul, [-1, {pow, L, 3}, {pow, {mul, [2, {const, pi}, ?S(g5)]}, -1}, A4]},
+    % the boundary's curvature: E_4 = Riem^2 - 4 Ric^2 + R^2, W^2 = Riem^2 - 2 Ric^2 + R^2/3
+    N0 = length(G0Diag),
+    G0 = [[case I of J -> X; _ -> 0 end || J <- lists:seq(1, N0)] || {I, X} <- lists:enumerate(G0Diag)],
+    {ok, #{ricci := R0, inverse := Gi, scalar := Sc, kretschmann := K}} = pq_geometry:curvature(G0, Coords),
+    Ric2 = {add, [{mul, [lists:nth(I, lists:nth(I, Gi)), lists:nth(J, lists:nth(J, Gi)), lists:nth(J, lists:nth(I, R0)), lists:nth(J, lists:nth(I, R0))]}
+                  || I <- lists:seq(1, N0), J <- lists:seq(1, N0)]},
+    {ok, E4} = pq_symbolic:cancel({add, [K, {mul, [-4, Ric2]}, {pow, Sc, 2}]}),
+    {ok, W2} = pq_symbolic:cancel({add, [K, {mul, [-2, Ric2]}, {mul, [{rat, 1, 3}, {pow, Sc, 2}]}]}),
+    {M, Tau, T, E4, W2}.
+
+weyl_anomaly_test_() ->
+    {timeout, 1200, fun() ->
+        R = ?S(r), Pi = {const, pi},
+        Units = #{g5 => {mul, [Pi, {pow, ?S(l), 3}, {rat, 1, 2}, {pow, ?S(n), -2}]}},   % L^3/G = 2 N^2 / pi
+        Conf = fun(Xs) -> {mul, [4, {pow, R, 2}, {pow, {add, [1 | [{pow, ?S(X), 2} || X <- Xs]]}, -2}]} end,
+        % S^4 of radius r: conformally flat, so <T> = -a E_4 / (16 pi^2)
+        S4 = Conf([x, y, u, v]),
+        {M1, _, T1, E41, W21} = fefferman_graham([S4, S4, S4, S4], [x, y, u, v]),
+        ?assert(pq_symbolic:equiv(M1, {mul, [{rat, -1, 2}, {pow, R, -2}]}, #{}) =:= {ok, true}),   % g_(2) = -(R_ij - R g/6)/2
+        ?assertEqual({ok, true}, pq_symbolic:equiv(W21, 0, #{})),
+        {ok, A} = pq_symbolic:canonicalise({mul, [-16, {pow, Pi, 2}, T1, {pow, E41, -1}]}),
+        {ok, Ac} = pq_symbolic:subs(A, Units),
+        ?assertEqual({ok, true}, pq_symbolic:equiv(Ac, {mul, [{rat, 1, 4}, {pow, ?S(n), 2}]}, #{})),
+        % S^2 x S^2, both of radius r: W^2 /= 0; c = (16 pi^2 <T> + a E_4) / W^2
+        S2a = Conf([x, y]), S2b = Conf([u, v]),
+        {M2, _, T2, E42, W22} = fefferman_graham([S2a, S2a, S2b, S2b], [x, y, u, v]),
+        ?assert(pq_symbolic:equiv(M2, {mul, [{rat, -1, 6}, {pow, R, -2}]}, #{}) =:= {ok, true}),
+        ?assertNot(pq_symbolic:equiv(W22, 0, #{}) =:= {ok, true}),
+        {ok, C} = pq_symbolic:canonicalise({mul, [{add, [{mul, [16, {pow, Pi, 2}, T2]}, {mul, [Ac, E42]}]}, {pow, W22, -1}]}),
+        {ok, Cc} = pq_symbolic:subs(C, Units),
+        ?assertEqual({ok, true}, pq_symbolic:equiv(Cc, {mul, [{rat, 1, 4}, {pow, ?S(n), 2}]}, #{}))
+    end}.

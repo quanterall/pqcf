@@ -23,6 +23,10 @@ the public API is additive.
   - **Result:** F = -L^3/(16 pi G z_h^4) = -pi^2 N^2 T^4/8 (`comparison/holographic/BRANE.md`,
     `test/pq_holo_tests.erl`).
   - **New:** `pq_symbolic:integrate/2` for Laurent polynomials, the first case of integration.
+- **The holographic Weyl anomaly** (SY2 phase 5): a = c = N^2/4 (`comparison/holographic/WEYL.md`,
+  `test/pq_holo_tests.erl`).
+  - **Method:** a Fefferman-Graham expansion on S^4 and on S^2 x S^2, its coefficients (g_(2), Tr g_(4)) derived
+    from the 5-dimensional Einstein equations, then the volume coefficient a_4.
 - **Curvature in components** (SY2 phase 4): `pq_geometry:curvature/2`.
   - **Output:** the inverse metric, Christoffel symbols, Riemann, Ricci, scalar curvature, Einstein, a Weyl test and
     the Kretschmann scalar, in any dimension.
