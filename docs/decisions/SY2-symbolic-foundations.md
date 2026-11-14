@@ -181,4 +181,14 @@ Bessel's equation.
   - **Check:** against mpmath 1.3 to 48 digits (37 values, 8 zeros: `test/fixtures/gt_mp.json`), among them the
     phase 3 hard-wall values, the zeros of J_0.
   - **Phase 2 done.**
-  - **Next:** phase 3 (Euler-Lagrange equations, Schrödinger form, two eigenvalue solvers; the soft and hard walls).
+- **14 Nov 2026: phase 3, first holographic QCD results** (`pq_ode`, `comparison/holographic/walls.erl`,
+  `RESULTS.md`).
+  - **Soft wall:** from the action, PQCF derives V = z^2 + 3/(4 z^2) and the spectrum 4, 8, 12, 16 to 30 digits:
+    m_n^2 = 4(n+1) exactly (hep-ph/0602229).
+  - **Hard wall:** from the action, PQCF derives V = 3/(4 z^2), and the eigenvalues equal j_(0,n)^2 to 30 digits
+    (hep-ph/0501128). The zeros come from `pq_mp:besselj_zero/3`, independent of the ODE solver.
+  - **Open in phase 3:**
+    - the second eigenvalue solver (Chebyshev collocation) that the plan asks for: the two acceptance checks so far
+      rest on one solver and on exact references;
+    - PSLQ;
+    - the hard wall's pion and a_1 sector, with the paper's fitted observables.

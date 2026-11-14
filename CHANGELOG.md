@@ -17,6 +17,15 @@ the public API is additive.
     - Chinese remaindering in Erlang;
     - each candidate accepted only when it divides both inputs exactly.
   - Square-free decomposition, `pq_sym_gcd:squarefree/1` (Yun's algorithm, contents recursively).
+- **Equations of motion and spectra** (SY2 phase 3): `pq_ode`.
+  - `euler_lagrange/5` and `schrodinger/5`: from a mode's Lagrangian to -phi'' + V phi = lambda phi, symbolically.
+  - `eigenvalues/3`: the spectrum to any number of digits, for V a rational function. It uses a Frobenius start at a
+    singular end, Taylor-series integration on the polynomial form of the equation, Dirichlet or Robin conditions,
+    and the Illinois method.
+  - **The holographic QCD walls from the action to the spectrum** (`comparison/holographic/RESULTS.md`), equal to
+    30 digits:
+    - soft wall: m^2 = 4(n+1);
+    - hard wall: the zeros of J_0, computed independently.
 - **Arbitrary-precision evaluation** (SY2 phase 2): `pq_symbolic:evaluate_digits/3`, `pq_mp`.
   - **Numbers:** binary floating point on Erlang's integers.
   - **Constants:** pi, log 2, Euler's gamma (Brent-McMillan), zeta(k) (Borwein).
