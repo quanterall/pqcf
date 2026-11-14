@@ -46,7 +46,7 @@ main(Dir) ->
           "| n | (m_n z_m)^2, PQCF | j_(0,n)^2 | |\n| --- | --- | --- | --- |\n",
           [Row(N, A, B) || {N, {A, B}} <- lists:enumerate(1, lists:zip(Eh, Zeros))],
           io_lib:format("~nTimes: potential ~.2f s, spectrum ~.2f s.~n", [T3 / 1.0e6, T4 / 1.0e6])],
-    ok = file:write_file(filename:join(Dir, "RESULTS.md"), Md),
+    ok = file:write_file(filename:join(Dir, "RESULTS.md"), unicode:characters_to_binary(Md)),
     io:format("~s", [Md]).
 
 pqcf_commit() -> os:getenv("PQCF_COMMIT", "(commit not given)").

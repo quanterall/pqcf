@@ -4,7 +4,7 @@ Produced by `walls.erl` (decision record SY2, phase 3), PQCF ee18606, 2026-11-14
 
 1. **Equation of motion:** the Euler-Lagrange equation of the radial Lagrangian of a vector mode,
    (1/2) e^(-Phi) (1/z) (psi'^2 - m^2 psi^2).
-2. **Schrödinger form:** the Liouville transformation gives -phi'' + V(z) phi = m^2 phi, symbolically
+2. **SchrÃ¶dinger form:** the Liouville transformation gives -phi'' + V(z) phi = m^2 phi, symbolically
    (`pq_ode:schrodinger/5`).
 3. **Spectrum:** the eigenvalues to 30 digits (`pq_ode:eigenvalues/3`): a Frobenius
    series at z = 0, Taylor-series integration in arbitrary precision, then the Illinois method.
@@ -24,7 +24,7 @@ Phi = z^2 (c = 1), and the decaying solution is imposed at z = 10.
 | 2 | `1.20000000000000000000000000000e1` | `1.20000000000000000000000000000e1` | equal |
 | 3 | `1.60000000000000000000000000000e1` | `1.60000000000000000000000000000e1` | equal |
 
-Times: potential 0.01 s, spectrum 7.73 s.
+Times: potential 0.01 s, spectrum 7.82 s.
 
 ## Hard wall
 
@@ -41,4 +41,4 @@ dilaton, 0 < z =< z_m with z_m = 1, and psi'(z_m) = 0, which is phi'(1) + phi(1)
 | 2 | `3.04712623436620863990781631750e1` | `3.04712623436620863990781631750e1` | equal |
 | 3 | `7.48870067906951834448890413101e1` | `7.48870067906951834448890413101e1` | equal |
 
-Times: potential 0.00 s, spectrum 3.22 s.
+Times: potential 0.00 s, spectrum 3.24 s.
