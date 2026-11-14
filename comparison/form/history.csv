@@ -105,3 +105,17 @@ date,machine,arch,pqcf,form,task,terms,form_s,native_s,bridge_s,check
 2026-11-08T14:41:11Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,67b503c,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T4 mesh k=4",400,0.004,0.003,-,ok
 2026-11-08T14:41:11Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,67b503c,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T4 mesh k=6",11616,0.020,0.034,-,ok
 2026-11-08T14:41:11Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,67b503c,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T4 mesh k=8",276800,0.463,0.655,-,ok
+2026-11-14T02:31:04Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2a90a1f,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T1 power n=12",18564,0.008,0.029,0.198,ok
+2026-11-14T02:31:04Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2a90a1f,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T1 power n=16",74613,0.031,0.124,1.175,ok
+2026-11-14T02:31:04Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2a90a1f,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T1 power n=20",230230,0.115,0.485,4.307,ok
+2026-11-14T02:31:04Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2a90a1f,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T2 product",10626,0.139,0.040,0.279,ok
+2026-11-14T02:31:04Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2a90a1f,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T5 Fateman n=10",10626,0.138,0.037,0.236,ok
+2026-11-14T02:31:04Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2a90a1f,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T5 Fateman n=15",46376,2.146,0.475,2.723,ok
+2026-11-14T02:31:04Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2a90a1f,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T6 sparse n=6",114000,0.052,0.141,1.748,ok
+2026-11-14T02:31:04Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2a90a1f,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T6 sparse n=8",591235,0.386,0.875,11.744,ok
+2026-11-14T02:31:04Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2a90a1f,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T3 permanent n=6",720,0.004,0.002,0.050,ok
+2026-11-14T02:31:04Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2a90a1f,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T3 permanent n=7",5040,0.018,0.040,0.156,ok
+2026-11-14T02:31:04Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2a90a1f,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T3 permanent n=8",40320,0.162,0.358,0.790,ok
+2026-11-14T02:31:04Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2a90a1f,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T4 mesh k=4",400,0.003,0.003,-,ok
+2026-11-14T02:31:04Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2a90a1f,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T4 mesh k=6",11616,0.021,0.031,-,ok
+2026-11-14T02:31:04Z,dev-aarch64-shared,aarch64-unknown-linux-gnu,2a90a1f,"FORM 5.0.2 (Sep 16 2026, v5.0.2-2-gfb12f2e)","T4 mesh k=8",276800,0.461,0.654,-,ok
