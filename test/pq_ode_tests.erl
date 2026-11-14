@@ -68,3 +68,25 @@ collocation_test_() ->
              ?assert(agree(E, pq_mp:to_string(pq_mp:mul(J, J, 130), 25), 24), {hard, K, E})
          end || {K, E} <- lists:enumerate(1, Eh)]
     end}.
+
+%% the hard wall's axial and pion sector (comparison/holographic/hardwall.erl), against an independent floating-point
+%% solution (SciPy solve_ivp and brentq, double precision): m_a1 = 1358.2431775 (A), 1219.5033847 (B) MeV; f_pi in the
+%% chiral limit 90.903 (A), 82.255 (B) MeV; and the paper's F_rho^(1/2) = 329 (A), 353 (B), F_a1^(1/2) = 486, 440
+hardwall_test_() ->
+    {timeout, 900, fun() ->
+        Dir = filename:dirname(code:which(?MODULE)),
+        Src = hd([F || F <- [filename:join([Dir, "..", "comparison", "holographic", "hardwall.erl"]),
+                             filename:join([Dir, "..", "..", "..", "..", "comparison", "holographic", "hardwall.erl"]),
+                             "comparison/holographic/hardwall.erl"], filelib:is_regular(F)]),
+        {ok, hardwall, Bin} = compile:file(Src, [binary]),
+        {module, hardwall} = code:load_binary(hardwall, Src, Bin),
+        [A, B] = hardwall:models(),
+        F = fun(M, K) -> pq_mp:to_float(maps:get(K, M)) end,
+        Near = fun(X, Y, Tol) -> abs(X - Y) =< Tol * abs(Y) end,
+        ?assert(Near(F(A, m_a1), 1358.2431775, 1.0e-9)),
+        ?assert(Near(F(B, m_a1), 1219.5033847, 1.0e-9)),
+        ?assert(Near(F(A, f_pi), 90.903, 2.0e-4)),
+        ?assert(Near(F(B, f_pi), 82.255, 2.0e-4)),
+        [?assert(Near(F(M, K), V, 0.005)) || {M, K, V} <- [{A, f_rho, 329}, {B, f_rho, 353}, {A, f_a1, 486}, {B, f_a1, 440},
+                                                           {B, m_rho, 832}, {A, m_pi, 139.6}, {B, m_pi, 141}]]
+    end}.

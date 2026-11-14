@@ -16,7 +16,7 @@
 %%   by z, (D/z) u'' + 2 s d u' + ((s(s-1) d - N)/z) u + lambda z d u = 0 (D = z^2 d), makes z = 0 its natural regularity
 %%   condition; the generalised eigenproblem is solved by shifted inverse iteration in arbitrary precision.
 -module(pq_ode).
--export([euler_lagrange/5, schrodinger/5, eigenvalues/3, eigenvalues_collocation/3]).
+-export([euler_lagrange/5, schrodinger/5, eigenvalues/3, eigenvalues_collocation/3, frobenius_solution/4]).
 
 %%% Symbolic: Euler-Lagrange and Schrödinger form
 
@@ -215,8 +215,13 @@ shoot(#{right := Right} = Prob, E, P) ->
     end.
 
 %% the solution and its derivative at the first point
-start(#{left := {dirichlet, A}}, _, W) -> {pq_mp:from(A, W), {mp, 0, 0}, {mp, 1, 0}};
-start(#{left := {frobenius, 0}, n := Np, d := Dp, roots := Rs}, E, W) ->
+start(Prob, E, W) ->
+    {Z0, Phi, Dphi, _} = start(Prob, E, W, larger),
+    {Z0, Phi, Dphi}.
+
+%% {Z0, phi(Z0), phi'(Z0), int_0^Z0 phi^2} for the Frobenius solution of the larger or smaller exponent (c_0 = 1)
+start(#{left := {dirichlet, A}}, _, W, _) -> {pq_mp:from(A, W), {mp, 0, 0}, {mp, 1, 0}, {mp, 0, 0}};
+start(#{left := {frobenius, 0}, n := Np, d := Dp, roots := Rs}, E, W, Root) ->
     % D = z^2 d(z), d(0) /= 0; M = E D - N; phi = z^s sum c_k z^k
     case Dp of
         [{0, _}, {0, _}, {D2n, _} | _] when D2n =/= 0 -> ok;
@@ -229,7 +234,8 @@ start(#{left := {frobenius, 0}, n := Np, d := Dp, roots := Rs}, E, W) ->
     % the indicial equation d_0 s (s - 1) + M_0 = 0: the larger root
     Disc = pq_mp:sub({mp, 1, 0}, pq_mp:ldexp(pq_mp:divide(M0, D0, W), 2), W),
     pq_mp:to_float(Disc) >= 0 orelse throw({ode, complex_indicial_exponent}),
-    S = pq_mp:ldexp(pq_mp:add({mp, 1, 0}, pq_mp:sqrt(Disc, W), W), -1),
+    Sq = pq_mp:sqrt(Disc, W),
+    S = pq_mp:ldexp(case Root of larger -> pq_mp:add({mp, 1, 0}, Sq, W); smaller -> pq_mp:sub({mp, 1, 0}, Sq, W) end, -1),
     Rho = lists:min([cabs(R) || R <- Rs, cabs(R) > 1.0e-12] ++ [1.0e9]),
     Z0f = min(0.25 * Rho, 0.25),
     Z0 = pq_mp:from(Z0f, W),
@@ -241,7 +247,23 @@ start(#{left := {frobenius, 0}, n := Np, d := Dp, roots := Rs}, E, W) ->
                                       T = pq_mp:mul(C, Zk, W),
                                       {pq_mp:add(A, T, W), pq_mp:add(B, pq_mp:mul(pq_mp:add(S, pq_mp:from(K, W), W), T, W), W)}
                               end, {{mp, 0, 0}, {mp, 0, 0}}, lists:enumerate(0, Cs)),
-    {Z0, pq_mp:mul(Zs, Sum, W), pq_mp:divide(pq_mp:mul(Zs, DSum, W), Z0, W)}.
+    % int_0^Z0 phi^2 = sum_m (sum_(i+j=m) c_i c_j) Z0^(2s+m+1) / (2s+m+1)
+    Ct = list_to_tuple(Cs),
+    Nc = tuple_size(Ct),
+    Int = lists:foldl(fun(_, undefined) -> undefined;
+                         (M, Acc) ->
+                              Cm = lists:foldl(fun(I, A) -> pq_mp:add(A, pq_mp:mul(element(I + 1, Ct), element(M - I + 1, Ct), W), W) end,
+                                               {mp, 0, 0}, lists:seq(max(0, M - Nc + 1), min(M, Nc - 1))),
+                              Ex = pq_mp:add(pq_mp:ldexp(S, 1), pq_mp:from(M + 1, W), W),
+                              % phi^2 ~ z^(2s+m) with 2s + m + 1 =< 0 (the smaller exponent): not integrable at 0
+                              case pq_mp:to_float(Ex) =< 1.0e-30 of
+                                  true -> undefined;
+                                  false ->
+                                      Zp = pq_mp:exp(pq_mp:mul(Ex, pq_mp:log(Z0, W), W), W),
+                                      pq_mp:add(Acc, pq_mp:divide(pq_mp:mul(Cm, Zp, W), Ex, W), W)
+                              end
+                      end, {mp, 0, 0}, lists:seq(0, 2 * Nc - 2)),
+    {Z0, pq_mp:mul(Zs, Sum, W), pq_mp:divide(pq_mp:mul(Zs, DSum, W), Z0, W), Int}.
 
 %% the coefficients of M = E D - N
 mcoeffs(Np, Dp, E, W) ->
@@ -265,7 +287,16 @@ frob(Dc, Mc, S, W, Z0, M, Acc, Zm) ->
                               F = pq_mp:add(pq_mp:mul(Dj, pq_mp:mul(K, pq_mp:sub(K, {mp, 1, 0}, W), W), W), Mj, W),
                               pq_mp:add(Sum, pq_mp:mul(F, C, W), W)
                       end, {mp, 0, 0}, lists:zip(lists:seq(1, M), Rev)),
-    Cm = pq_mp:neg(pq_mp:divide(Num, Den, W)),
+    Cm = case mag_rel(Den, Ms, W) of
+             true ->
+                 % a resonance (the exponents differ by the integer M): no logarithm only if the right side vanishes
+                 % too; the free coefficient is then 0
+                 case negligible(Num, W - 40) of
+                     true -> {mp, 0, 0};
+                     false -> throw({ode, logarithmic_frobenius_solution})
+                 end;
+             false -> pq_mp:neg(pq_mp:divide(Num, Den, W))
+         end,
     Zm2 = pq_mp:mul(Zm, Z0, W),
     T = pq_mp:mul(Cm, Zm2, W),
     Acc2 = [Cm | Acc],
@@ -274,6 +305,10 @@ frob(Dc, Mc, S, W, Z0, M, Acc, Zm) ->
         false when M > 4000 -> throw({ode, frobenius_not_converging});
         false -> frob(Dc, Mc, S, W, Z0, M + 1, Acc2, Zm2)
     end.
+
+%% Den negligible against the size of its terms
+mag_rel({mp, 0, _}, _, _) -> true;
+mag_rel(Den, Ms, W) -> mag(Den) < mag(pq_mp:mul(Ms, Ms, W)) - W + 40.
 
 idx(L, J) when J < length(L) -> lists:nth(J + 1, L);
 idx(_, _) -> {mp, 0, 0}.
@@ -293,6 +328,27 @@ integrate(Prob, E, Z0, Zb, Phi, Dphi, W) ->
             {Phi2, Dphi2} = taylor_step(Prob, E, Z0, H, Phi, Dphi, W),
             Z1 = case Last of true -> Zb; false -> pq_mp:add(Z0, H, W) end,
             integrate(Prob, E, Z1, Zb, Phi2, Dphi2, W)
+    end.
+
+%% the same with int phi^2 accumulated: each step's Taylor polynomial squared, integrated over [0, h]
+integrate_int(Prob, E, Z0, Zb, Phi, Dphi, undefined, W) ->
+    {P2, D2} = integrate(Prob, E, Z0, Zb, Phi, Dphi, W),
+    {P2, D2, undefined};
+integrate_int(Prob, E, Z0, Zb, Phi, Dphi, Int, W) ->
+    case pq_mp:cmp(Z0, Zb) >= 0 of
+        true -> {Phi, Dphi, Int};
+        false ->
+            {H, Last} = step_size(Prob, Z0, Zb, W),
+            {Phi2, Dphi2} = taylor_step(Prob, E, Z0, H, Phi, Dphi, W),
+            Coef = get({?MODULE, last_coefs}),
+            K = maps:size(Coef),
+            Int2 = lists:foldl(fun(M, Acc) ->
+                                       Cm = lists:foldl(fun(I, A) -> pq_mp:add(A, pq_mp:mul(maps:get(I, Coef), maps:get(M - I, Coef), W), W) end,
+                                                        {mp, 0, 0}, lists:seq(max(0, M - K + 1), min(M, K - 1))),
+                                       pq_mp:add(Acc, pq_mp:divide(pq_mp:mul(Cm, ipow(H, M + 1, W), W), pq_mp:from(M + 1, W), W), W)
+                               end, Int, lists:seq(0, 2 * K - 2)),
+            Z1 = case Last of true -> Zb; false -> pq_mp:add(Z0, H, W) end,
+            integrate_int(Prob, E, Z1, Zb, Phi2, Dphi2, Int2, W)
     end.
 
 %% half the distance to the nearest zero of D, at most the rest of the way
@@ -324,6 +380,7 @@ taylor_step(#{n := Np, d := Dp}, E, A, H, Phi, Dphi, W) ->
                                           end,
                                     {S2, Ds2}
                             end, {{mp, 0, 0}, {mp, 0, 0}}, Coef),
+    put({?MODULE, last_coefs}, Coef),
     {Sum, DSum}.
 
 taylor_coefs(Dt, Mt, D0, W, H, Acc, M) ->
@@ -541,3 +598,37 @@ back(Tri, W) ->
                         S = lists:foldl(fun({C, X}, A) -> pq_mp:add(A, pq_mp:mul(C, X, W), W) end, {mp, 0, 0}, lists:zip(Coefs, Xs)),
                         [pq_mp:divide(pq_mp:sub(Rhs, S, W), Diag, W) | Xs]
                 end, [], Tri).
+
+%%% The Frobenius solution itself
+
+%% the solution phi = z^s (1 + ...) of -phi'' + V phi = E phi from the regular singular point 0, s the larger or the
+%% smaller exponent (Opts exponent => larger | smaller; a smaller one with a logarithm is refused), at the right end B
+%% (Opts b => B): {ok, #{phi, dphi, norm}} as decimal strings, norm = int_0^B phi^2 dz (undefined when phi^2 is not
+%% integrable at 0). E an
+%% integer, a fraction {N, D}, or a decimal string.
+-spec frobenius_solution(term(), atom(), term(), map()) -> {ok, map()} | {error, term()}.
+frobenius_solution(V0, Z, E0, Opts) ->
+    try
+        Params = maps:get(params, Opts, #{}),
+        V = case map_size(Params) of
+                0 -> V0;
+                _ -> {ok, S0} = pq_symbolic:subs(V0, maps:map(fun(_, X) -> num_ast(X) end, Params)), S0
+            end,
+        {ok, {N, Dd}} = pq_symbolic:numer_denom(V),
+        Np = coeffs(N, Z), Dp = coeffs(Dd, Z),
+        Digits = maps:get(digits, Opts, 30),
+        P = ceil(Digits * 3.3219280948873622) + 24,
+        W = P + 32,
+        E = case E0 of
+                S when is_list(S) -> pq_mp:from_string(S, W);
+                _ -> pq_mp:from(E0, W)
+            end,
+        B = maps:get(b, Opts),
+        Prob = #{n => Np, d => Dp, roots => roots(Dp), left => {frobenius, 0}},
+        {Z0, Phi0, Dphi0, Int0} = start(Prob, E, W, maps:get(exponent, Opts, larger)),
+        {Phi, Dphi, Int} = integrate_int(Prob, E, Z0, pq_mp:from(B, W), Phi0, Dphi0, Int0, W),
+        erase({?MODULE, last_coefs}),
+        {ok, #{phi => pq_mp:to_string(Phi, Digits), dphi => pq_mp:to_string(Dphi, Digits),
+               norm => case Int of undefined -> undefined; _ -> pq_mp:to_string(Int, Digits) end}}
+    catch throw:{ode, Why} -> {error, {symbolic_unsupported, #{frobenius => Why}}}
+    end.

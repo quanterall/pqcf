@@ -191,8 +191,17 @@ Bessel's equation.
     It agrees with the closed forms to 25 digits on both walls (64 and 32 points), so the plan's "two methods that
     must agree" holds.
   - **PSLQ** (`pq_mp:pslq/3`): integer relations among high-precision numbers, tested on known identities.
-  - **Open in phase 3:**
-    - the hard wall's pion and a_1 sector, with the paper's fitted observables.
+- **14 Nov 2026: phase 3, the hard wall's axial and pion sector** (`comparison/holographic/hardwall.erl`,
+  `HARDWALL.md`).
+  - **Computed:** m_rho, m_a1, F_rho^(1/2), F_a1^(1/2), f_pi (chiral limit) and m_pi (GOR), for models A and B.
+  - **Agreement:** Table II's values to their rounding, and F_rho to its closed form (int phi^2 = 2 J_1(j)^2/j^2).
+  - **Two differences, both checked against an independent SciPy solution:**
+    - f_pi is 1.6-2.1% low: the chiral limit against the paper's m_q /= 0, whose O(m_q^2) contact term depends on
+      the cutoff;
+    - model A's m_a1 is 1358.24 MeV against the paper's 1363; SciPy gives 1358.2432 too. The parameter values behind
+      the paper's number are open.
+  - **Not computed:** g_(rho pi pi).
+  - **Phase 3 done.**
 - **14 Nov 2026: phase 4, component tensors** (`pq_geometry:curvature/2`). The acceptance checks of phase 4 that
   concern components pass exactly:
   - AdS_5: R = -20/L^2, R_ab = -(4/L^2) g_ab, Weyl tensor zero (Kretschmann 40/L^4);

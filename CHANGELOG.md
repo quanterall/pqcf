@@ -48,6 +48,13 @@ the public API is additive.
   - `eigenvalues/3`: the spectrum to any number of digits, for V a rational function. It uses a Frobenius start at a
     singular end, Taylor-series integration on the polynomial form of the equation, Dirichlet or Robin conditions,
     and the Illinois method.
+  - `frobenius_solution/4`: the Frobenius solution of either exponent at the right end, with int phi^2 (eigenfunction
+    norms).
+  - **The hard wall's axial and pion sector** (`comparison/holographic/HARDWALL.md`): m_a1, F_rho, F_a1, f_pi (chiral
+    limit) and m_pi (GOR) for the paper's two parameter sets.
+    - **Agreement:** with Table II of hep-ph/0501128 to its rounding, apart from f_pi, which is 1.6-2.1% lower: the
+      quark-mass term, confirmed by an independent SciPy solution.
+    - **Open:** model A's m_a1, 0.35% lower than the paper's but equal to the independent solution.
   - `eigenvalues_collocation/3`: the same spectrum by an independent method, Chebyshev collocation of phi / z^s
     with shifted inverse iteration.
   - **The holographic QCD walls from the action to the spectrum** (`comparison/holographic/RESULTS.md`), equal to

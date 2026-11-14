@@ -15,7 +15,7 @@
 %%   to a few hundred); their zeros: McMahon's asymptotic start, Newton;
 %% - Laguerre L_n^alpha: the sum; 2F1(a, b; c; z) for |z| < 1: the series.
 -module(pq_mp).
--export([from/2, to_float/1, to_string/2, add/3, sub/3, mul/3, divide/3, neg/1, sqrt/2, cmp/2, ldexp/2,
+-export([from/2, from_string/2, to_float/1, to_string/2, add/3, sub/3, mul/3, divide/3, neg/1, sqrt/2, cmp/2, ldexp/2,
          pi/1, ln2/1, euler_gamma/1, zeta/2, exp/2, log/2, sin/2, cos/2, gamma/2, polygamma/3,
          besselj/3, bessely/3, besselj_zero/3, laguerre/4, hyp2f1/5, evaluate/3, pslq/3]).
 
@@ -62,6 +62,22 @@ float_parts(F) ->
     <<S:1, Ex:11, Frac:52>> = <<F/float>>,
     {M, E} = case Ex of 0 -> {Frac, -1074}; _ -> {Frac bor (1 bsl 52), Ex - 1075} end,
     {case S of 1 -> -M; 0 -> M end, E}.
+
+%% a decimal string "d.ddd[e±k]" at precision P
+-spec from_string(string(), pos_integer()) -> mp().
+from_string(S, P) ->
+    {Mant, Exp} = case string:split(S, "e") of
+                      [M, E] -> {M, list_to_integer(E)};
+                      [M] -> {M, 0}
+                  end,
+    {Sign, Digits} = case Mant of [$- | R] -> {-1, R}; R -> {1, R} end,
+    {Int, Frac} = case string:split(Digits, ".") of [I, F] -> {I, F}; [I] -> {I, ""} end,
+    N = Sign * list_to_integer(Int ++ Frac),
+    E2 = Exp - length(Frac),
+    case E2 >= 0 of
+        true -> from(N * pow10(E2), P);
+        false -> from({N, pow10(-E2)}, P)
+    end.
 
 -spec to_float(mp()) -> float().
 to_float({mp, 0, _}) -> 0.0;
