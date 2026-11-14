@@ -17,6 +17,11 @@ the public API is additive.
     - Chinese remaindering in Erlang;
     - each candidate accepted only when it divides both inputs exactly.
   - Square-free decomposition, `pq_sym_gcd:squarefree/1` (Yun's algorithm, contents recursively).
+- **Rational functions in normal form** (SY2): `pq_symbolic:cancel/1,2` (N D^-1, N and D coprime, D primitive with a
+  positive leading coefficient: equal rational functions give equal results) and `numer_denom/1,2`;
+  `pq_sym_ratfun`.
+- **Changed:** `pq_symbolic:equiv/3` decides rational functions of symbols by their normal forms, true or false,
+  where it answered `unknown` before (the scope fence of SY 10.3, lifted by SY2).
 - **Factorisation over the rationals** (SY2): `pq_symbolic:factor/1,2` -> `{ok, {Constant, [{Factor, Multiplicity}]}}`,
   `pq_sym_factor`, `pq_form:factor/1,2` for comparison.
   - **One variable:** Zassenhaus's method. Factors modulo a small prime in Rust (`pq_nif:factor_mod/3`:

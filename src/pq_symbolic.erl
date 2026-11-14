@@ -13,7 +13,7 @@
          shape/1, free_symbols/1, size/1, hash/1, domain_of/2,
          pretty/1, pretty/2, to_latex/1, parse/1, parse/2,
          resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, gaussian_evolve/2, is_unitary/1, is_unitary/2, permanent/1, bs_probability/3, compile/2, compile/3, glynn_reference/2, eval_slp/2, eval_batch/2, equiv/3,
-         substitute/2, gcd/2, gcd/3, factor/1, factor/2]).
+         substitute/2, gcd/2, gcd/3, factor/1, factor/2, cancel/1, cancel/2, numer_denom/1, numer_denom/2]).
 
 -export_type([sym_expr/0, binding/0, opts/0]).
 
@@ -508,6 +508,46 @@ factor(E, Opts) ->
         R -> R
     end.
 
+%% A rational function of symbols with rational coefficients in normal form (decision record SY2): N * D^-1 with N
+%% and D coprime polynomials, D primitive with integer coefficients and a positive leading coefficient, so equal
+%% rational functions give equal results (the canonical form alone keeps a sum in a denominator as an opaque atom).
+%% Anything else: {error, {symbolic_unsupported, rational}}.
+-spec cancel(sym_expr()) -> result(sym_expr()).
+cancel(E) -> cancel(E, #{}).
+
+-spec cancel(sym_expr(), opts()) -> result(sym_expr()).
+cancel(E, Opts) ->
+    with_ratfun(E, Opts, fun(R, Vars, Ctx) -> output_deferred(pq_sym_norm:norm(pq_sym_ratfun:to_ast(R, Vars), Ctx), Ctx) end).
+
+%% {N, D} of cancel/1,2's normal form, each canonical
+-spec numer_denom(sym_expr()) -> result({sym_expr(), sym_expr()}).
+numer_denom(E) -> numer_denom(E, #{}).
+
+-spec numer_denom(sym_expr(), opts()) -> result({sym_expr(), sym_expr()}).
+numer_denom(E, Opts) ->
+    case with_ratfun(E, Opts, fun(R, Vars, _) -> {R, Vars} end) of
+        {ok, {{N, D}, Vars}} ->
+            {ok, Na} = canonicalise(pq_sym_gcd:to_ast(N, Vars), Opts),
+            {ok, Da} = canonicalise(pq_sym_gcd:to_ast(D, Vars), Opts),
+            {ok, {Na, Da}};
+        Err -> Err
+    end.
+
+with_ratfun(E, Opts, Out) ->
+    case canonicalise(E, Opts) of
+        {ok, C} ->
+            Vars = free_symbols(C),
+            finish(run(C, Opts, fun(Ctx) -> Out(pq_sym_ratfun:from_ast(C, Vars), Vars, Ctx) end));
+        Err -> Err
+    end.
+
+%% equal as rational functions (true | false), or none when either is not a rational function of symbols
+ratfun_equiv(X, Y) ->
+    Vars = lists:usort(free_symbols(X) ++ free_symbols(Y)),
+    try pq_sym_ratfun:equal(pq_sym_ratfun:from_ast(X, Vars), pq_sym_ratfun:from_ast(Y, Vars))
+    catch throw:{symbolic_unsupported, rational} -> none
+    end.
+
 gcd_out(G, Vars, Ctx) -> output_deferred(pq_sym_norm:norm(pq_sym_gcd:to_ast(G, Vars), Ctx), Ctx).
 
 %% true: identical canonical forms (sound for all inputs); false: different forms of two expressions in E (SY 3.5),
@@ -523,7 +563,12 @@ equiv(A, B, Opts) ->
             Faithful = faithful(X) andalso faithful(Y) andalso not (free_symbols(D) =:= [] andalso has_transcendental(D)),
             case Faithful of
                 true -> {ok, false};
-                false -> numeric_equiv(D, maps:get(numeric, Opts, 0), Opts)
+                false ->
+                    %% rational functions of symbols: decided by their normal forms (SY2)
+                    case ratfun_equiv(X, Y) of
+                        none -> numeric_equiv(D, maps:get(numeric, Opts, 0), Opts);
+                        Eq -> {ok, Eq}
+                    end
             end;
         {{error, _} = E, _} -> E;
         {_, E} -> E

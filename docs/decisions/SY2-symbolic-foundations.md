@@ -165,4 +165,8 @@ Bessel's equation.
       the one compared here.
     - The remaining gap (8×) is in the lifting: each factor carries the whole leading coefficient, and its powers of
       (x_j - a_j) are dense. Wang's distribution of the leading coefficient's factors would remove the first.
-  - **Next:** rational functions in normal form; then phase 2 (series and function atoms).
+- **14 Nov 2026: rational functions in normal form** (`pq_symbolic:cancel/1,2`, `numer_denom/1,2`, `pq_sym_ratfun`).
+  - `equiv/3` now decides rational functions of symbols: `(x^2 - 1)/(x - 1)` against `x + 1` is true. It was
+    `unknown` at the old fence (SY 10.3).
+  - **Phase 1 done**, apart from exact algebraic numbers, which come with phase 2's needs.
+  - **Next:** phase 2 (series and function atoms).

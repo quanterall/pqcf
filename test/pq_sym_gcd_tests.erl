@@ -209,3 +209,26 @@ factor_api_test() ->
     ?assertEqual({ok, {{rat, 1, 2}, []}}, pq_symbolic:factor({rat, 1, 2})),
     ?assertEqual({ok, {0, []}}, pq_symbolic:factor(0)),
     ?assertEqual({error, {symbolic_unsupported, factor}}, pq_symbolic:factor({exp, X})).
+
+%%% Rational functions (pq_sym_ratfun)
+
+ratfun_test() ->
+    X = {sym, x}, Y = {sym, y},
+    Inv = fun(E) -> {pow, E, -1} end,
+    % (x^2 - 1) / (x - 1) = x + 1
+    {ok, S} = pq_symbolic:canonicalise({add, [X, 1]}),
+    ?assertEqual({ok, S}, pq_symbolic:cancel({mul, [{add, [{pow, X, 2}, -1]}, Inv({add, [X, -1]})]})),
+    % 1/(x + y) + 1/(x - y) = 2x / (x^2 - y^2)
+    {ok, {N, D}} = pq_symbolic:numer_denom({add, [Inv({add, [X, Y]}), Inv({add, [X, {mul, [-1, Y]}]})]}),
+    ?assertEqual(pq_symbolic:canonicalise({mul, [2, X]}), {ok, N}),
+    ?assertEqual(pq_symbolic:canonicalise({add, [{pow, X, 2}, {mul, [-1, {pow, Y, 2}]}]}), {ok, D}),
+    % a normal form: equal rational functions written differently give the same result
+    A = {mul, [{add, [X, 1]}, Inv({add, [{pow, X, 2}, {mul, [2, X]}, 1]})]},       % (x + 1) / (x + 1)^2
+    B = {mul, [{rat, 1, 2}, Inv({add, [{rat, 1, 2}, {mul, [{rat, 1, 2}, X]}]})]},  % (1/2) / ((1 + x)/2)
+    ?assertEqual(pq_symbolic:cancel(A), pq_symbolic:cancel(B)),
+    % nested fractions: 1 / (1 + 1/x) = x / (x + 1)
+    ?assertEqual(pq_symbolic:cancel({mul, [X, Inv({add, [X, 1]})]}), pq_symbolic:cancel(Inv({add, [1, Inv(X)]}))),
+    % the scope fence of SY 10.3, now decided
+    ?assertEqual({ok, true}, pq_symbolic:equiv({mul, [{add, [{pow, X, 2}, -1]}, Inv({add, [X, -1]})]}, {add, [X, 1]}, #{})),
+    ?assertEqual({ok, false}, pq_symbolic:equiv({mul, [{add, [{pow, X, 2}, -1]}, Inv({add, [X, -1]})]}, {add, [X, 2]}, #{})),
+    ?assertEqual({error, {symbolic_unsupported, rational}}, pq_symbolic:cancel({exp, X})).

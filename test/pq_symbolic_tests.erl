@@ -542,8 +542,8 @@ equiv_test() ->
     ?assertEqual({ok, true}, ?S:equiv({pow, {add, [X, 1]}, 2}, {add, [{pow, X, 2}, {mul, [2, X]}, 1]}, #{})),
     ?assertEqual({ok, false}, ?S:equiv({pow, X, 2}, {pow, X, 3}, #{})),
     ?assertEqual({ok, true}, ?S:equiv({add, [{pow, {sin, X}, 2}, {pow, {cos, X}, 2}]}, 1, #{})),
-    %% the scope fence (SY 10.3)
-    ?assertEqual({ok, unknown}, ?S:equiv({mul, [{add, [{pow, X, 2}, -1]}, {pow, {add, [X, -1]}, -1}]}, {add, [X, 1]}, #{})),
+    %% the old scope fence (SY 10.3), lifted by decision record SY2: rational functions are decided by their normal forms
+    ?assertEqual({ok, true}, ?S:equiv({mul, [{add, [{pow, X, 2}, -1]}, {pow, {add, [X, -1]}, -1}]}, {add, [X, 1]}, #{})),
     %% the counter-example to SY 3.5: equal, different forms, so not decidable here
     Cos5 = {cos, {mul, [{rat, 1, 5}, {const, pi}]}},
     Rad5 = {mul, [{rat, 1, 4}, {add, [1, {pow, 5, {rat, 1, 2}}]}]},
