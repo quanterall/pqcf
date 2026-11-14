@@ -1,7 +1,7 @@
 # SY2: the symbolic engine beyond FORM's domain (gcd, factorisation, then theoretical physics)
 
-**Status: accepted (the project owner's decision, 14 Nov 2026: "yes, allow gcd and factorisation … start
-implementation in your order"). Phase 1 in progress.**
+**Status: accepted on 14 Nov 2026; all six phases carried out by 15 Nov 2026 (one comparison open: improved
+holographic QCD, phase 6).**
 
 ## Decision
 

@@ -2,8 +2,8 @@
 
 **Decision: `pq_sym_poly:mul/3` multiplies plain polynomials in Rust (`pq_nif:sym_poly_mul/6`,
 `native/pq_nif/src/polymul.rs`). The result is the same polynomial, term for term, as the product in Erlang (D1).
-It is internal: no public function changes, and `poly_kernel => false` in the options turns it off.** The project
-owner asked for this on 6 Nov 2026 ("start with step 1"). The step comes from the analysis of how close PQCF can
+It is internal: no public function changes, and `poly_kernel => false` in the options turns it off.** Decided on
+6 Nov 2026, as the first step of the plan to close the gap to FORM. The step comes from the analysis of how close PQCF can
 come to FORM: expansion was 10–30× slower than FORM 5, and a 40-line Rust prototype multiplied Fateman's n = 15
 benchmark in 0.13 s against FORM's 2.2 s.
 

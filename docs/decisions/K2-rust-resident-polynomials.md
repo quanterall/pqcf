@@ -4,7 +4,7 @@
 in Rust as `{rpoly, Vars, Resource}`. Sums, negations, scalings, products and powers of such polynomials run in Rust.
 `pq_sym_norm:to_ast/1` builds the final expression tree in print order straight from Rust. Nothing outside
 `pq_sym_poly` ever sees a handle, and the canonical form is identical, term for term, to the maps-only path's (D1).**
-The project owner asked for this on 7 Nov 2026 ("go with the Rust-resident polynomials"), after K1 found that
+Decided on 7 Nov 2026, after K1 found that
 building, hashing, ordering and copying large results as Erlang terms was the floor of the old design.
 
 ## Design

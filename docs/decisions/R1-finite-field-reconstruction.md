@@ -1,6 +1,6 @@
 # R1: reducing large results by finite-field reconstruction, distributed
 
-**Status: accepted, in progress (the project owner's decision, 7 Nov 2026: "go with B and the minimal store").
+**Status: accepted on 7 Nov 2026 (option B, with the minimal store), in progress.
 Phases 1–5 done.**
 
 ## Why
