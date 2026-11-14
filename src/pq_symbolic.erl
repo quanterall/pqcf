@@ -13,7 +13,7 @@
          shape/1, free_symbols/1, size/1, hash/1, domain_of/2,
          pretty/1, pretty/2, to_latex/1, parse/1, parse/2,
          resolve_params/2, resolve_params/3, circuit_unitary/1, circuit_unitary/2, gaussian_evolve/2, is_unitary/1, is_unitary/2, permanent/1, bs_probability/3, compile/2, compile/3, glynn_reference/2, eval_slp/2, eval_batch/2, equiv/3,
-         substitute/2]).
+         substitute/2, gcd/2, gcd/3]).
 
 -export_type([sym_expr/0, binding/0, opts/0]).
 
@@ -448,6 +448,38 @@ eval_slp(P, B) -> pq_sym_slp:eval(P, B).
 
 -spec eval_batch(tuple(), [binding()]) -> result(list()).
 eval_batch(P, Bs) -> pq_sym_slp:eval_batch(P, Bs).
+
+%% The greatest common divisor of two polynomials with rational coefficients (decision record SY2): primitive, with
+%% integer coefficients, the leading term positive (terms ordered lexicographically by the sorted symbols); the gcd
+%% of 0 and 0 is 0. By the modular method (pq_sym_gcd). Complex coefficients, pi, exponentials and sums in
+%% denominators are refused: {error, {symbolic_unsupported, gcd}}.
+-spec gcd(sym_expr(), sym_expr()) -> result(sym_expr()).
+gcd(A, B) -> gcd(A, B, #{}).
+
+-spec gcd(sym_expr(), sym_expr(), opts()) -> result(sym_expr()).
+gcd(A, B, Opts) ->
+    %% a sum of monomials with exact coefficients is read as it is; anything else is canonicalised first
+    Vars = lists:usort(raw_symbols(A) ++ raw_symbols(B)),
+    Direct = run({add, [A, B]}, Opts, fun(Ctx) ->
+                                              Pa = pq_sym_gcd:from_ast(A, Vars),
+                                              Pb = pq_sym_gcd:from_ast(B, Vars),
+                                              gcd_out(pq_sym_gcd:gcd(Pa, Pb), Vars, Ctx)
+                                      end),
+    case Direct of
+        {error, {symbolic_unsupported, gcd}} ->
+            case {canonicalise(A, Opts), canonicalise(B, Opts)} of
+                {{ok, Ca}, {ok, Cb}} ->
+                    finish(run({add, [Ca, Cb]}, Opts, fun(Ctx) ->
+                                                              G = pq_sym_gcd:gcd(pq_sym_gcd:from_ast(Ca, Vars), pq_sym_gcd:from_ast(Cb, Vars)),
+                                                              gcd_out(G, Vars, Ctx)
+                                                      end));
+                {{error, _} = E, _} -> E;
+                {_, E} -> E
+            end;
+        _ -> finish(Direct)
+    end.
+
+gcd_out(G, Vars, Ctx) -> output_deferred(pq_sym_norm:norm(pq_sym_gcd:to_ast(G, Vars), Ctx), Ctx).
 
 %% true: identical canonical forms (sound for all inputs); false: different forms of two expressions in E (SY 3.5),
 %% where the form is faithful -- no opaque base, no float, no exponential of pi (finding: exp(i pi/5) equals a

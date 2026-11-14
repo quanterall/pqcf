@@ -12,7 +12,7 @@
 %% sum-of-terms output (megabytes, beyond pq_sym_parse's 64 KB) and returned in pq_symbolic's canonical form, so a
 %% result from FORM and one from pq_symbolic compare with =:=.
 -module(pq_form).
--export([available/0, available/1, version/0, expand/1, expand/2, permanent/1, permanent/2]).
+-export([available/0, available/1, version/0, expand/1, expand/2, permanent/1, permanent/2, gcd/2, gcd/3]).
 
 -define(TIMEOUT, 600000).
 
@@ -86,6 +86,31 @@ permanent({matrix, Rows} = M, Opts) when is_list(Rows), Rows =/= [] ->
 permanent(_, _Opts) -> {error, {bad_shape, permanent}}.
 
 %%% The run
+
+%% the greatest common divisor of two polynomials by FORM's gcd_, normalised as pq_symbolic:gcd/2 normalises it
+%% (primitive, the leading term positive), so the two can be compared term for term
+-spec gcd(pq_symbolic:sym_expr(), pq_symbolic:sym_expr()) -> {ok, pq_symbolic:sym_expr()} | {error, pq_core:reason()}.
+gcd(A, B) -> gcd(A, B, #{}).
+
+-spec gcd(pq_symbolic:sym_expr(), pq_symbolic:sym_expr(), map()) -> {ok, pq_symbolic:sym_expr()} | {error, pq_core:reason()}.
+gcd(A, B, Opts) ->
+    R = with_form(Opts, fun(Names) ->
+                                ["Local E1 = ", to_form(A, Names), ";
+Local E2 = ", to_form(B, Names), ";
+.sort
+",
+                                 "Local F = gcd_(E1,E2);
+.sort
+Drop E1,E2;
+"]
+                        end, [A, B]),
+    case R of
+        {ok, F} ->
+            Vars = pq_symbolic:free_symbols(F),
+            {_, P} = pq_sym_gcd:primitive(pq_sym_gcd:from_ast(F, Vars)),
+            pq_symbolic:canonicalise(pq_sym_gcd:to_ast(P, Vars), Opts);
+        Err -> Err
+    end.
 
 with_form(Opts, Body, Exprs) ->
     case executable(Opts) of

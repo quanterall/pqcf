@@ -16,7 +16,7 @@
          fock_dmb_from/3, fock_dmb_to_dense/3, fock_dmb_apply/4, fock_dmb_pnr_probabilities/4, fock_dmb_measure_pnr/5,
          fock_dm_adjoint_gradient/5, sym_poly_mul/6, sym_poly_pow/5,
          rpoly_new/4, rpoly_mul/5, rpoly_add/5, rpoly_pow/2, rpoly_scale/4, rpoly_info/1, rpoly_to_map/2, rpoly_to_ast/2,
-         rpoly_nodes/2, rpoly_permanent/3,
+         rpoly_nodes/2, rpoly_permanent/3, mgcd_mod/4,
          horner_prepare/2, horner_count/2, ff_prepare/3, ff_eval/3, ff_tvandermonde/3, ff_column/6, ff_line_column/10, ff_linsys/8, ff_linsys_all/3, ff_pivots/4]).
 -on_load(load/0).
 
@@ -357,6 +357,11 @@ rpoly_nodes(_A, _Weights) -> erlang:nif_error(nif_not_loaded).
 %% the permanent of a K x K matrix of integer-coefficient polynomials over NVars variables, entries row-major
 -spec rpoly_permanent(non_neg_integer(), non_neg_integer(), [{[integer()], [integer()]}]) -> {ok, reference()} | overflow | packing.
 rpoly_permanent(_NVars, _K, _Entries) -> erlang:nif_error(nif_not_loaded).
+
+%% the monic gcd modulo the prime P of two polynomials [{Exps, Coef}] over NVars variables (pq_sym_gcd)
+-spec mgcd_mod(pos_integer(), non_neg_integer(), [{[non_neg_integer()], non_neg_integer()}], [{[non_neg_integer()], non_neg_integer()}]) ->
+          {ok, [{[non_neg_integer()], non_neg_integer()}]} | failed.
+mgcd_mod(_P, _NVars, _A, _B) -> erlang:nif_error(nif_not_loaded).
 
 %% Plain polynomials of symbols ({Exps, Coef, Den} each, over NVars variables) prepared once, and the operations of
 %% pq_sym_slp's Horner programs of them for a variable order (indices, first to last), counted without building

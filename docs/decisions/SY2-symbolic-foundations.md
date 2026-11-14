@@ -129,4 +129,19 @@ Bessel's equation.
 
 ## Progress
 
-- 14 Nov 2026: record written; phase 1 started with the modular gcd.
+- **14 Nov 2026: record written; the modular gcd done.**
+  - **API:** `pq_symbolic:gcd/2,3`, `pq_sym_gcd`, Rust `mgcd.rs`.
+  - **How it got level with FORM (polybench defaults, core 8, 10 problems each, results equal to FORM's):**
+
+    | version | nontrivial | coprime |
+    | --- | --- | --- |
+    | Zippel's sparse interpolation, Montgomery arithmetic, candidates tried before a confirming prime | 0.29 s | 0.28 s |
+    | monomial contents first; univariate coprimality proof; contents left out of the images | **0.083 s** | **0.052 s** |
+    | *FORM 5 with FLINT* | *0.075 s* | *0.044 s* |
+
+  - **Before that,** on similar problems: Brown's dense method alone took 0.75–1.65 s per problem, and Zippel's
+    sparse interpolation cut that about 20-fold.
+  - **Why the monomial contents mattered:** random polybench factors have every variable in nearly every term, so
+    even the "coprime" pairs share a monomial. Left in, it drove about 10,000 recursive gcds per problem.
+  - **Square-free decomposition** (`pq_sym_gcd:squarefree/1`, Yun's algorithm) done the same day.
+  - **Next:** factorisation, then rational functions in normal form.

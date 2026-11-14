@@ -51,6 +51,13 @@ tasks() ->
       fun() -> pq_symbolic:permanent(Mat(N)) end,
       fun() -> pq_form:permanent(Mat(N), ?LIMITS) end,
       form_permanent(N)} || N <- [6, 7, 8]] ++
+    %% polynomial gcds as in T. Ueda's polybench (github.com/tueda/polybench, its defaults): 5 variables, basic
+    %% polynomials of 22-30 terms of degree 22-30, coefficients in [-2^14, 2^14]; gcd(a g, b g) (nontrivial) and
+    %% gcd(a b, c d) (coprime). Each task is 10 problems, generated from a fixed seed.
+    [{io_lib:format("T7 gcd ~s", [Kind]), io_lib:format("10 polynomial gcds, ~s, 5 variables (polybench defaults)", [Kind]),
+      fun() -> gcds(fun pq_symbolic:gcd/2, Kind) end,
+      fun() -> gcds(fun pq_form:gcd/2, Kind) end,
+      form_gcds(Kind)} || Kind <- ["nontrivial", "coprime"]] ++
     [{io_lib:format("T4 mesh k=~b", [K]), io_lib:format("symbolic unitary of a ~b-mode Clements mesh, every angle a symbol", [K]),
       fun() -> pq_symbolic:circuit_unitary(mesh(K), ?LIMITS) end,
       none,                                    % trigonometric entries: outside pq_form's polynomial fragment
@@ -118,6 +125,56 @@ final_terms(Script, Out) ->
                        end, #{}, string:split(Out, "\n", all)),
     lists:sum([N || Name := N <- Last, Name =:= Prefix orelse (lists:last(Prefix) =:= $r andalso
                                                                lists:prefix(Prefix, Name))]).
+
+%%% polybench-style gcd problems
+
+%% the problems of a kind: [{A, B}], canonical, expanded (outside the timing)
+gcd_problems(Kind) ->
+    Key = {?MODULE, gcd_problems, Kind},
+    case get(Key) of
+        undefined ->
+            rand:seed(exsss, {7, 14, case Kind of "nontrivial" -> 1; _ -> 2 end}),
+            E = fun(Fs) -> {ok, X} = pq_symbolic:canonicalise({mul, Fs}), X end,
+            Ps = [case Kind of
+                      "nontrivial" -> G = basic(), {E([basic(), G]), E([basic(), G])};
+                      _ -> {E([basic(), basic()]), E([basic(), basic()])}
+                  end || _ <- lists:seq(1, 10)],
+            put(Key, Ps),
+            Ps;
+        Ps -> Ps
+    end.
+
+%% a basic polynomial: 22-30 terms, each of degree 22-30 (variables drawn with repetition), coefficients nonzero
+%% in [-16384, 16384]
+basic() ->
+    {add, [{mul, [coeff() | [{sym, list_to_atom("x" ++ integer_to_list(rand:uniform(5)))}
+                             || _ <- lists:seq(1, 21 + rand:uniform(9))]]}
+           || _ <- lists:seq(1, 21 + rand:uniform(9))]}.
+
+coeff() ->
+    case rand:uniform(32769) - 16385 of 0 -> 1; C -> C end.
+
+gcds(F, Kind) ->
+    Gs = [case F(A, B) of {ok, G} -> G; Err -> throw(Err) end || {A, B} <- gcd_problems(Kind)],
+    {ok, {matrix, [Gs]}}.
+
+form_gcds(Kind) ->
+    Ps = gcd_problems(Kind),
+    Ks = lists:seq(1, length(Ps)),
+    lists:flatten(
+      ["* final: Gr\nSymbols x1,x2,x3,x4,x5;\n",
+       [io_lib:format("Local A~b = ~s;\nLocal B~b = ~s;\n", [K, form_poly(A), K, form_poly(B)]) || {K, {A, B}} <- lists:zip(Ks, Ps)],
+       ".sort\n",
+       [io_lib:format("Local Gr~b = gcd_(A~b,B~b);\n", [K, K, K]) || K <- Ks],
+       ".sort\nDrop ", lists:join(",", [io_lib:format("A~b,B~b", [K, K]) || K <- Ks]), ";\n.end\n"]).
+
+%% a canonical polynomial in FORM's syntax
+form_poly({add, Ts}) -> lists:join("+", [form_poly(T) || T <- Ts]);
+form_poly({mul, Fs}) -> lists:join("*", [form_poly(F) || F <- Fs]);
+form_poly({pow, {sym, X}, K}) -> io_lib:format("~s^~b", [X, K]);
+form_poly({sym, X}) -> atom_to_list(X);
+form_poly({rat, N, D}) -> io_lib:format("(~b/~b)", [N, D]);
+form_poly(N) when is_integer(N) -> io_lib:format("(~b)", [N]).
 
 %%% FORM scripts of the tasks
 

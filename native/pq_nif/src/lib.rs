@@ -17,6 +17,7 @@ pub mod gpu;
 pub mod hcount;
 pub mod hafnian;
 pub mod mesh;
+pub mod mgcd;
 pub mod num;
 pub mod perm;
 pub mod polymul;
@@ -36,7 +37,7 @@ mod atoms {
         max_photons, max_per_mode, max_clicks, truncated_mass, negative_probability, nonzero_mean_threshold,
         phaseshift, kerr, passive, displacement, squeezing, loss, fix_outcome, stream, singular_matrix, stream_ref, metropolis, burn_in, thin, chains, acceptance_rate,
         probability, photons, shared, thermal_loss, extra, device, cpu, gpu, auto, reason,
-        overflow, packing, q, add, mul, pow, rat, complex, expi, sym, exp, bad_prime, sub, singular, bad, const_ = "const"
+        overflow, packing, q, add, mul, pow, rat, complex, expi, sym, exp, bad_prime, sub, singular, bad, failed, const_ = "const"
     }
 }
 
@@ -1583,6 +1584,20 @@ fn rpoly_permanent(env: Env, nvars: usize, k: usize, entries: Vec<(Vec<i64>, Vec
         ps.push(polymul::Poly { exps, coef });
     }
     Ok(rpoly_result(env, polymul::permanent(nvars, k, &ps).map(|p| rpoly::RPoly::new(nvars, p, 1))))
+}
+
+/// mgcd_mod(P, NVars, A, B) -> {ok, Terms} | failed: the monic gcd modulo the prime P of two polynomials given as
+/// [{Exps, Coef}] (exponents per variable, coefficients in [0, P)), its terms in descending lexicographic order of
+/// the exponents (mgcd.rs; decision record SY2)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn mgcd_mod(env: Env, p: u64, nvars: usize, a: Vec<(Vec<u32>, u64)>, b: Vec<(Vec<u32>, u64)>) -> NifResult<Term> {
+    if !(3..1 << 63).contains(&p) || a.iter().chain(&b).any(|(e, _)| e.len() != nvars) {
+        return Err(rustler::Error::BadArg);
+    }
+    Ok(guarded(env, || match mgcd::gcd_terms(nvars, a, b, p) {
+        Some(g) => (atoms::ok(), g.terms).encode(env),
+        None => atoms::failed().encode(env),
+    }))
 }
 
 /// rpoly_scale(A, Re, Im, Den) -> {ok, Resource} | overflow: A times (Re + i Im) / Den

@@ -7,6 +7,20 @@ the public API is additive.
 
 ### Added
 
+- **Multivariate polynomial gcd** (decision record SY2, which lifts the scope fence of SY 1.2):
+  - `pq_symbolic:gcd/2,3` on expressions; `pq_sym_gcd:gcd/2` and `divide/2` on polynomials over the rationals;
+    `pq_form:gcd/2,3` for comparison.
+  - The gcd is primitive, with integer coefficients and its leading term positive.
+  - **The modular method:**
+    - the gcd modulo primes near 2^63 in Rust (`mgcd.rs`): monomial contents first, a univariate coprimality
+      proof, Zippel's sparse interpolation, and Brown's dense algorithm as a fallback, in Montgomery arithmetic;
+    - Chinese remaindering in Erlang;
+    - each candidate accepted only when it divides both inputs exactly.
+  - Square-free decomposition, `pq_sym_gcd:squarefree/1` (Yun's algorithm, contents recursively).
+  - `pq_simplify`'s gcd now uses it; the old pseudo-remainder gcd stays as `gcd_prs/2`, the reference in the tests.
+  - **FORM comparison:** new task T7, polybench's defaults (T. Ueda; 5 variables, 10 problems each), results equal
+    to FORM's. On core 8, 10 nontrivial gcds take PQCF 0.083 s and FORM 5 with FLINT 0.075 s; 10 with a monomial
+    gcd take 0.052 s and 0.044 s.
 - **The task behaviour** (`pq_task`, decision record P1): PQCF's executors run any application's work.
   - A task is `{pq_task, Module, Args}`; `Module` implements `run/2`, and optionally `resources/1` and `describe/1`.
   - A node runs only the modules it allows (PQCF's own, the `task_modules` environment, `pq_task:allow/1`).

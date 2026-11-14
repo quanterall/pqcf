@@ -7,7 +7,7 @@
 %% Polynomials are pq_recon's maps (rational/3, linear/4); the result is an AST: content * prod f_i^e_i * rest, the
 %% rest the cofactor no candidate divides, kept expanded.
 -module(pq_simplify).
--export([rational/4, polynomial/3, alphabet/1, adds/1, verify/4, format/1, divide/2, discover/2, gcd_poly/2]).
+-export([rational/4, polynomial/3, alphabet/1, adds/1, verify/4, format/1, divide/2, discover/2, gcd_poly/2, gcd_prs/2]).
 
 -type poly() :: #{[integer()] => {integer(), pos_integer()}}.
 -export_type([poly/0]).
@@ -137,19 +137,24 @@ refine(Ps, Vars, Budget) ->
             refine(lists:usort((Ps -- [A, B]) ++ New), Vars, Budget - 1)
     end.
 
-%% the greatest common divisor of two polynomials over Q (primitive, positive leading coefficient): recursive in the
-%% variables, by primitive pseudo-remainder sequences in the first variable either depends on
+%% the greatest common divisor of two polynomials over Q (primitive, positive leading coefficient), by the modular
+%% method (pq_sym_gcd)
 -spec gcd_poly(poly(), poly()) -> poly().
-gcd_poly(A, B) when map_size(A) =:= 0 -> element(2, primitive(B));
-gcd_poly(A, B) when map_size(B) =:= 0 -> element(2, primitive(A));
-gcd_poly(A, B) ->
+gcd_poly(A, B) -> maps:map(fun(_, C) -> {C, 1} end, pq_sym_gcd:gcd(A, B)).
+
+%% the same gcd recursive in the variables, by primitive pseudo-remainder sequences in the first variable either
+%% depends on: exact but slow, kept as the reference for pq_sym_gcd's tests
+-spec gcd_prs(poly(), poly()) -> poly().
+gcd_prs(A, B) when map_size(A) =:= 0 -> element(2, primitive(B));
+gcd_prs(A, B) when map_size(B) =:= 0 -> element(2, primitive(A));
+gcd_prs(A, B) ->
     N = length(hd(maps:keys(A))),
     case [I || I <- lists:seq(1, N), degree(A, I) > 0 orelse degree(B, I) > 0] of
         [] -> const(1, nvars(N));
         [V | _] ->
             Ca = content(A, V), Cb = content(B, V),
             {ok, Pa} = divide(A, Ca), {ok, Pb} = divide(B, Cb),
-            C = gcd_poly(Ca, Cb),
+            C = gcd_prs(Ca, Cb),
             G = prs(Pa, Pb, V),
             element(2, primitive(pmul(C, G)))
     end.
@@ -163,7 +168,7 @@ coeffs(P, V) ->
 
 content(P, V) ->
     Cs = [maps:from_list(L) || L <- coeffs(P, V)],
-    lists:foldl(fun gcd_poly/2, hd(Cs), tl(Cs)).
+    lists:foldl(fun gcd_prs/2, hd(Cs), tl(Cs)).
 
 %% the gcd of two polynomials primitive in V
 prs(A, _, V) when map_size(A) =:= 0 -> error({prs, zero, V});
