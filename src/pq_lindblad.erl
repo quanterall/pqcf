@@ -7,8 +7,8 @@
 %% The Schrödinger equation psi' = -i H psi and the master equation
 %%   rho' = L rho = -i [H, rho] + sum_k (L_k rho L_k^dagger - (1/2) {L_k^dagger L_k, rho})
 %% are linear with constant coefficients, y' = M y: they are integrated by the Taylor series, term_k = (h/k) M term_(k-1),
-%% summed until the terms fall below the working precision, with steps h =< 1/|M| so that the series converges like
-%% 1/k!. The result is exact to the precision P (bits) apart from the rounding of the arithmetic.
+%% summed until the terms fall below the working precision, with steps h =< 8/|M| (in block fixed point, below). The
+%% result is exact to the precision P (bits) apart from the rounding of the arithmetic.
 %%
 %% Numbers are {Re, Im} pairs of pq_mp values; vectors are tuples; rho is vectorised row by row (rho_ij at i D + j);
 %% sparse matrices are {sparse, D, Rows}, Rows a tuple of [{Col, Value}] (0-based columns).
@@ -141,10 +141,10 @@ scale_sparse({sparse, D, Rows}, K, P) ->
 
 %% y(t) of y' = M y for each t of Times (ascending, from 0; integers, fractions {N, D} or floats): [{T, Y}]
 evolve(M, Y0, Times, P) ->
-    H0 = step_bound(M, P),
+    {gen, _, _, H0} = G = gen(M, P),
     {Out, _, _} = lists:foldl(fun(T, {Acc, Y, T0}) ->
                                       Tm = pq_mp:from(T, P),
-                                      Y2 = advance(M, Y, pq_mp:sub(Tm, T0, P), H0, P),
+                                      Y2 = advance(G, Y, pq_mp:sub(Tm, T0, P), H0, P),
                                       {[{T, Y2} | Acc], Y2, Tm}
                               end, {[], Y0, zero_mp()}, Times),
     lists:reverse(Out).
@@ -157,32 +157,64 @@ mesolve(H, Ls, Psi0OrRho0, Times, P) ->
     Rho0 = case tuple_size(Psi0OrRho0) of D -> dm(Psi0OrRho0, P); _ -> Psi0OrRho0 end,
     evolve(liouvillian(H, Ls, P), Rho0, Times, P).
 
-%% steps of at most 1/|M|, |M| the largest row sum of magnitudes (a power of two below it, as an mp)
+%% The Taylor series runs in block fixed point: the vector as integers at one scale 2^-F (F = P + ?GUARD bits below its
+%% largest component), the matrix at 2^-(P + ?GUARD), every term exact integer arithmetic truncated once per element.
+%% Steps of 8/|M| (|M| the largest row sum of magnitudes, the norm that bounds the growth of the largest component):
+%% the terms grow at most 8^8/8! < 2^9 before they fall, which the guard bits absorb; the series stops when a term is
+%% zero at that scale.
+-define(GUARD, 24).
+
+%% the generator prepared for stepping: {gen, Fm, fixed-point rows, the step}
+gen({sparse, _, Rows} = M, P) ->
+    Fm = P + ?GUARD,
+    {gen, Fm, list_to_tuple([[{C, fx(Re, Fm), fx(Im, Fm)} || {C, {Re, Im}} <- R] || R <- tuple_to_list(Rows)]),
+     step_bound(M, P)}.
+
 step_bound({sparse, _, Rows}, P) ->
     Norm = lists:max([0.0 | [lists:sum([math:sqrt(pq_mp:to_float(cmag2(V, P))) || {_, V} <- R]) || R <- tuple_to_list(Rows)]]),
     case Norm > 0 of
-        true -> pq_mp:ldexp(pq_mp:from(1, P), -ceil(math:log2(Norm)));
+        true -> pq_mp:ldexp(pq_mp:from(1, P), 3 - ceil(math:log2(Norm)));
         false -> pq_mp:from(1, P)
     end.
 
-advance(M, Y, Dt, H0, P) ->
+%% an mp as an integer at scale 2^-F
+fx({mp, M, E}, F) when E + F >= 0 -> M bsl (E + F);
+fx({mp, M, E}, F) -> M bsr (-(E + F)).
+
+advance(G, Y, Dt, H0, P) ->
     case pq_mp:cmp(Dt, zero_mp()) of
         1 ->
             H = case pq_mp:cmp(Dt, H0) of 1 -> H0; _ -> Dt end,
-            advance(M, taylor_step(M, Y, H, P), pq_mp:sub(Dt, H, P), H0, P);
+            advance(G, taylor_step(G, Y, H, P), pq_mp:sub(Dt, H, P), H0, P);
         _ -> Y
     end.
 
-taylor_step(M, Y, H, P) ->
-    Floor = vmag(Y) - P - 4,
-    taylor_step(M, Y, Y, H, 1, Floor, P).
+%% y(h) = sum_k (h M)^k y / k!
+taylor_step({gen, Fm, Rows, _}, Y, H, P) ->
+    case vmag(Y) of
+        Mg when Mg < -(1 bsl 39) -> Y;
+        Mg ->
+            Fy = P + ?GUARD - Mg,
+            Yf = list_to_tuple([{fx(Re, Fy), fx(Im, Fy)} || {Re, Im} <- tuple_to_list(Y)]),
+            Sum = fx_series(Rows, Yf, Yf, fx(H, Fm), 2 * Fm, 1),
+            list_to_tuple([{pq_mp:from({mp, Re, -Fy}, P), pq_mp:from({mp, Im, -Fy}, P)} || {Re, Im} <- tuple_to_list(Sum)])
+    end.
 
-taylor_step(M, Sum, Term, H, K, Floor, P) ->
-    T2 = vscale(matvec(M, Term, P), {pq_mp:divide(H, pq_mp:from(K, P), P), zero_mp()}, P),
-    Sum2 = vadd(Sum, T2, P),
-    case vmag(T2) < Floor andalso K > 2 of
-        true -> Sum2;
-        false -> taylor_step(M, Sum2, T2, H, K + 1, Floor, P)
+fx_series(Rows, Sum, Term, Hf, Shift, K) ->
+    Den = K bsl Shift,
+    {T2, Nonzero} = lists:mapfoldl(fun(Row, Nz) ->
+                                           {Sr, Si} = lists:foldl(fun({C, Mr, Mi}, {Ar, Ai}) ->
+                                                                          {Vr, Vi} = element(C + 1, Term),
+                                                                          {Ar + Mr * Vr - Mi * Vi, Ai + Mr * Vi + Mi * Vr}
+                                                                  end, {0, 0}, Row),
+                                           X = {(Sr * Hf) div Den, (Si * Hf) div Den},
+                                           {X, Nz orelse X =/= {0, 0}}
+                                   end, false, tuple_to_list(Rows)),
+    case Nonzero of
+        false -> Sum;
+        true ->
+            Sum2 = list_to_tuple(lists:zipwith(fun({A, B}, {C, D}) -> {A + C, B + D} end, tuple_to_list(Sum), T2)),
+            fx_series(Rows, Sum2, list_to_tuple(T2), Hf, Shift, K + 1)
     end.
 
 %%% Expectation values
@@ -259,8 +291,7 @@ trajectories(H, Ls, Psi0, Times, Os, {Ntraj, Seed}, P) ->
     {sparse, D, _} = H,
     K = sparse(D, lists:append([elements(matmul(dagger(L, P), L, P)) || L <- Ls]), P),
     Heff = sparse(D, elements(H) ++ [{R, C, cmul({zero_mp(), pq_mp:from({-1, 2}, P)}, V, P)} || {R, C, V} <- elements(K)], P),
-    M = hamiltonian_generator(Heff, P),
-    H0 = step_bound(M, P),
+    {gen, _, _, H0} = M = gen(hamiltonian_generator(Heff, P), P),
     S0 = rand:seed_s(exsss, Seed),
     {Sums, _} = lists:foldl(fun(_, {Acc, S}) ->
                                     {Vals, S2} = trajectory(M, Ls, Psi0, Times, Os, H0, S, P),
@@ -326,7 +357,6 @@ matvec({sparse, _, Rows}, V, P) ->
     list_to_tuple([lists:foldl(fun({C, X}, S) -> cadd(S, cmul(X, element(C + 1, V), P), P) end, zero(), R)
                    || R <- tuple_to_list(Rows)]).
 
-vadd(A, B, P) -> list_to_tuple(lists:zipwith(fun(X, Y) -> cadd(X, Y, P) end, tuple_to_list(A), tuple_to_list(B))).
 vscale(A, K, P) -> list_to_tuple([cmul(X, K, P) || X <- tuple_to_list(A)]).
 vdot(A, B, P) -> lists:foldl(fun({X, Y}, S) -> cadd(S, cmul(cconj(X), Y, P), P) end, zero(), lists:zip(tuple_to_list(A), tuple_to_list(B))).
 vnorm2(A, P) -> lists:foldl(fun(X, S) -> pq_mp:add(S, cmag2(X, P), P) end, zero_mp(), tuple_to_list(A)).

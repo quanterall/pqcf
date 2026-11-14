@@ -19,6 +19,10 @@ the public API is additive.
     a damped coherent state, alpha e^(-kappa t/2); atomic decay e^(-gamma t); the steady state of resonance
     fluorescence (Mollow) and of the driven damped cavity; the average of 400 trajectories against the master
     equation, within four standard errors.
+  - **Speed:** the Taylor terms in block fixed point (exact integers at one scale, 24 guard bits) and steps of
+    8/|M|: the same 36 digits as pq_mp throughout, 40-100 times faster.
+  - **Against QuTiP** (`comparison/quantum-optics`, a pinned QuTiP 5.3.1 image): the same problems on the same core,
+    digits against the closed forms and times; `run.sh` writes RESULTS.md, `results/` and history.csv.
 - **Operator algebra for quantum optics** (`pq_qop`, the first step of quantum optics in PQCF).
   - **Objects:** bosonic modes and N-level atoms (sigma^-, sigma^+, sigma_z for two levels), with exact coefficients.
   - **Canonical form:** normal-ordered within each mode, subsystems commuting, the ground projector eliminated by
