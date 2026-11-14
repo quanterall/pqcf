@@ -17,7 +17,7 @@
 -module(pq_mp).
 -export([from/2, to_float/1, to_string/2, add/3, sub/3, mul/3, divide/3, neg/1, sqrt/2, cmp/2, ldexp/2,
          pi/1, ln2/1, euler_gamma/1, zeta/2, exp/2, log/2, sin/2, cos/2, gamma/2, polygamma/3,
-         besselj/3, bessely/3, besselj_zero/3, laguerre/4, hyp2f1/5, evaluate/3]).
+         besselj/3, bessely/3, besselj_zero/3, laguerre/4, hyp2f1/5, evaluate/3, pslq/3]).
 
 -export_type([mp/0]).
 -type mp() :: {mp, integer(), integer()}.
@@ -636,3 +636,118 @@ ev(E, _, _) -> throw({mp, {unsupported, case E of T when is_tuple(T) -> element(
 rational_order(N) when is_integer(N) -> N;
 rational_order({rat, _, _} = R) -> R;
 rational_order(_) -> throw({mp, {order_must_be_rational, besselj}}).
+
+%%% Integer relations: PSLQ
+
+%% integers m (not all zero) with sum m_i x_i = 0 to the precision P, |m_i| =< MaxCoeff: {ok, Ms} or none. Ferguson
+%% and Bailey's PSLQ (H. R. P. Ferguson, D. H. Bailey, S. Arno, Math. Comp. 68 (1999) 351), real version, gamma =
+%% 2/sqrt(3); the relation is accepted only when it holds to P - 16 bits.
+-spec pslq([term()], pos_integer(), pos_integer()) -> {ok, [integer()]} | none.
+pslq(Xs0, P, MaxCoeff) ->
+    W = P + 32,
+    Xs = [from(X, W) || X <- Xs0],
+    N = length(Xs),
+    case [I || {I, X} <- lists:enumerate(Xs), is_zero(X)] of
+        [I | _] -> {ok, [case J of I -> 1; _ -> 0 end || J <- lists:seq(1, N)]};
+        [] ->
+            % s_k = sqrt(sum_(j >= k) x_j^2), y = x / s_1, s = s / s_1
+            Sq = [sqrt(lists:foldl(fun(X, A) -> add(A, mul(X, X, W), W) end, {mp, 0, 0}, lists:nthtail(K - 1, Xs)), W)
+                  || K <- lists:seq(1, N)],
+            S1 = hd(Sq),
+            Y = [divide(X, S1, W) || X <- Xs],
+            S = [divide(X, S1, W) || X <- Sq],
+            St = list_to_tuple(S), Yt = list_to_tuple(Y),
+            H = maps:from_list([{{I, J}, if
+                                             J > I -> {mp, 0, 0};
+                                             J =:= I -> divide(element(I + 1, St), element(I, St), W);
+                                             true -> neg(divide(mul(element(I, Yt), element(J, Yt), W),
+                                                                mul(element(J, St), element(J + 1, St), W), W))
+                                         end} || I <- lists:seq(1, N), J <- lists:seq(1, N - 1)]),
+            Id = maps:from_list([{{I, J}, case I of J -> 1; _ -> 0 end} || I <- lists:seq(1, N), J <- lists:seq(1, N)]),
+            St0 = #{n => N, w => W, y => maps:from_list(lists:enumerate(Y)), h => H, a => Id, b => Id},
+            pslq_loop(reduce(St0), Xs, P, MaxCoeff, 0)
+    end.
+
+pslq_loop(_, _, _, _, 5000) -> none;
+pslq_loop(#{n := N, w := W, y := Y, h := H, b := B} = St, Xs, P, MaxCoeff, It) ->
+    % a small y_j: column j of B is a relation
+    Small = [J || J <- lists:seq(1, N), is_zero(maps:get(J, Y)) orelse mag(maps:get(J, Y)) < -(P - 16)],
+    Col = fun(J) -> [maps:get({I, J}, B) || I <- lists:seq(1, N)] end,
+    case [C || J <- Small, C <- [Col(J)], lists:max([abs(V) || V <- C]) =< MaxCoeff, holds(C, Xs, P, W)] of
+        [Rel | _] -> {ok, normalise(Rel)};
+        [] ->
+            % a bound on any relation's norm: 1 / max |H_jj|; past MaxCoeff, give up
+            Hmax = lists:max([abs(to_float(maps:get({J, J}, H))) || J <- lists:seq(1, N - 1)]),
+            case Hmax > 0 andalso 1 / Hmax > MaxCoeff * math:sqrt(N) of
+                true -> none;
+                false -> pslq_loop(reduce(step(St)), Xs, P, MaxCoeff, It + 1)
+            end
+    end.
+
+holds(C, Xs, P, W) ->
+    R = lists:foldl(fun({M, X}, A) -> add(A, mul(from(M, W), X, W), W) end, {mp, 0, 0}, lists:zip(C, Xs)),
+    Scale = lists:max([mag(X) || X <- Xs]),
+    is_zero(R) orelse mag(R) < Scale - (P - 16).
+
+normalise(C) ->
+    case [V || V <- C, V =/= 0] of
+        [F | _] when F < 0 -> [-V || V <- C];
+        _ -> C
+    end.
+
+%% one PSLQ step: the m maximising gamma^m |H_mm|, rows m and m+1 exchanged, the corner restored
+step(#{n := N, w := W, y := Y, h := H, a := A, b := B} = St) ->
+    G = 1.1547005383792515,   % 2 / sqrt 3
+    {_, M} = lists:max([{math:pow(G, I) * abs(to_float(maps:get({I, I}, H))), I} || I <- lists:seq(1, N - 1)]),
+    SwapRow = fun(Mp, Cols) -> maps:merge(Mp, maps:from_list(
+                                               lists:append([[{{M, K}, maps:get({M + 1, K}, Mp)}, {{M + 1, K}, maps:get({M, K}, Mp)}] || K <- Cols]))) end,
+    Y2 = Y#{M => maps:get(M + 1, Y), M + 1 => maps:get(M, Y)},
+    A2 = SwapRow(A, lists:seq(1, N)),
+    B2 = maps:merge(B, maps:from_list(lists:append([[{{K, M}, maps:get({K, M + 1}, B)}, {{K, M + 1}, maps:get({K, M}, B)}] || K <- lists:seq(1, N)]))),
+    H2 = SwapRow(H, lists:seq(1, N - 1)),
+    H3 = case M =< N - 2 of
+             false -> H2;
+             true ->
+                 Hmm = maps:get({M, M}, H2), Hm1 = maps:get({M, M + 1}, H2),
+                 T0 = sqrt(add(mul(Hmm, Hmm, W), mul(Hm1, Hm1, W), W), W),
+                 T1 = divide(Hmm, T0, W), T2 = divide(Hm1, T0, W),
+                 lists:foldl(fun(I, Hx) ->
+                                     T3 = maps:get({I, M}, Hx), T4 = maps:get({I, M + 1}, Hx),
+                                     Hx#{{I, M} => add(mul(T1, T3, W), mul(T2, T4, W), W),
+                                         {I, M + 1} => add(neg(mul(T2, T3, W)), mul(T1, T4, W), W)}
+                             end, H2, lists:seq(M, N))
+         end,
+    St#{y => Y2, h => H3, a => A2, b => B2}.
+
+%% Hermite reduction of H, applied to y, A and B
+reduce(#{n := N, w := W} = St) ->
+    lists:foldl(fun({I, J}, #{y := Y, h := H, a := A, b := B} = S) ->
+                        Hjj = maps:get({J, J}, H),
+                        case is_zero(Hjj) of
+                            true -> S;
+                            false ->
+                                T = round_mp(divide(maps:get({I, J}, H), Hjj, W)),
+                                case T of
+                                    0 -> S;
+                                    _ ->
+                                        Tm = from(T, W),
+                                        Y2 = Y#{J => add(maps:get(J, Y), mul(Tm, maps:get(I, Y), W), W)},
+                                        H2 = lists:foldl(fun(K, Hx) -> Hx#{{I, K} => sub(maps:get({I, K}, Hx), mul(Tm, maps:get({J, K}, Hx), W), W)} end,
+                                                         H, lists:seq(1, J)),
+                                        A2 = lists:foldl(fun(K, Ax) -> Ax#{{I, K} => maps:get({I, K}, Ax) - T * maps:get({J, K}, Ax)} end,
+                                                         A, lists:seq(1, N)),
+                                        B2 = lists:foldl(fun(K, Bx) -> Bx#{{K, J} => maps:get({K, J}, Bx) + T * maps:get({K, I}, Bx)} end,
+                                                         B, lists:seq(1, N)),
+                                        S#{y => Y2, h => H2, a => A2, b => B2}
+                                end
+                        end
+                end, St, [{I, J} || I <- lists:seq(2, N), J <- lists:seq(I - 1, 1, -1)]).
+
+%% the nearest integer
+round_mp({mp, M, E}) when E >= 0 -> M bsl E;
+round_mp({mp, M, E}) ->
+    S = -E,
+    case M >= 0 of
+        true -> (M + (1 bsl (S - 1))) bsr S;
+        false -> -((-M + (1 bsl (S - 1))) bsr S)
+    end.

@@ -65,3 +65,18 @@ series_coefficient_test() ->
     {ok, {[{0, 0, C} | _], _}} = pq_series:terms({bessely, 0, {sym, x}}, x, 2, #{}),
     {ok, S} = pq_mp:evaluate(C, #{}, 30),
     ?assertEqual("-7.38042951086872252743439279485e-2", S).
+
+pslq_test() ->
+    P = 200,
+    Pi = pq_mp:pi(P), G = pq_mp:euler_gamma(P), L2 = pq_mp:ln2(P),
+    % 6 zeta(2) - pi^2 = 0
+    ?assertEqual({ok, [6, -1]}, pq_mp:pslq([pq_mp:zeta(2, P), pq_mp:mul(Pi, Pi, P)], P, 1000)),
+    % log 6 = log 2 + log 3
+    ?assertEqual({ok, [1, -1, -1]}, pq_mp:pslq([pq_mp:log(6, P), L2, pq_mp:log(3, P)], P, 1000)),
+    % Y_0's constant term c (pq_series) found back as (2/pi)(gamma - log 2): pi c - 2 gamma + 2 log 2 = 0
+    {ok, {[{0, 0, C} | _], _}} = pq_series:terms({bessely, 0, {sym, x}}, x, 2, #{}),
+    {ok, Cs} = pq_mp:evaluate(C, #{}, 55),
+    Cv = pq_mp:from(decimal(list_to_binary(Cs)), P),
+    ?assertEqual({ok, [1, -2, 2]}, pq_mp:pslq([pq_mp:mul(Pi, Cv, P), G, L2], 160, 1000)),
+    % zeta(3) / pi^3 is not a small rational: no relation with small coefficients
+    ?assertEqual(none, pq_mp:pslq([pq_mp:zeta(3, P), pq_mp:mul(Pi, pq_mp:mul(Pi, Pi, P), P)], P, 10000)).

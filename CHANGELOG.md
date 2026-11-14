@@ -35,6 +35,8 @@ the public API is additive.
     and Y; Laguerre; 2F1.
   - **Bessel zeros:** `pq_mp:besselj_zero/3`.
   - **Checked against mpmath 1.3:** 37 values and 8 zeros to 48 digits (`test/oracle/gt_mp.py`).
+  - **Integer relations:** `pq_mp:pslq/3` (Ferguson-Bailey PSLQ) finds exact forms of high-precision numbers. It
+    recovers 6 zeta(2) = pi^2 and Y_0's series constant (2/pi)(gamma - log 2).
 - **Truncated series and limits** (SY2 phase 2): `pq_symbolic:series/3,4` and `limit/3,4`, `pq_series`.
   - **Terms:** C x^e log(x)^m, e rational, at 0, at a point or at infinity.
   - **Coefficients:** exact rational functions of the other symbols. Constants that are not rational (log 2, pi,

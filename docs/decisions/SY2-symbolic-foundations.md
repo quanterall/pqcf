@@ -190,6 +190,6 @@ Bessel's equation.
   - **Second solver:** Chebyshev collocation of phi / z^s with inverse iteration (`pq_ode:eigenvalues_collocation/3`).
     It agrees with the closed forms to 25 digits on both walls (64 and 32 points), so the plan's "two methods that
     must agree" holds.
+  - **PSLQ** (`pq_mp:pslq/3`): integer relations among high-precision numbers, tested on known identities.
   - **Open in phase 3:**
-    - PSLQ;
     - the hard wall's pion and a_1 sector, with the paper's fitted observables.
