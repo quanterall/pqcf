@@ -48,6 +48,11 @@ the public API is additive.
   - `eigenvalues/3`: the spectrum to any number of digits, for V a rational function. It uses a Frobenius start at a
     singular end, Taylor-series integration on the polynomial form of the equation, Dirichlet or Robin conditions,
     and the Illinois method.
+  - `eigenvalues_sl/3`: Sturm-Liouville problems with polynomial coefficients and two regular singular ends, one of
+    them at infinity (Frobenius from both ends, Taylor integration, the Wronskian at a match point).
+    - **Sakai-Sugimoto** (`comparison/holographic/SAKAI.md`): lambda_n = 0.66931449, 1.56876575, 2.87432253,
+      4.54610227, ... to 25 digits.
+    - **Check:** against the paper's 0.67, 1.6, 2.9, 4.5, and an independent SciPy solution to its 1e-7.
   - `frobenius_solution/4`: the Frobenius solution of either exponent at the right end, with int phi^2 (eigenfunction
     norms).
   - **The hard wall's axial and pion sector** (`comparison/holographic/HARDWALL.md`): m_a1, F_rho, F_a1, f_pi (chiral

@@ -90,3 +90,25 @@ hardwall_test_() ->
         [?assert(Near(F(M, K), V, 0.005)) || {M, K, V} <- [{A, f_rho, 329}, {B, f_rho, 353}, {A, f_a1, 486}, {B, f_a1, 440},
                                                            {B, m_rho, 832}, {A, m_pi, 139.6}, {B, m_pi, 141}]]
     end}.
+
+%% Sakai-Sugimoto (hep-th/0412141, https://arxiv.org/abs/hep-th/0412141): the vector and axial mesons,
+%% -K^(1/3) d_z (K d_z psi) = lambda psi, K = 1 + z^2, in u = K^(1/3): u (u^3 - 1) psi'' + (5u^3/2 - 1) psi' + (9u/4)
+%% lambda psi = 0 on [1, infinity), exponent 0 (even, vectors) or 1/2 (odd, axials) at u = 1, decaying u^(-3/2) at
+%% infinity. The paper: lambda = 0.67, 1.6, 2.9, 4.5. An independent SciPy shooting in z, extrapolated in its cutoff,
+%% gives 0.6693144 and 1.5687644 (to its 1e-7); the result must not depend on the match point.
+sakai_sugimoto_test_() ->
+    {timeout, 900, fun() ->
+        U = {sym, u},
+        C = #{p2 => {add, [{pow, U, 4}, {mul, [-1, U]}]}, p1 => {add, [{mul, [{rat, 5, 2}, {pow, U, 3}]}, -1]}, p0 => 0,
+              q => {mul, [{rat, 9, 4}, U]}},
+        Opts = #{right => larger, range => {0.1, 5}, grid => 40, digits => 20},
+        {ok, V2} = pq_ode:eigenvalues_sl(C, u, Opts#{left => {1, smaller}, match => 2}),
+        {ok, V3} = pq_ode:eigenvalues_sl(C, u, Opts#{left => {1, smaller}, match => 3}),
+        {ok, Ax} = pq_ode:eigenvalues_sl(C, u, Opts#{left => {1, larger}, match => 2}),
+        ?assertEqual(V2, V3),
+        [L1, L3] = [list_to_float(hd(string:split(S, "e"))) * math:pow(10, list_to_integer(lists:last(string:split(S, "e")))) || S <- V2],
+        [L2, L4] = [list_to_float(hd(string:split(S, "e"))) * math:pow(10, list_to_integer(lists:last(string:split(S, "e")))) || S <- Ax],
+        ?assert(abs(L1 - 0.6693144) < 2.0e-7),
+        ?assert(abs(L2 - 1.5687644) < 2.0e-6),
+        [?assert(abs(X - Y) < 0.05 * Y) || {X, Y} <- [{L1, 0.67}, {L2, 1.6}, {L3, 2.9}, {L4, 4.5}]]
+    end}.

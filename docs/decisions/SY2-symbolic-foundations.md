@@ -202,6 +202,13 @@ Bessel's equation.
       the paper's number are open.
   - **Not computed:** g_(rho pi pi).
   - **Phase 3 done.**
+- **14 Nov 2026: phase 6, Sakai-Sugimoto** (`comparison/holographic/sakai.erl`, `SAKAI.md`).
+  - **Method:** eq. (3.28) in u = K^(1/3) has polynomial coefficients and two regular singular ends; the new
+    `pq_ode:eigenvalues_sl/3` solves it.
+  - **Results:** lambda_1..4 = 0.669314492, 1.568765751, 2.874322527, 4.546102269 (25 digits). The paper gives 0.67,
+    1.6, 2.9, 4.5, and m_a1^2/m_rho^2 = 2.344 against its ~2.4.
+  - **Checks:** an independent SciPy shooting agrees as its cutoff grows (0.66931458 at Z = 16000), and the result
+    does not depend on the match point.
 - **14 Nov 2026: phase 4, component tensors** (`pq_geometry:curvature/2`). The acceptance checks of phase 4 that
   concern components pass exactly:
   - AdS_5: R = -20/L^2, R_ab = -(4/L^2) g_ab, Weyl tensor zero (Kretschmann 40/L^4);

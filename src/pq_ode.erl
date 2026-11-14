@@ -16,7 +16,7 @@
 %%   by z, (D/z) u'' + 2 s d u' + ((s(s-1) d - N)/z) u + lambda z d u = 0 (D = z^2 d), makes z = 0 its natural regularity
 %%   condition; the generalised eigenproblem is solved by shifted inverse iteration in arbitrary precision.
 -module(pq_ode).
--export([euler_lagrange/5, schrodinger/5, eigenvalues/3, eigenvalues_collocation/3, frobenius_solution/4]).
+-export([euler_lagrange/5, schrodinger/5, eigenvalues/3, eigenvalues_collocation/3, frobenius_solution/4, eigenvalues_sl/3]).
 
 %%% Symbolic: Euler-Lagrange and Schrödinger form
 
@@ -631,4 +631,217 @@ frobenius_solution(V0, Z, E0, Opts) ->
         {ok, #{phi => pq_mp:to_string(Phi, Digits), dphi => pq_mp:to_string(Dphi, Digits),
                norm => case Int of undefined -> undefined; _ -> pq_mp:to_string(Int, Digits) end}}
     catch throw:{ode, Why} -> {error, {symbolic_unsupported, #{frobenius => Why}}}
+    end.
+
+%%% Sturm-Liouville problems with two regular singular ends (one of them at infinity)
+
+%% The eigenvalues lambda of p2 psi'' + p1 psi' + (p0 + lambda q) psi = 0, p2, p1, p0, q polynomials in X (Coefs:
+%% #{p2, p1, p0, q} expressions), on [A, infinity):
+%%   left => {A, larger | smaller}: A a simple zero of p2 (a regular singular point), the Frobenius exponent there;
+%%   right => larger | smaller: the exponent at infinity, in w = 1/x (where the equation is brought to the same form);
+%%   match => M (A < M): the two Frobenius solutions, integrated by the Taylor-series method to x = M, and their
+%%   Wronskian, which vanishes at the eigenvalues;
+%%   range, grid, count, digits, params as for eigenvalues/3.
+%% {ok, [Digits]}.
+-spec eigenvalues_sl(map(), atom(), map()) -> {ok, [string()]} | {error, term()}.
+eigenvalues_sl(Coefs0, X, Opts) ->
+    try
+        Params = maps:get(params, Opts, #{}),
+        Sub = fun(E) -> case map_size(Params) of
+                            0 -> E;
+                            _ -> {ok, S1} = pq_symbolic:subs(E, maps:map(fun(_, V) -> num_ast(V) end, Params)), S1
+                        end end,
+        Coefs = maps:map(fun(_, E) -> Sub(E) end, Coefs0),
+        Digits = maps:get(digits, Opts, 25),
+        P = ceil(Digits * 3.3219280948873622) + 24,
+        {A, RootL} = maps:get(left, Opts),
+        M = maps:get(match, Opts),
+        Left = sl_problem(Coefs, X, A),
+        Right = sl_problem(at_infinity(Coefs, X), '$w', 0),
+        Prob = #{left => Left, right => Right, root_l => RootL, root_r => maps:get(right, Opts), a => A, m => M},
+        {Lo, Hi} = maps:get(range, Opts),
+        K = maps:get(grid, Opts, 200),
+        Es = [Lo + (Hi - Lo) * I / K || I <- lists:seq(0, K)],
+        Fs = [{E, pq_mp:to_float(sl_wronskian(Prob, pq_mp:from(E, 90), 90))} || E <- Es],
+        Brackets = [{Ea, Eb} || {{Ea, Fa}, {Eb, Fb}} <- lists:zip(lists:droplast(Fs), tl(Fs)), Fa * Fb < 0],
+        Shoot = fun(Prb, E, Pp) -> sl_wronskian(Prb, E, Pp) end,
+        Out = [refine_with(Shoot, Prob, Ea, Eb, P) || {Ea, Eb} <- lists:sublist(Brackets, maps:get(count, Opts, 1000))],
+        {ok, [pq_mp:to_string(E, Digits) || E <- Out]}
+    catch throw:{ode, Why} -> {error, {symbolic_unsupported, #{eigenvalues_sl => Why}}}
+    end.
+
+%% the coefficients as exact polynomials in X: #{p2, p1, p0, q} => [{N, D}]
+sl_problem(Coefs, X, A) ->
+    C = fun(K) -> coeffs_or_zero(maps:get(K, Coefs), X) end,
+    #{p2 => C(p2), p1 => C(p1), p0 => C(p0), q => C(q), a => A}.
+
+coeffs_or_zero(E, X) ->
+    {ok, Ce} = pq_symbolic:canonicalise(E),
+    case Ce of
+        0 -> [{0, 1}];
+        _ -> coeffs(Ce, X)
+    end.
+
+%% the equation in w = 1/x: psi_x = -w^2 psi_w, psi_xx = w^4 psi_ww + 2 w^3 psi_w; the coefficients multiplied by the
+%% power of w that makes them polynomials
+at_infinity(Coefs, X) ->
+    W = {sym, '$w'},
+    At = fun(K) -> {ok, S} = pq_symbolic:subs(maps:get(K, Coefs), #{X => {pow, W, -1}}), S end,
+    E2 = {mul, [At(p2), {pow, W, 4}]},
+    E1 = {add, [{mul, [2, At(p2), {pow, W, 3}]}, {mul, [-1, At(p1), {pow, W, 2}]}]},
+    Es = #{p2 => E2, p1 => E1, p0 => At(p0), q => At(q)},
+    % the largest power of 1/w in any of them
+    Deg = lists:max([neg_degree(E) || E <- maps:values(Es)]),
+    maps:map(fun(_, E) -> {ok, R} = pq_symbolic:cancel({mul, [E, {pow, W, Deg}]}), R end, Es).
+
+neg_degree(E) ->
+    {ok, {_, D}} = pq_symbolic:numer_denom(E),
+    case D of
+        1 -> 0;
+        {sym, _} -> 1;
+        {pow, {sym, _}, K} -> K;
+        {mul, [_, {pow, {sym, _}, K}]} -> K;
+        {mul, [_, {sym, _}]} -> 1;
+        _ -> throw({ode, {denominator_not_a_power, D}})
+    end.
+
+%% the Wronskian at the match point x = M of the left and right Frobenius solutions, for lambda = E
+sl_wronskian(#{left := L, right := R, root_l := Rl, root_r := Rr, m := M}, E, P) ->
+    W = P + 32,
+    {PhiL, DPhiL} = sl_solve(L, Rl, E, pq_mp:from(M, W), W),
+    {PhiR, DPhiRw} = sl_solve(R, Rr, E, pq_mp:divide({mp, 1, 0}, pq_mp:from(M, W), W), W),
+    % d/dx = -w^2 d/dw
+    Wm = pq_mp:divide({mp, 1, 0}, pq_mp:from(M, W), W),
+    DPhiR = pq_mp:neg(pq_mp:mul(pq_mp:mul(Wm, Wm, W), DPhiRw, W)),
+    % normalised so that the sign does not depend on the solutions' sizes
+    Wr = pq_mp:sub(pq_mp:mul(PhiL, DPhiR, W), pq_mp:mul(PhiR, DPhiL, W), W),
+    Scale = pq_mp:sqrt(pq_mp:add(pq_mp:mul(PhiL, PhiL, W), pq_mp:mul(DPhiL, DPhiL, W), W), W),
+    Scale2 = pq_mp:sqrt(pq_mp:add(pq_mp:mul(PhiR, PhiR, W), pq_mp:mul(DPhiR, DPhiR, W), W), W),
+    pq_mp:from(pq_mp:divide(Wr, pq_mp:mul(Scale, Scale2, W), W), P).
+
+%% the Frobenius solution at the problem's point a (a simple zero of p2), integrated to Xe (> a): {psi, psi'}
+sl_solve(#{p2 := P2, p1 := P1, p0 := P0, q := Q, a := A}, Root, E, Xe, W) ->
+    Am = pq_mp:from(A, W),
+    R = padd([pq_mp:from(C, W) || C <- P0], [pq_mp:mul(E, pq_mp:from(C, W), W) || C <- Q], W),
+    P2m = [pq_mp:from(C, W) || C <- P2], P1m = [pq_mp:from(C, W) || C <- P1],
+    % shifted to t = x - a
+    S2 = shift_poly(P2m, Am, W), S1 = shift_poly(P1m, Am, W), S0 = shift_poly(R, Am, W),
+    is_negligible(hd(S2), W) orelse throw({ode, {not_a_singular_point, A}}),
+    p2_ok = case tl(S2) of [] -> throw({ode, degenerate_p2}); [L | _] -> case is_negligible(L, W) of true -> throw({ode, not_a_simple_zero}); false -> p2_ok end end,
+    D2 = tl(S2),                                   % p2 = t d2(t)
+    % the indicial equation d2_0 s (s - 1) + p1_0 s = 0: s = 0 or 1 - p1_0 / d2_0
+    S1r = pq_mp:sub({mp, 1, 0}, pq_mp:divide(hd(S1 ++ [{mp, 0, 0}]), hd(D2), W), W),
+    {Sl, Ss} = case pq_mp:to_float(S1r) >= 0 of true -> {S1r, {mp, 0, 0}}; false -> {{mp, 0, 0}, S1r} end,
+    Sx = case Root of larger -> Sl; smaller -> Ss end,
+    % the other zeros of p2 limit the series' radius
+    Rs = [Z || Z <- roots([float_q(C) || C <- P2]), cabs(csub(Z, {float(A), 0.0})) > 1.0e-9],
+    Rho = lists:min([cabs(csub(Z, {float(A), 0.0})) || Z <- Rs] ++ [1.0e9]),
+    H0 = pq_mp:from(min(0.25 * Rho, 0.25), W),
+    Cs = sl_frob(D2, S1, S0, Sx, W, H0),
+    Ts = pq_mp:exp(pq_mp:mul(Sx, pq_mp:log(H0, W), W), W),
+    {Sum, DSum} = lists:foldl(fun({K, C}, {Ac, Bc}) ->
+                                      T = pq_mp:mul(C, ipow(H0, K, W), W),
+                                      {pq_mp:add(Ac, T, W), pq_mp:add(Bc, pq_mp:mul(pq_mp:add(Sx, pq_mp:from(K, W), W), T, W), W)}
+                              end, {{mp, 0, 0}, {mp, 0, 0}}, lists:enumerate(0, Cs)),
+    Psi0 = pq_mp:mul(Ts, Sum, W),
+    DPsi0 = pq_mp:divide(pq_mp:mul(Ts, DSum, W), H0, W),
+    Prob = #{p2 => P2m, p1 => P1m, r => R, roots => [{float(A), 0.0} | Rs]},
+    sl_integrate(Prob, pq_mp:add(Am, H0, W), Xe, Psi0, DPsi0, W).
+
+float_q({N, D}) -> {N, D}.
+
+is_negligible(X, W) -> negligible(X, W - 40).
+
+%% c_0 = 1; c_m [d_0 (m+s)(m+s-1) + p1_0 (m+s)] = -[sum_(j>=1) (d_j (m-j+s)(m-j+s-1) + p1_j (m-j+s)) c_(m-j) +
+%% sum_(j>=0) r_j c_(m-1-j)]
+sl_frob(D2, S1, S0, S, W, H0) -> sl_frob(D2, S1, S0, S, W, H0, 1, [{mp, 1, 0}], {mp, 1, 0}).
+
+sl_frob(D2, S1, S0, S, W, H0, M, Acc, Hm) ->
+    F = fun(J, K) -> % the coefficient of c at offset J with K = m - j + s
+                pq_mp:add(pq_mp:mul(idx(D2, J), pq_mp:mul(K, pq_mp:sub(K, {mp, 1, 0}, W), W), W), pq_mp:mul(idx(S1, J), K, W), W)
+        end,
+    Ms = pq_mp:add(S, pq_mp:from(M, W), W),
+    Den = F(0, Ms),
+    Rev = Acc,   % c_(m-1), ..., c_0
+    Num1 = lists:foldl(fun({J, C}, Sm) -> pq_mp:add(Sm, pq_mp:mul(F(J, pq_mp:add(S, pq_mp:from(M - J, W), W)), C, W), W) end,
+                       {mp, 0, 0}, lists:zip(lists:seq(1, M), Rev)),
+    Num = lists:foldl(fun({J, C}, Sm) -> pq_mp:add(Sm, pq_mp:mul(idx(S0, J), C, W), W) end,
+                      Num1, lists:zip(lists:seq(0, M - 1), Rev)),
+    Cm = case mag_rel(Den, Ms, W) of
+             true -> case negligible(Num, W - 40) of true -> {mp, 0, 0}; false -> throw({ode, logarithmic_frobenius_solution}) end;
+             false -> pq_mp:neg(pq_mp:divide(Num, Den, W))
+         end,
+    Hm2 = pq_mp:mul(Hm, H0, W),
+    Acc2 = [Cm | Acc],
+    case M > 8 andalso negligible(pq_mp:mul(Cm, Hm2, W), W) andalso negligible(pq_mp:mul(hd(tl(Acc2)), Hm, W), W) of
+        true -> lists:reverse(Acc2);
+        false when M > 4000 -> throw({ode, frobenius_not_converging});
+        false -> sl_frob(D2, S1, S0, S, W, H0, M + 1, Acc2, Hm2)
+    end.
+
+%% the Taylor-series method for p2 psi'' + p1 psi' + r psi = 0
+sl_integrate(Prob, X0, Xe, Psi, DPsi, W) ->
+    case pq_mp:cmp(X0, Xe) >= 0 of
+        true -> {Psi, DPsi};
+        false ->
+            {H, Last} = step_size(Prob, X0, Xe, W),
+            {Psi2, DPsi2} = sl_step(Prob, X0, H, Psi, DPsi, W),
+            X1 = case Last of true -> Xe; false -> pq_mp:add(X0, H, W) end,
+            sl_integrate(Prob, X1, Xe, Psi2, DPsi2, W)
+    end.
+
+%% psi_(m+2) = -[sum_(j>=1) P2_j (m-j+2)(m-j+1) psi_(m-j+2) + sum_(j>=0) P1_j (m-j+1) psi_(m-j+1) + sum_(j>=0) R_j psi_(m-j)]
+%%             / (P2_0 (m+2)(m+1))
+sl_step(#{p2 := P2, p1 := P1, r := R}, A, H, Psi, DPsi, W) ->
+    S2 = list_to_tuple(shift_poly(P2, A, W)), S1 = list_to_tuple(shift_poly(P1, A, W)), S0 = list_to_tuple(shift_poly(R, A, W)),
+    El = fun(T, J) -> case J < tuple_size(T) of true -> element(J + 1, T); false -> {mp, 0, 0} end end,
+    D0 = element(1, S2),
+    Coef = sl_coefs(S2, S1, S0, El, D0, W, H, #{0 => Psi, 1 => DPsi}, 0),
+    maps:fold(fun(K, C, {Sm, Dm}) ->
+                      Sm2 = pq_mp:add(Sm, pq_mp:mul(C, ipow(H, K, W), W), W),
+                      Dm2 = case K of 0 -> Dm; _ -> pq_mp:add(Dm, pq_mp:mul(pq_mp:mul(pq_mp:from(K, W), C, W), ipow(H, K - 1, W), W), W) end,
+                      {Sm2, Dm2}
+              end, {{mp, 0, 0}, {mp, 0, 0}}, Coef).
+
+sl_coefs(S2, S1, S0, El, D0, W, H, Acc, M) ->
+    N2 = lists:foldl(fun(J, Sm) -> K = M - J + 2, pq_mp:add(Sm, pq_mp:mul(pq_mp:mul(El(S2, J), pq_mp:from(K * (K - 1), W), W), maps:get(K, Acc), W), W) end,
+                     {mp, 0, 0}, lists:seq(1, M)),
+    N1 = lists:foldl(fun(J, Sm) -> K = M - J + 1, pq_mp:add(Sm, pq_mp:mul(pq_mp:mul(El(S1, J), pq_mp:from(K, W), W), maps:get(K, Acc), W), W) end,
+                     N2, lists:seq(0, M)),
+    N0 = lists:foldl(fun(J, Sm) -> pq_mp:add(Sm, pq_mp:mul(El(S0, J), maps:get(M - J, Acc), W), W) end, N1, lists:seq(0, M)),
+    C = pq_mp:neg(pq_mp:divide(N0, pq_mp:mul(D0, pq_mp:from((M + 2) * (M + 1), W), W), W)),
+    Acc2 = Acc#{M + 2 => C},
+    Scale = max(mag(maps:get(0, Acc)), mag(pq_mp:mul(maps:get(1, Acc), H, W))),
+    T1 = mag(pq_mp:mul(C, ipow(H, M + 2, W), W)),
+    T0 = mag(pq_mp:mul(maps:get(M + 1, Acc2), ipow(H, M + 1, W), W)),
+    case M > 6 andalso T1 < Scale - W - 4 andalso T0 < Scale - W - 4 of
+        true -> Acc2;
+        false when M > 3000 -> throw({ode, taylor_not_converging});
+        false -> sl_coefs(S2, S1, S0, El, D0, W, H, Acc2, M + 1)
+    end.
+
+%% the Illinois method on [A, B] with the shooting function Shoot(Prob, E, P)
+refine_with(Shoot, Prob, A0, B0, P) ->
+    A = pq_mp:from(A0, P), B = pq_mp:from(B0, P),
+    illinois_f(Shoot, Prob, A, Shoot(Prob, A, P), B, Shoot(Prob, B, P), P, 0, none).
+
+illinois_f(_, _, A, _, B, _, P, 200, _) -> pq_mp:ldexp(pq_mp:add(A, B, P), -1);
+illinois_f(Shoot, Prob, A, Fa, B, Fb, P, I, Side) ->
+    C = pq_mp:sub(B, pq_mp:divide(pq_mp:mul(Fb, pq_mp:sub(B, A, P), P), pq_mp:sub(Fb, Fa, P), P), P),
+    case small(pq_mp:sub(B, A, P), C, P) of
+        true -> C;
+        false ->
+            Fc = Shoot(Prob, C, P),
+            case sgn(Fc) of
+                0 -> C;
+                S ->
+                    case S =:= sgn(Fb) of
+                        true ->
+                            Fa2 = case Side of a -> pq_mp:ldexp(Fa, -1); _ -> Fa end,
+                            illinois_f(Shoot, Prob, A, Fa2, C, Fc, P, I + 1, a);
+                        false ->
+                            Fb2 = case Side of b -> pq_mp:ldexp(Fb, -1); _ -> Fb end,
+                            illinois_f(Shoot, Prob, C, Fc, B, Fb2, P, I + 1, b)
+                    end
+            end
     end.
