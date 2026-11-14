@@ -20,8 +20,8 @@ ONE="--cpuset-cpus=$CORE -e OMP_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e OPENBLAS_N
 docker run --rm $ONE -v "$WORK/src":/src -v "$WORK/out":/out -v pqcf-bench-build:/src/_build \
     -v pqcf-bench-target:/src/native/pq_nif/target -w /src pqcf-dev sh -c \
     "rebar3 compile >/dev/null && mkdir -p /tmp/b && erlc -o /tmp/b comparison/quantum-optics/qo_pqcf.erl &&
-     erl -noshell -pa _build/default/lib/*/ebin -pa /tmp/b -eval
-       'application:load(pq), qo_pqcf:main(\"comparison/quantum-optics/tasks.json\", \"/out\"), halt().'"
+     erl -noshell -pa _build/default/lib/*/ebin -pa /tmp/b -eval 'application:load(pq),
+       qo_pqcf:main(\"comparison/quantum-optics/tasks.json\", \"/out\"), halt().'"
 echo "PQCF done"
 docker run --rm $ONE -v "$WORK/src/comparison/quantum-optics":/p -v "$WORK/out":/out pqcf-qutip \
     python /p/qutip_side.py /p/tasks.json /out || echo "QuTiP failed: its results are missing from the tables"
