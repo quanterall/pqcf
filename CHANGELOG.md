@@ -7,6 +7,15 @@ the public API is additive.
 
 ### Added
 
+- **Operator algebra for quantum optics** (`pq_qop`, the first step of quantum optics in PQCF).
+  - **Objects:** bosonic modes and N-level atoms (sigma^-, sigma^+, sigma_z for two levels), with exact coefficients.
+  - **Canonical form:** normal-ordered within each mode, subsystems commuting, the ground projector eliminated by
+    completeness; equal operators have equal forms.
+  - **Operations:** products, powers, commutators, adjoints, and the Heisenberg-Lindblad equation of any operator for
+    a Hamiltonian and jump operators. Symbol domains (positive, real) are declared with the spaces.
+  - **Checks:** identical to SymPy's normal ordering on 60 random words of two modes (`test/oracle/gt_qop.py`);
+    (a + a^dagger)^4, [a, (a^dagger)^n] = n (a^dagger)^(n-1), the BCH shift e^(-alpha a^dagger) a e^(alpha a^dagger)
+    = a + alpha, the two- and three-level atom identities, and the Jaynes-Cummings equations with cavity loss.
 - **Multivariate polynomial gcd** (decision record SY2, which lifts the scope fence of SY 1.2):
   - `pq_symbolic:gcd/2,3` on expressions; `pq_sym_gcd:gcd/2` and `divide/2` on polynomials over the rationals;
     `pq_form:gcd/2,3` for comparison.
