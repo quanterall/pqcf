@@ -157,3 +157,21 @@ gubser_test_() ->
         ?assert(abs(C1 - 1 / 3) < 2.0e-5),
         ?assert(abs(C4 - 0.070171) < 2.0e-6)
     end}.
+
+%%% Improved holographic QCD (arXiv:0707.1349), comparison/holographic/ihqcd.erl: the model's consistency
+%%% d log W / d lambda = -(4/3) X / lambda (2.22), and pq_jet:diff against a central difference
+
+ihqcd_model_test() ->
+    Dir = filename:dirname(code:which(?MODULE)),
+    Src = hd([F || F <- [filename:join([Dir, "..", "comparison", "holographic", "ihqcd.erl"]),
+                         filename:join([Dir, "..", "..", "..", "..", "comparison", "holographic", "ihqcd.erl"]),
+                         "comparison/holographic/ihqcd.erl"], filelib:is_regular(F)]),
+    {ok, ihqcd, Bin} = compile:file(Src, [binary]),
+    {module, ihqcd} = code:load_binary(ihqcd, Src, Bin),
+    {X, W} = ihqcd:x_w({rat, 21, 5}),
+    Ev = fun(E, L) -> {ok, S} = pq_mp:evaluate(E, #{l => L}, 30), pq_mp:to_float(pq_mp:from_string(S, 120)) end,
+    L = 0.3, H = 1.0e-6,
+    DlogW = (math:log(Ev(W, L + H)) - math:log(Ev(W, L - H))) / (2 * H),
+    ?assert(abs(DlogW + 4 / 3 * Ev(X, L) / L) < 1.0e-8),
+    DX = pq_jet:diff(X, l),
+    ?assert(abs(Ev(DX, L) - (Ev(X, L + H) - Ev(X, L - H)) / (2 * H)) < 1.0e-8).

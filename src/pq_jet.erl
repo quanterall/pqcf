@@ -8,7 +8,7 @@
 %% The step is chosen from the last coefficients so that the truncation is below the working precision.
 %% (R. Barrio, Performance of the Taylor series method for ODEs/DAEs, Appl. Math. Comput. 163 (2005) 525.)
 -module(pq_jet).
--export([integrate/6, integrate/7]).
+-export([integrate/6, integrate/7, diff/2]).
 
 %% integrate(Rhs, X, Ys, X0, Y0, X1, Opts) -- Rhs: [expression] (one per y_i); X: the independent symbol; Ys: the state
 %% symbols; X0, X1: start and end (X1 may be below X0); Y0: the start values (numbers or mp). Opts: digits => D
@@ -262,3 +262,27 @@ ipow(X, K, W) -> pq_mp:mul(X, ipow(X, K - 1, W), W).
 
 sinh(X, W) -> pq_mp:ldexp(pq_mp:sub(pq_mp:exp(X, W), pq_mp:exp(pq_mp:neg(X), W), W), -1).
 cosh(X, W) -> pq_mp:ldexp(pq_mp:add(pq_mp:exp(X, W), pq_mp:exp(pq_mp:neg(X), W), W), -1).
+
+%%% The derivative of an expression in X (for the right-hand sides, which may contain log, which the engine's
+%%% canonical form does not)
+
+-spec diff(term(), atom()) -> term().
+diff({sym, X}, X) -> 1;
+diff({sym, _}, _) -> 0;
+diff(N, _) when is_number(N) -> 0;
+diff({rat, _, _}, _) -> 0;
+diff({const, _}, _) -> 0;
+diff({add, L}, X) -> {add, [diff(T, X) || T <- L]};
+diff({mul, []}, _) -> 0;
+diff({mul, [F]}, X) -> diff(F, X);
+diff({mul, [F | Rest]}, X) -> {add, [{mul, [diff(F, X) | Rest]}, {mul, [F, diff({mul, Rest}, X)]}]};
+diff({pow, F, K}, X) when is_integer(K); is_float(K) -> {mul, [K, {pow, F, K - 1}, diff(F, X)]};
+diff({pow, F, {rat, P, Q}}, X) -> {mul, [{rat, P, Q}, {pow, F, {rat, P - Q, Q}}, diff(F, X)]};
+diff({pow, F, G}, X) -> diff({exp, {mul, [G, {log, F}]}}, X);
+diff({sqrt, F}, X) -> diff({pow, F, {rat, 1, 2}}, X);
+diff({exp, F}, X) -> {mul, [{exp, F}, diff(F, X)]};
+diff({log, F}, X) -> {mul, [{pow, F, -1}, diff(F, X)]};
+diff({sin, F}, X) -> {mul, [{cos, F}, diff(F, X)]};
+diff({cos, F}, X) -> {mul, [-1, {sin, F}, diff(F, X)]};
+diff({sinh, F}, X) -> {mul, [{cosh, F}, diff(F, X)]};
+diff({cosh, F}, X) -> {mul, [{sinh, F}, diff(F, X)]}.

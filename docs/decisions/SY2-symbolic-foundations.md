@@ -220,6 +220,16 @@ Bessel's equation.
   - **Against SciPy:** a double-precision solution of the same equations agrees to 6 digits up to phi_H = 4 and
     becomes unstable beyond (the 0/0 at the horizon). PQCF's values do not change from 20 to 30 digits.
   - **Limit of the comparison:** the paper gives figures, not tables, so the dip agrees qualitatively.
+- **14 Nov 2026: phase 6, improved holographic QCD** (`comparison/holographic/ihqcd.erl`, `IHQCD.md`).
+  - **Method:** background I of arXiv:0707.1349 (b0 = 4.2, alpha = 2) solved with `pq_jet` from the located UV
+    boundary, with the glueball equation (6.2) integrated alongside and shot for m^2.
+  - **Checks:** the mass ratios do not depend on lambda0 (0.08, 0.15, 0.25), as section 7.2 of the paper requires,
+    nor on the cutoff.
+  - **Results against the paper:** R00 = 1.683 and R20 = 1.310, against 1.87 and 1.40.
+  - **Open:** this discrepancy (10% and 6%). The checks exclude numerical error. Candidates are a convention not
+    visible in the printed formulas, or where the paper imposes the UV condition; its stated initial conditions put
+    the boundary at r ~ -0.46.
+  - **Phase 6 done** as a computation, with this comparison left open.
 - **14 Nov 2026: phase 4, component tensors** (`pq_geometry:curvature/2`). The acceptance checks of phase 4 that
   concern components pass exactly:
   - AdS_5: R = -20/L^2, R_ab = -(4/L^2) g_ab, Weyl tensor zero (Kretschmann 40/L^4);

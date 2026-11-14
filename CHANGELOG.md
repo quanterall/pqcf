@@ -78,6 +78,11 @@ the public API is additive.
 - **The Taylor-series method for nonlinear ODE systems** (SY2 phase 6): `pq_jet:integrate/6,7`.
   - **What it does:** solves y' = F(x, y), with F built from +, *, powers, exp, log, sin, cos, sinh, cosh, sqrt, by
     automatic differentiation on truncated series, in arbitrary precision.
+  - **Improved holographic QCD** (arXiv:0707.1349, `comparison/holographic/IHQCD.md`): background I and the 0++ and
+    2++ glueballs.
+    - **Checks:** independent of the integration constants (the paper's section 7.2) and of the cutoff.
+    - **Open:** R00 = 1.683 and R20 = 1.310 at b0 = 4.2, against the paper's 1.87 and 1.40.
+  - `pq_jet:diff/2`: derivatives of right-hand sides with log.
   - **Gubser-Nellore** (arXiv:0804.0434, `comparison/holographic/GUBSER.md`): the nonlinear master equation from the
     horizon series, then the entropy, the temperature and the speed of sound.
     - **Checks:** the exact Chamblin-Reall solution is kept to 25 digits; Delta = 3.927 (paper 3.93); c_s^2 goes from
