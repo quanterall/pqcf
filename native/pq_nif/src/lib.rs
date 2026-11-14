@@ -1570,6 +1570,21 @@ fn rpoly_pow(env: Env, a: ResourceArc<RPolyRes>, k: u32) -> Term {
     rpoly_result(env, rpoly::pow(&a.0, k))
 }
 
+/// rpoly_permanent(NVars, K, Entries) -> {ok, Resource} | overflow | packing: the permanent of a K x K matrix of
+/// polynomials with integer coefficients over NVars variables, its entries row-major as {Exps, Coef} (as for
+/// rpoly_new, denominator 1), by the subset expansion (polymul::permanent)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn rpoly_permanent(env: Env, nvars: usize, k: usize, entries: Vec<(Vec<i64>, Vec<i128>)>) -> NifResult<Term> {
+    let mut ps = Vec::with_capacity(entries.len());
+    for (exps, coef) in entries {
+        if !coef.len().is_multiple_of(2) || exps.len() != nvars * (coef.len() / 2) {
+            return Err(rustler::Error::BadArg);
+        }
+        ps.push(polymul::Poly { exps, coef });
+    }
+    Ok(rpoly_result(env, polymul::permanent(nvars, k, &ps).map(|p| rpoly::RPoly::new(nvars, p, 1))))
+}
+
 /// rpoly_scale(A, Re, Im, Den) -> {ok, Resource} | overflow: A times (Re + i Im) / Den
 #[rustler::nif(schedule = "DirtyCpu")]
 fn rpoly_scale(env: Env, a: ResourceArc<RPolyRes>, re: i128, im: i128, den: i128) -> NifResult<Term> {
@@ -1607,31 +1622,42 @@ fn rpoly_to_ast<'a>(env: Env<'a>, a: ResourceArc<RPolyRes>, vars: Vec<Term<'a>>)
     let kinds = var_kinds(env, &vars)?;
     let is_exp: Vec<bool> = kinds.iter().map(|k| matches!(k, VarKind::Exp { .. })).collect();
     let rat_ast = |x: i128| -> Term<'a> {
+        if r.denom == 1 {
+            return x.encode(env);
+        }
         let (n, d) = rat_parts(x, r.denom);
         if d == 1 { n.encode(env) } else { (atoms::rat(), n, d).encode(env) }
     };
     let (mul, pow) = (atoms::mul().encode(env), atoms::pow().encode(env));
-    let mut factor_terms: HashMap<(usize, i64), Term<'a>> = HashMap::new();
+    // each variable's factor terms, built once per exponent: a table over the variable's exponent range
+    let n = r.nvars;
+    let lo: Vec<i64> = (0..n).map(|j| (0..r.len()).map(|t| r.p.exps[t * n + j]).min().unwrap_or(0)).collect();
+    let hi: Vec<i64> = (0..n).map(|j| (0..r.len()).map(|t| r.p.exps[t * n + j]).max().unwrap_or(0)).collect();
+    let mut factor_terms: Vec<Vec<Option<Term<'a>>>> = (0..n).map(|j| vec![None; (hi[j] - lo[j] + 1) as usize]).collect();
+    let mut factor = |j: usize, e: i64| -> Term<'a> {
+        *factor_terms[j][(e - lo[j]) as usize].get_or_insert_with(|| match &kinds[j] {
+            VarKind::Atom(v) if e == 1 => *v,
+            VarKind::Atom(v) => rustler::types::tuple::make_tuple(env, &[pow, *v, e.encode(env)]),
+            VarKind::Exp { sym, .. } => {
+                let arg = rustler::types::tuple::make_tuple(env, &[mul, vec![(atoms::complex(), 0i64, e).encode(env), *sym].encode(env)]);
+                (atoms::exp(), arg).encode(env)
+            }
+        })
+    };
     let mut out = Vec::with_capacity(r.len());
+    let mut fs: Vec<Term<'a>> = Vec::with_capacity(n + 1);
     for t in rpoly::print_order(r, &is_exp) {
         let (re, im) = (r.p.coef[2 * t], r.p.coef[2 * t + 1]);
         let c = if im == 0 { rat_ast(re) } else { (atoms::complex(), rat_ast(re), rat_ast(im)).encode(env) };
-        let mut fs = vec![c];
+        fs.clear();
+        fs.push(c);
         // the atoms first, then the exponentials, each in variable order
         for pass_exp in [false, true] {
-            for (j, kind) in kinds.iter().enumerate() {
-                let e = r.p.exps[t * r.nvars + j];
-                if e == 0 || is_exp[j] != pass_exp {
-                    continue;
+            for (j, &ex) in is_exp.iter().enumerate() {
+                let e = r.p.exps[t * n + j];
+                if e != 0 && ex == pass_exp {
+                    fs.push(factor(j, e));
                 }
-                fs.push(*factor_terms.entry((j, e)).or_insert_with(|| match kind {
-                    VarKind::Atom(v) if e == 1 => *v,
-                    VarKind::Atom(v) => rustler::types::tuple::make_tuple(env, &[pow, *v, e.encode(env)]),
-                    VarKind::Exp { sym, .. } => {
-                        let arg = rustler::types::tuple::make_tuple(env, &[mul, vec![(atoms::complex(), 0i64, e).encode(env), *sym].encode(env)]);
-                        (atoms::exp(), arg).encode(env)
-                    }
-                }));
             }
         }
         out.push(if fs.len() == 1 { c } else { rustler::types::tuple::make_tuple(env, &[mul, fs.encode(env)]) });
@@ -1640,6 +1666,47 @@ fn rpoly_to_ast<'a>(env: Env<'a>, a: ResourceArc<RPolyRes>, vars: Vec<Term<'a>>)
         0 => 0.encode(env),
         1 => out[0],
         _ => (atoms::add(), out).encode(env),
+    })
+}
+
+/// rpoly_nodes(A, Weights) -> the node count (pq_symbolic:size/1) of rpoly_to_ast(A, Vars)'s result, without
+/// building it, so a result over max_expr_nodes is refused before it is made. Weights: per variable {false, W}
+/// for an atom key V (W = size(V)) or {true, W} for {expi, X} (W = size({sym, X})). Mirrors rpoly_to_ast: a tuple
+/// counts 1 plus its elements after the tag, a list its elements, a number or atom 1.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn rpoly_nodes(a: ResourceArc<RPolyRes>, weights: Vec<(bool, u64)>) -> NifResult<u64> {
+    let r = &a.0;
+    if weights.len() != r.nvars {
+        return Err(rustler::Error::BadArg);
+    }
+    let n = r.nvars;
+    let rat = |x: i128| -> u64 {
+        if r.denom == 1 || rat_parts(x, r.denom).1 == 1 { 1 } else { 3 }
+    };
+    let mut terms = 0u64;
+    for t in 0..r.len() {
+        let (re, im) = (r.p.coef[2 * t], r.p.coef[2 * t + 1]);
+        let c = if im == 0 { rat(re) } else { 1 + rat(re) + rat(im) };
+        let mut fs = 0u64;
+        let mut any = false;
+        for (j, &(is_exp, w)) in weights.iter().enumerate() {
+            let e = r.p.exps[t * n + j];
+            if e == 0 {
+                continue;
+            }
+            any = true;
+            fs += match (is_exp, e) {
+                (false, 1) => w,                 // V
+                (false, _) => 2 + w,             // {pow, V, E}
+                (true, _) => 5 + w,              // {exp, {mul, [{complex, 0, E}, Sym]}}
+            };
+        }
+        terms += if any { 1 + c + fs } else { c }; // {mul, [C | Factors]} or C
+    }
+    Ok(match r.len() {
+        0 => 1,
+        1 => terms,
+        _ => 1 + terms, // {add, Terms}
     })
 }
 

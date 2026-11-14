@@ -50,7 +50,7 @@ canonicalise(E) -> canonicalise(E, #{}).
 -spec canonicalise(sym_expr(), opts()) -> result(sym_expr()).
 canonicalise(E, Opts) ->
     %% rpoly: large plain products and powers stay in Rust until to_ast (K2)
-    run(E, Opts, fun(Ctx) -> output(pq_sym_norm:norm(E, Ctx#{rpoly => maps:get(poly_kernel, Ctx)}), Ctx) end).
+    finish(run(E, Opts, fun(Ctx) -> output_deferred(pq_sym_norm:norm(E, Ctx#{rpoly => maps:get(poly_kernel, Ctx)}), Ctx) end)).
 
 simplify(E) -> canonicalise(E, #{}).
 simplify(E, Opts) -> canonicalise(E, Opts).
@@ -298,23 +298,32 @@ set2(T, I, J, V) -> setelement(I, T, setelement(J, element(I, T), V)).
 %% 2^(k-1) terms, k at most max_symbolic_photons
 -spec permanent(sym_expr()) -> result(sym_expr()).
 permanent(M) ->
-    run(M, #{}, fun(Ctx) ->
+    finish(run(M, #{}, fun(Ctx) ->
                         {mat, K, K2, Rows} = case pq_sym_norm:norm(M, Ctx) of
                                                  {mat, _, _, _} = X -> X;
                                                  _ -> throw({bad_shape, permanent})
                                              end,
                         K =:= K2 orelse throw({bad_shape, {permanent, K, K2}}),
-                        output({scalar, glynn(Rows, K, Ctx)}, Ctx)
-                end).
+                        %% in Rust when the entries allow (pq_sym_poly:kernel_permanent/3), made in the caller
+                        check_photons(K),
+                        P = case K > 0 andalso pq_sym_poly:kernel_permanent(Rows, K, Ctx) of
+                                {ok, H} -> H;
+                                _ -> glynn(Rows, K, Ctx)
+                            end,
+                        output_deferred({scalar, P}, Ctx)
+                end)).
 
 %% The permanent row by row over the subsets of columns already used (the expansion FORM does with its pruning,
 %% comparison of 2 Nov 2026): for each set S of i columns, the sum over every assignment of rows 1..i to S; a term
 %% that would use a column twice is never made, so the intermediates stay the size of partial results -- where
 %% Glynn's formula expanded 2^(k-1) products of k linear forms and relied on their cancelling (7 x 7 symbolic:
 %% 429 s with Glynn). Each entry is used as it is, repeated rows or columns included (bs_probability).
-glynn(Rows, K, Ctx) ->
+check_photons(K) ->
     Max = pq_core:get(max_symbolic_photons),
-    K =< Max orelse throw({symbolic_limit, #{photons => K, max_symbolic_photons => Max}}),
+    K =< Max orelse throw({symbolic_limit, #{photons => K, max_symbolic_photons => Max}}).
+
+glynn(Rows, K, Ctx) ->
+    check_photons(K),
     case K of
         0 -> pq_sym_poly:one();
         _ ->
@@ -751,3 +760,22 @@ output(V, Ctx) ->
     Max = maps:get(max_expr_nodes, Ctx),
     count(Ast, Max) > Max andalso throw({symbolic_limit, #{reason => max_expr_nodes, max => Max}}),
     Ast.
+
+%% output/2 for a result that is one polynomial kept in Rust (K2), made in the caller (finish/1): the bounded worker
+%% returns the handle, not millions of terms copied out of its heap. finish/1 counts the terms' nodes in Rust and
+%% refuses a result over max_expr_nodes before building it, as output/2 does after. The handle's own size and the
+%% caller's conversion are bounded by max_poly_terms, which the worker has already checked.
+output_deferred({scalar, {rpoly, Vars, R}} = V, Ctx) ->
+    case lists:all(fun({sym, _}) -> true; ({expi, _}) -> true; (_) -> false end, Vars) of
+        true -> {deferred_rpoly, Vars, R, maps:get(max_expr_nodes, Ctx)};
+        false -> output(V, Ctx)
+    end;
+output_deferred(V, Ctx) -> output(V, Ctx).
+
+finish({ok, {deferred_rpoly, Vars, R, Max}}) ->
+    Weights = [case V of {expi, X} -> {true, size({sym, X})}; _ -> {false, size(V)} end || V <- Vars],
+    case pq_nif:rpoly_nodes(R, Weights) of
+        N when N > Max -> {error, {symbolic_limit, #{reason => max_expr_nodes, max => Max}}};
+        _ -> {ok, pq_nif:rpoly_to_ast(R, Vars)}
+    end;
+finish(Result) -> Result.

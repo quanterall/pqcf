@@ -135,6 +135,39 @@ fn mul_packed(a: &Packed, b: &Packed, real: bool) -> Result<Packed, Refused> {
     Ok(acc.into_iter().filter(|&(_, c)| c != (0, 0)).collect())
 }
 
+/// bases of at most this many terms are multiplied by merging (mul_merge)
+const MERGE_MAX: usize = 64;
+
+/// acc * b, acc sorted by packed key (b in any order): b's shifted copies of acc, each sorted, merged by key with
+/// a heap of |b| heads, equal keys combined as they meet; sorted, zero coefficients dropped. The layout must hold
+/// the sums, as for mul_packed.
+fn mul_merge(acc: &Packed, b: &Packed, real: bool) -> Result<Packed, Refused> {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+    if acc.is_empty() || b.is_empty() {
+        return Ok(vec![]);
+    }
+    let m = |x: i128, y: i128| x.checked_mul(y).ok_or(Refused::Overflow);
+    let mut heap: BinaryHeap<Reverse<(u64, usize, usize)>> = b.iter().enumerate().map(|(j, &(kb, _))| Reverse((acc[0].0 + kb, j, 0))).collect();
+    let mut out: Packed = Vec::with_capacity(acc.len() + acc.len() / 2 + b.len());
+    while let Some(Reverse((k, j, i))) = heap.pop() {
+        let ((_, (ar, ai)), (kb, (br, bi))) = (acc[i], b[j]);
+        let (re, im) = if real { (m(ar, br)?, 0) } else { (m(ar, br)?.checked_sub(m(ai, bi)?).ok_or(Refused::Overflow)?, m(ar, bi)?.checked_add(m(ai, br)?).ok_or(Refused::Overflow)?) };
+        match out.last_mut() {
+            Some((lk, (lr, li))) if *lk == k => {
+                *lr = lr.checked_add(re).ok_or(Refused::Overflow)?;
+                *li = li.checked_add(im).ok_or(Refused::Overflow)?;
+            }
+            _ => out.push((k, (re, im))),
+        }
+        if i + 1 < acc.len() {
+            heap.push(Reverse((acc[i + 1].0 + kb, j, i + 1)));
+        }
+    }
+    out.retain(|&(_, c)| c != (0, 0));
+    Ok(out)
+}
+
 fn is_real(p: &Poly) -> bool {
     p.coef.iter().skip(1).step_by(2).all(|&x| x == 0)
 }
@@ -194,10 +227,65 @@ pub fn pow(nvars: usize, a: &Poly, n: u32) -> Result<Poly, Refused> {
     let real = is_real(a);
     let mut acc: Packed = vec![(0, (1, 0))];
     for _ in 0..n {
-        acc = mul_packed(&acc, &pa, real)?;
+        // a base of few terms (a sum of symbols, say): its shifted copies of the sorted accumulator merged, no
+        // hashing; a large base: the hashed product
+        acc = if pa.len() <= MERGE_MAX { mul_merge(&acc, &pa, real)? } else { mul_packed(&acc, &pa, real)? };
     }
     let lo: Vec<i64> = lo_a.iter().map(|&x| x.checked_mul(n as i64).ok_or(Refused::Packing)).collect::<Result<_, _>>()?;
     Ok(unpack(&l, acc, &lo))
+}
+
+/// The permanent of a k x k matrix of polynomials (row-major), by the subset expansion pq_symbolic:glynn/3 does in
+/// Erlang: row by row, for every set of columns used so far, the sum over the assignments of the rows to them. The
+/// entries are packed once in the layout of a product of k of them; each partial sum is a hashed accumulator.
+/// Sorted, zero coefficients dropped; k = 0 gives 1.
+pub fn permanent(nvars: usize, k: usize, e: &[Poly]) -> Result<Poly, Refused> {
+    if e.len() != k * k {
+        return Err(Refused::Packing);
+    }
+    if k == 0 {
+        return Ok(Poly { exps: vec![0; nvars], coef: vec![1, 0] });
+    }
+    if k > 24 {
+        return Err(Refused::Packing);
+    }
+    // per variable: the lowest exponent over every entry, and what a product of one entry from each row can add to
+    // k times it -- the sum over the rows of the row's highest exponent above it (a matrix of distinct symbols: one
+    // bit a symbol, so 8 x 8 fits a 64-bit key)
+    let lo: Vec<i64> = (0..nvars).map(|j| e.iter().filter(|p| !p.is_empty()).map(|p| range(p, nvars, j).0).min().unwrap_or(0)).collect();
+    let spans: Vec<i128> = (0..nvars)
+        .map(|j| {
+            (0..k)
+                .map(|i| e[i * k..(i + 1) * k].iter().filter(|p| !p.is_empty()).map(|p| (range(p, nvars, j).1 - lo[j]) as i128).max().unwrap_or(0))
+                .sum()
+        })
+        .collect();
+    let l = layout(&spans)?;
+    let packed: Vec<Packed> = e.iter().map(|p| if p.is_empty() { vec![] } else { pack(&l, p, &lo) }).collect();
+    let real = e.iter().all(is_real);
+    let mut layer: HashMap<u32, Packed> = HashMap::from([(0u32, vec![(0u64, (1i128, 0i128))])]);
+    for i in 0..k {
+        let mut next: HashMap<u32, KeyMap<(i128, i128)>> = HashMap::new();
+        for (&used, p) in &layer {
+            for j in 0..k {
+                let bit = 1u32 << j;
+                let entry = &packed[i * k + j];
+                if used & bit != 0 || entry.is_empty() {
+                    continue;
+                }
+                let acc = next.entry(used | bit).or_insert_with(|| KeyMap::with_capacity_and_hasher(p.len(), Default::default()));
+                for (key, (re, im)) in mul_packed(p, entry, real)? {
+                    let c = acc.entry(key).or_insert((0, 0));
+                    c.0 = c.0.checked_add(re).ok_or(Refused::Overflow)?;
+                    c.1 = c.1.checked_add(im).ok_or(Refused::Overflow)?;
+                }
+            }
+        }
+        layer = next.into_iter().map(|(m, acc)| (m, acc.into_iter().filter(|&(_, c)| c != (0, 0)).collect())).collect();
+    }
+    let full = layer.remove(&((1u32 << k) - 1)).unwrap_or_default();
+    let lo_k: Vec<i64> = lo.iter().map(|&x| x.checked_mul(k as i64).ok_or(Refused::Packing)).collect::<Result<_, _>>()?;
+    Ok(unpack(&l, full, &lo_k))
 }
 
 /// the greatest common divisor, gcd(n, 0) = n
@@ -287,6 +375,63 @@ mod tests {
         }
         let big = Poly { exps: vec![0, 1], coef: vec![1i128 << 40, 0, 1, 0] };
         assert_eq!(pow(1, &big, 4).err(), Some(Refused::Overflow));
+    }
+
+    #[test]
+    fn permanent_is_the_sum_over_permutations() {
+        fn perms(k: usize) -> Vec<Vec<usize>> {
+            if k == 0 {
+                return vec![vec![]];
+            }
+            perms(k - 1).into_iter().flat_map(|p| (0..k).map(move |i| { let mut q = p.clone(); q.insert(i, k - 1); q })).collect()
+        }
+        let mut s = 0x9E37_79B9_7F4A_7C15u64;
+        for case in 0..24 {
+            let k = 1 + case % 4;
+            let nvars = 1 + case % 3;
+            let complex = case % 2 == 0;
+            let e: Vec<Poly> = (0..k * k).map(|i| if (i + case) % 7 == 3 { Poly { exps: vec![], coef: vec![] } } else { random(&mut s, nvars, 1 + i % 3, 0, 2, complex) }).collect();
+            let got = permanent(nvars, k, &e).unwrap();
+            // the sum over permutations of the products, each product by repeated schoolbook multiplication
+            let mut want: Vec<(Vec<i64>, (i128, i128))> = vec![];
+            for p in perms(k) {
+                let mut prod = vec![(vec![0i64; nvars], (1i128, 0i128))];
+                for (row, &col) in p.iter().enumerate() {
+                    let w = Poly { exps: prod.iter().flat_map(|t| t.0.clone()).collect(), coef: prod.iter().flat_map(|t| [t.1 .0, t.1 .1]).collect() };
+                    prod = naive(nvars, &w, &e[row * k + col]);
+                }
+                let sum = Poly { exps: want.iter().chain(&prod).flat_map(|t| t.0.clone()).collect(), coef: want.iter().chain(&prod).flat_map(|t| [t.1 .0, t.1 .1]).collect() };
+                let one = Poly { exps: vec![0; nvars], coef: vec![1, 0] };
+                want = naive(nvars, &sum, &one);
+            }
+            assert_eq!(as_sorted(nvars, &got), want, "case {case}");
+        }
+        assert_eq!(as_sorted(2, &permanent(2, 0, &[]).unwrap()), vec![(vec![0, 0], (1, 0))]);
+    }
+
+    #[test]
+    fn merged_and_hashed_products_agree() {
+        // mul_merge (small bases) against mul_packed (hashing), on sorted accumulators, real and complex
+        let mut s = 0x2545_F491_4F6C_DD1D;
+        for case in 0..40 {
+            let nvars = 1 + case % 3;
+            let complex = case % 2 == 1;
+            let acc = random(&mut s, nvars, 5 + case * 7, 0, 6, complex);
+            let b = random(&mut s, nvars, 1 + case % 9, 0, 4, complex);
+            let spans: Vec<i128> = (0..nvars).map(|j| (range(&acc, nvars, j).1 + range(&b, nvars, j).1) as i128).collect();
+            let l = layout(&spans).unwrap();
+            let zero = vec![0i64; nvars];
+            let mut pa = pack(&l, &acc, &zero);
+            pa.sort_unstable_by_key(|t| t.0);
+            let pb = pack(&l, &b, &zero);
+            let mut hashed = mul_packed(&pa, &pb, !complex).unwrap();
+            hashed.sort_unstable_by_key(|t| t.0);
+            assert_eq!(mul_merge(&pa, &pb, !complex).unwrap(), hashed, "case {case}");
+        }
+        // a base of more than MERGE_MAX terms takes the hashed path; both paths give the schoolbook power
+        let a = random(&mut s, 2, MERGE_MAX + 6, 0, 9, false);
+        let sq = pow(2, &a, 2).unwrap();
+        assert_eq!(as_sorted(2, &sq), naive(2, &a, &a));
     }
 
     #[test]

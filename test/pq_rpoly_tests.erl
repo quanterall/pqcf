@@ -121,3 +121,41 @@ mesh(K) ->
     Bs = [{beamsplitter, M, M + 1, {sym, list_to_atom("t" ++ integer_to_list(J))}, {sym, list_to_atom("p" ++ integer_to_list(J))}}
           || {J, M} <- lists:enumerate(0, Modes)],
     lists:foldl(fun(I, A) -> pq_circuit:add(A, I) end, C0, Bs ++ [{phaseshift, 0, {sym, q0}}, {phaseshift, K - 1, {sym, t0}}]).
+
+%% A result kept in Rust is made in the caller (pq_symbolic:output_deferred/2, finish/1): its node count, taken in
+%% Rust without building it (pq_nif:rpoly_nodes/2), is exactly pq_symbolic:size/1 of the result, so max_expr_nodes
+%% refuses at the same count as before, for every kind of coefficient and factor rpoly_to_ast writes.
+deferred_result_node_count_test_() ->
+    {timeout, 300, fun() ->
+        L = ?LIMITS,
+        S = fun(N) -> {sym, N} end,
+        Ex = {exp, {mul, [{complex, 0, 1}, S(p)]}},
+        Cases = [{pow, {add, [1, S(a), S(b), S(c), S(d), S(e), S(f)]}, 9},
+                 {pow, {add, [{mul, [{rat, 1, 3}, S(a)]}, {mul, [{complex, 0, 1}, S(b)]}, 2, S(c)]}, 18},
+                 {pow, {add, [1, Ex, S(q), {mul, [{rat, 2, 5}, S(r)]}]}, 14},
+                 {pow, {add, [{pow, S(a), -1}, S(b), {mul, [{complex, 1, 2}, S(c)]}]}, 16}],
+        [begin
+             {ok, Ast} = pq_symbolic:canonicalise(E, L),
+             ?assertEqual({ok, Ast}, pq_symbolic:canonicalise(E, L#{poly_kernel => false})),
+             N = pq_symbolic:size(Ast),
+             ?assertMatch({error, {symbolic_limit, #{reason := max_expr_nodes}}},
+                          pq_symbolic:canonicalise(E, L#{max_expr_nodes => N - 1})),
+             ?assertEqual({ok, Ast}, pq_symbolic:canonicalise(E, L#{max_expr_nodes => N}))
+         end || E <- Cases]
+    end}.
+
+%% The permanent in Rust (pq_sym_poly:kernel_permanent/3, polymul::permanent): taken for matrices of symbols with
+%% integer (also complex) coefficients, and equal to Glynn's formula; a rational entry keeps the Erlang expansion.
+permanent_in_rust_test_() ->
+    {timeout, 300, fun() ->
+        S = fun(I, J) -> {sym, list_to_atom(lists:flatten(io_lib:format("m~b~b", [I, J])))} end,
+        Plain = fun(N) -> [[S(I, J) || J <- lists:seq(1, N)] || I <- lists:seq(1, N)] end,
+        Mixed = [[{add, [S(1, 1), 2]}, {mul, [{complex, 0, 1}, S(1, 2)]}, 0],
+                 [S(2, 1), {pow, S(2, 2), 2}, {add, [S(2, 3), S(1, 1)]}],
+                 [3, S(3, 2), {mul, [-1, S(3, 3)]}]],
+        Rational = [[{mul, [{rat, 1, 2}, S(1, 1)]}, S(1, 2)], [S(2, 1), S(2, 2)]],
+        Norm = fun(Rows) -> [[pq_sym_poly:symbol(X, #{}) || {sym, X} <- R] || R <- Rows] end,
+        ?assertMatch({ok, _}, pq_sym_poly:kernel_permanent(Norm(Plain(8)), 8, #{max_poly_terms => 1000000})),
+        [?assertEqual(pq_symbolic:glynn_reference(Rows, length(Rows)), pq_symbolic:permanent({matrix, Rows}))
+         || Rows <- [Plain(1), Plain(4), Plain(6), Mixed, Rational]]
+    end}.

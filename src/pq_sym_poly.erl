@@ -16,7 +16,7 @@
 -module(pq_sym_poly).
 -export([zero/0, one/0, const/1, symbol/2, atom/2, pi/0, is_const/1, const_value/1, single/1, m/1,
          add/2, sum/1, neg/1, scale/2, mul/3, pow_int/3, pow_rat/3, exp/2, conj/2,
-         terms/1, pi_mono/0, one_mono/0, sorted/1, content/2, base_power/3, plain_terms/1]).
+         terms/1, pi_mono/0, one_mono/0, sorted/1, content/2, base_power/3, plain_terms/1, kernel_permanent/3]).
 
 -import(pq_sym_exact, [c/1, cadd/2, cmul/2, cneg/1, cinv/1, cconj/1, is_zero/1, rat/2, radd/2, rmul/2, rneg/1]).
 
@@ -634,6 +634,19 @@ union(VA, VB) ->
     Vars = lists:umerge(VA, VB),
     Pos = maps:from_list([{V, I} || {I, V} <- lists:enumerate(0, Vars)]),
     {Vars, [maps:get(V, Pos) || V <- VA], [maps:get(V, Pos) || V <- VB]}.
+
+%% The permanent of a K x K matrix (rows of polynomials) in Rust (polymul::permanent, the same subset expansion as
+%% pq_symbolic:glynn/3), as a handle {ok, {rpoly, Vars, R}}, when every entry is a polynomial of symbols with
+%% integer coefficients and poly_kernel is on; false otherwise (the caller expands it in Erlang)
+kernel_permanent(Rows, K, Ctx) ->
+    case maps:get(poly_kernel, Ctx, true) andalso K > 0 andalso plain_terms(lists:append(Rows)) of
+        {[_ | _] = Vars, Data} ->
+            case lists:all(fun({_, _, L}) -> L =:= 1 end, Data) of
+                true -> rp_new(pq_nif:rpoly_permanent(length(Vars), K, [{E, C} || {E, C, _} <- Data]), Vars, Ctx);
+                false -> false
+            end;
+        _ -> false
+    end.
 
 %% Polynomials of symbols only (integer exponents, exact coefficients) as kernel data over their common variables:
 %% {Vars, [{Exps, Coef, L}]} (the coefficients times L), or false (pq_sym_slp's order search scores with it, H4)

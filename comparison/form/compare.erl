@@ -267,8 +267,7 @@ marker(K, X0, Y0, Tip) ->
 
 esc(S) -> lists:flatten(string:replace(string:replace(lists:flatten(S), "&", "&amp;", all), "<", "&lt;", all)).
 
-%% x of a time on the log axis from 10^Lo to 10^Hi seconds
-xpos(T, Lo, Hi) -> xpos(T, Lo, Hi, ?RIGHT).
+%% x of a time on the log axis from 10^Lo to 10^Hi seconds, the plot ending Right before the chart's edge
 xpos(T, Lo, Hi, Right) -> ?LEFT + (math:log10(max(T, math:pow(10, Lo))) - Lo) / (Hi - Lo) * (?W - ?LEFT - Right).
 
 %% Rows: [{Label, [{SeriesK, SeriesName, Seconds | none}], RightNote}]
