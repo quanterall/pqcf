@@ -200,8 +200,19 @@ Bessel's equation.
     T = 1/(pi z_h); its Kretschmann scalar is (40 + 72 z^8/z_h^8)/L^4;
   - Schwarzschild, in x = cos theta: Ricci flat, Kretschmann 48 M^2/r^6.
 
-  Each takes a fraction of a second. Open in phase 4: abstract indices with Butler-Portugal canonicalisation,
-  against Cadabra2.
+  Each takes a fraction of a second.
+- **14 Nov 2026: phase 4, abstract indices** (`pq_tensor`).
+  - **Canonical forms of tensor monomials:** the least index string over the slot-symmetry group and the orders of
+    equal tensors, the dummies renamed by first appearance. This is the canonical representative of the double coset
+    that Butler-Portugal computes, found by exhaustive search; it is exact and takes 0.3 s for every cubic Riemann
+    contraction.
+  - **Oracle:** Cadabra2 is not installed. SymPy 1.14's `canon_bp`, an independent Butler-Portugal implementation,
+    serves instead: the same classes, zeros and relative signs on 160 random monomials.
+  - **Literature:** there are 4 quadratic and 13 cubic classes under the slot symmetries. With the cyclic identity
+    (exact rank on random algebraic curvature tensors), 3 and 8 are independent, the numbers of Fulling et al. (1992,
+    Class. Quantum Grav. 9 1151, https://doi.org/10.1088/0264-9381/9/5/003).
+  - **Phase 4 done.** Butler-Portugal's group-theoretic algorithm (Schreier-Sims) remains the route for products of
+    more than about four Riemann tensors.
 - **14 Nov 2026: phase 5, the black brane's free energy** (`comparison/holographic/brane.erl`, `BRANE.md`,
   `test/pq_holo_tests.erl`).
   - **Computed in PQCF, from the metric up:**

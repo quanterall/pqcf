@@ -27,6 +27,13 @@ the public API is additive.
   `test/pq_holo_tests.erl`).
   - **Method:** a Fefferman-Graham expansion on S^4 and on S^2 x S^2, its coefficients (g_(2), Tr g_(4)) derived
     from the 5-dimensional Einstein equations, then the volume coefficient a_4.
+- **Abstract-index tensor monomials** (SY2 phase 4): `pq_tensor`.
+  - **Canonical forms:** under slot symmetries (Riemann, Ricci, metric), the commutation of equal tensors and dummy
+    renaming; zero detection.
+  - **Checked against SymPy's Butler-Portugal `canon_bp`:** the same classes, zeros and signs on 160 random
+    monomials (`test/oracle/gt_tensor.py`).
+  - **Invariants:** the full contractions of k Riemann tensors, and their number of independent invariants by exact
+    rank on random algebraic curvature tensors: 3 quadratic and 8 cubic (Fulling, King, Wybourne, Cummins 1992).
 - **Curvature in components** (SY2 phase 4): `pq_geometry:curvature/2`.
   - **Output:** the inverse metric, Christoffel symbols, Riemann, Ricci, scalar curvature, Einstein, a Weyl test and
     the Kretschmann scalar, in any dimension.
