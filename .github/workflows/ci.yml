@@ -19,7 +19,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build the dev image
         run: docker build -t pqcf-dev .
       - name: Run the suite
@@ -29,9 +29,11 @@ jobs:
           # PQ_SHARED_RUNNER: the NFRs measured on the reference hardware (NFR-09) are reported here, not enforced
           docker run --rm -e PQ_SHARED_RUNNER=1 pqcf-dev 2>&1 | tee suite.log || {
             # one annotation with the failures and their context (a step shows at most 10 annotations)
-            msg=$(sed 's/\x1b\[[0-9;]*m//g' suite.log \
-                  | grep -E -A12 '^ +[0-9]+\) |Line [0-9]+|test result: FAILED|^error' | head -80 \
-                  | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
+            clean=$(sed 's/\x1b\[[0-9;]*m//g' suite.log)
+            msg=$(printf '%s\n' "$clean" | grep -E -A12 '^ +[0-9]+\) |Line [0-9]+|test result: FAILED|^error' | head -80)
+            # nothing recognised (dialyzer, xref, the Python tests, cargo or clippy): the end of the log instead
+            [ -n "$msg" ] || msg=$(printf '%s\n' "$clean" | tail -n 40)
+            msg=$(printf '%s\n' "$msg" | sed ':a;N;$!ba;s/%/%25/g;s/\n/%0A/g')
             echo "::error title=Failing tests::$msg"
             exit 1; }
 
@@ -40,6 +42,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Rust tests under AddressSanitizer
         run: sh tools/sanitize.sh
