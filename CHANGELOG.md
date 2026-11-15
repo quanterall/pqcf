@@ -323,6 +323,8 @@ the public API is additive.
   - every Dockerfile names its base image by digest; the digests are in REPRODUCE.md.
   - the SciPy cross-checks quoted in SAKAI.md, HARDWALL.md and GUBSER.md as committed scripts with tolerances
     (`comparison/holographic/scipy_*.py`, in the oracle image);
+  - `REPRODUCE.md`: how the answers of every comparison are compared, exactly, to how many digits or statistically,
+    and why.
   - CI in four groups on both targets (`tools/ci.sh`: static, fast, integration, scientific), each its own job; the
     README shows its status. The x86 failures since 14 Nov were one test past EUnit's default 5 s timeout.
   - the README opens with PQCF's two capabilities, the scientific engine and distributed execution, and an

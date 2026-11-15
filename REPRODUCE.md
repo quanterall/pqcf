@@ -48,6 +48,29 @@ All at commit 3c31766 of [quantum_computing_simulations](https://github.com/quan
 Please open an issue with your machine and the output: <https://github.com/quanterall/pqcf/issues> (or the
 repository of the result).
 
+## How the answers are compared
+
+Times depend on the machine; answers do not. Each comparison is exact, to a stated number of digits, or statistical,
+and says so:
+
+| result | the answers must be | why this tolerance |
+| --- | --- | --- |
+| FORM | identical: PQCF's expression and FORM's, term for term, and the term counts | exact rational arithmetic on both sides |
+| FIRE | equal, master by master, at a random point modulo a large prime | exact: unequal rational functions differ at a random point with probability below 1e-15 |
+| Forcer | equal: PQCF's reduction times Forcer's masters, as expansions in ε, and the MS-bar sums equal to FORM's assertions | exact rationals and ζ-values |
+| The β-function | equal to the known coefficients, line by line | exact rationals |
+| Photonic head-to-head | permanents within 1e-8, torontonians within 1e-7, Fock states within 1e-9 (1e-6 between two of the peers); boson samples against the exact distribution by a chi-square test, p > 1e-3 | double precision on the peers' side: a permanent of 5e-12 at n = 28 is a sum of terms of order 1 |
+| Quantum optics (QuTiP) | within 1e-4 of the closed form, or the answer is an error; the digits each tool gets are reported | QuTiP's integrators give about 6 digits at their defaults |
+| Holographic QCD | the result files equal to the committed ones (only the commit line, date and times change); against the papers, to the papers' rounding; the SciPy checks to 1e-9, 1e-7 and 2e-6 ([the table](comparison/holographic/README.md#independent-checks-in-double-precision)) | PQCF computes to 20-30 digits; the papers and double precision limit the comparison |
+| IHQCD quick check | the masses equal to the committed raw results to 1e-7 | 12 digits are computed |
+| Genome research | every result equal to the published one (assemblies, phasing, modules, optima) | seeded and deterministic |
+| GenHub2 acceptance | all 20 checks pass, every result equal to the published run, both trees' hashes identical | seeded and deterministic |
+| Sweeps | Monte Carlo counts equal; the exact and closed-form logical rates within 1e-9 relative (3.9e-11 found) | the same seeded draws; the published rates carry 11 significant digits |
+| Surface code under noise | every count equal; Stim's own counts within their statistical errors when its version differs | seeded on both sides |
+| Benchmarks | the circuits (qubits, gates) equal; times compared as ratios | times are the measurement |
+| Photonic schemes | the output files identical (`cmp`), except two files whose floating-point sums differ by about 1e-14 relative | seeded and deterministic |
+| Demos | 39 of 39 checks pass | |
+
 ## Base images
 
 Every Dockerfile names its base image by digest, so a build today starts from the same image as the published runs
