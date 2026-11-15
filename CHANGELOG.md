@@ -16,6 +16,14 @@ the public API is additive.
 
 ### Added
 
+- **Cumulant expansions** (`pq_cumulant`, quantum optics Q4).
+  - **Equations for averages** from a Hamiltonian and jump operators (`pq_qop:heisenberg/4`), closed at order K by
+    setting the cumulants above K to zero (the sum over partitions with blocks of at most K operators), completed until
+    the set closes; an average and its adjoint's share one variable. Solved by `pq_jet` in real and imaginary parts.
+  - **Checks:** the driven damped cavity exactly (order 2); against QuantumCumulants.jl 0.3.7
+    (`comparison/cumulants`): the single-atom laser (8 equations, the same <a^dagger a> and P_e to 1e-13) and the
+    driven Jaynes-Cummings model at orders 2, 3, 4 (8, 15, 24 equations, the same <a^dagger a>(2) to 1e-15); against
+    the exact master equation, order 4 within 6e-6.
 - **Exact steady states and spectra** (`pq_qo_exact`, quantum optics Q3).
   - **Exact Liouvillian:** pq_qop operators with rational parameters, in Gaussian rationals. In the basis
     f_n = sqrt(n!) |n> the boson operators are integer matrices, so the master equation of a rational model is rational;
