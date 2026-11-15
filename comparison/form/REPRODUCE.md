@@ -10,6 +10,8 @@ the same tasks, on your machine. What the tasks are and why: [README.md](README.
 - **git**, and a network connection for the first build.
 - Any Linux machine, x86_64 or aarch64. One core is used for the timings.
 
+The images' base images are named by digest; the digests are in [REPRODUCE.md](../../REPRODUCE.md#base-images).
+
 ## Steps
 
 **Reproduce the published run**, at the commit it was tested at (see "Tested" below):

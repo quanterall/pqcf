@@ -1,6 +1,6 @@
 # The oracles of FS 12.1, pinned; used offline to generate test/fixtures, never at run time.
 #   docker build -t pqcf-oracle test/oracle && docker run --rm -v "$PWD":/src -w /src pqcf-oracle python test/oracle/<script>.py
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:e88e9763f943ec1834f992a4b51e0f24500486803e8bc534e5767af9ea65f6ce
 # Piquasso has no aarch64 wheel: its extension is built here
 RUN apt-get update && apt-get install -y --no-install-recommends g++ make && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt /tmp/requirements.txt

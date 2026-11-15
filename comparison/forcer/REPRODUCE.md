@@ -11,6 +11,8 @@ FORM's own Forcer checks, and its answers are compared with Forcer's and with FO
 - **git**, and a network connection for the first build.
 - Any Linux machine, x86_64 or aarch64. More cores make PQCF's reductions faster; 8 is plenty.
 
+The images' base images are named by digest; the digests are in [REPRODUCE.md](../../REPRODUCE.md#base-images).
+
 ## Steps
 
 **Reproduce the published run**, at the commit it was tested at (see "Tested" below):

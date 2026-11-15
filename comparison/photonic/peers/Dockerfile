@@ -1,6 +1,6 @@
 # The photonic peers, pinned: The Walrus, Piquasso (its C++ kernels), Perceval, DeepQuantum (PyTorch, CPU).
 #   docker build -t pqcf-photonic-peers comparison/photonic/peers
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:e88e9763f943ec1834f992a4b51e0f24500486803e8bc534e5767af9ea65f6ce
 # Piquasso has no aarch64 wheel: its extension is built here
 RUN apt-get update && apt-get install -y --no-install-recommends g++ make cmake && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir torch==2.9.1 --index-url https://download.pytorch.org/whl/cpu

@@ -3,7 +3,7 @@
 # FIRE is pinned at the commit our published runs used (its submodules follow FIRE's own pins).
 #   docker build -t pqcf-fire2 comparison/fire          (the name bench/ibp.sh expects)
 #   docker run --rm -v $PWD/comparison/fire:/cfg pqcf-fire2 sh -c 'cp /cfg/doublebox1.config examples/ && bin/FIRE6 -c examples/doublebox1'
-FROM debian:bookworm
+FROM debian:bookworm@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     g++ make cmake autoconf automake libtool pkg-config git ca-certificates python3 wget curl patch xz-utils m4 bzip2 \
     libflint-dev libgmp-dev libmpfr-dev zlib1g-dev libzstd-dev && rm -rf /var/lib/apt/lists/*

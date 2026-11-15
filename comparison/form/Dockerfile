@@ -1,7 +1,7 @@
 # The FORM comparison image: the dev image (pqcf-dev) plus FORM 5 with FLINT 3.2.2, built on the same Debian.
 #   docker build -t pqcf-dev . && docker build -t pqcf-form -f comparison/form/Dockerfile .
 # FORM (GPL-3) is a separate program here: PQCF calls it as an external process (pq_form), never links it.
-FROM erlang:27 AS form
+FROM erlang:27@sha256:b944db88c674b941248f67562c6e7d56972d6ad9663876ff5ddeafebd8f28e35 AS form
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git ca-certificates build-essential autoconf \
       automake libtool libgmp-dev libmpfr-dev zlib1g-dev >/dev/null
 ARG FLINT_VERSION=v3.2.2

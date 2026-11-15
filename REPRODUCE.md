@@ -47,3 +47,22 @@ All at commit 3c31766 of [quantum_computing_simulations](https://github.com/quan
 
 Please open an issue with your machine and the output: <https://github.com/quanterall/pqcf/issues> (or the
 repository of the result).
+
+## Base images
+
+Every Dockerfile names its base image by digest, so a build today starts from the same image as the published runs
+(the digests are of multi-architecture indexes: the same line works on x86_64 and aarch64). Everything else in the
+images is pinned in the Dockerfiles: versions, commits, checksums.
+
+| base image | digest | used by |
+| --- | --- | --- |
+| `erlang:27` | `sha256:b944db88c674b941248f67562c6e7d56972d6ad9663876ff5ddeafebd8f28e35` | PQCF's [Dockerfile](Dockerfile) (`pqcf-dev`, and on it the FORM, Forcer, β, genome, variants and GenHub2 images); FORM's build stage |
+| `debian:bookworm` | `sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8` | FIRE ([comparison/fire](comparison/fire/Dockerfile)) |
+| `python:3.11-slim` | `sha256:e88e9763f943ec1834f992a4b51e0f24500486803e8bc534e5767af9ea65f6ce` | the photonic peers, QuTiP, the test oracles, the genome image |
+| `python:3.10-slim` | `sha256:6ff506466f8b1e981719b468cc0023b8ef000b983cdec0eafe119d01f379e31d` | Strawberry Fields ([comparison/photonic/sf](comparison/photonic/sf/Dockerfile)) |
+| `python:3.12-slim` | `sha256:78387bc3881b8273120a12ebe6c1ab22b018ccc2c9adf565ae1ac9b536e184ea` | quantum_computing_simulations: the tools and `qsim` |
+| `elixir:1.18` | `sha256:16382709b3765b946748714575d8748ea7dcb7cb9a4849730bcdc56533503691` | quantum_computing_simulations: the service |
+
+`erlang:27` and the two newer Python images are the ones the published runs were built from; for the other three the
+images of the published runs were no longer on our machine, and the digests are those of the tags on 15 November
+2026.

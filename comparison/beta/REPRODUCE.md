@@ -13,6 +13,8 @@ one (Tarasov, Vladimirov, Zharkov 1980; Larin and Vermaseren, [arXiv:hep-ph/9302
 - Any Linux machine, x86_64 or aarch64, with 8 cores for the time below (the three-loop gluon self-energy is the long
   step).
 
+The images' base images are named by digest; the digests are in [REPRODUCE.md](../../REPRODUCE.md#base-images).
+
 ## Steps
 
 **Reproduce the published run**, at the commit it was tested at (see "Tested" below):

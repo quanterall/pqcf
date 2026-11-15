@@ -12,6 +12,8 @@ What the tasks are, and what the results mean: [README.md](README.md).
 - **git**, and a network connection for the first build.
 - Any Linux machine, x86_64 or aarch64. Every program runs on one core, with one thread.
 
+The images' base images are named by digest; the digests are in [REPRODUCE.md](../../REPRODUCE.md#base-images).
+
 ## Steps
 
 **Reproduce the published run**, at the commit it was tested at (see "Tested" below):

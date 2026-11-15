@@ -12,6 +12,8 @@ by both, on the same core, the answers compared exactly. The method is decision 
 - **git**, **python3** (it writes the summary, standard library only) and a network connection for the first build.
 - Any Linux machine, x86_64 or aarch64.
 
+The images' base images are named by digest; the digests are in [REPRODUCE.md](../../REPRODUCE.md#base-images).
+
 ## Steps
 
 **Reproduce the published run**, at the commit it was tested at (see "Tested" below):
