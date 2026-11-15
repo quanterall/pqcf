@@ -16,6 +16,14 @@ the public API is additive.
 
 ### Added
 
+- **Input-output networks** (`pq_slh`, quantum optics Q6).
+  - **What:** SLH triples (Gough and James, [arXiv:0707.0048](https://arxiv.org/abs/0707.0048); Combes, Kerckhoff,
+    Sarovar, [arXiv:1611.00375](https://arxiv.org/abs/1611.00375)) with pq_qop operators: concatenation, series,
+    feedback reduction, static elements and coherent inputs; the reduced network's master equation.
+  - **Checks:** two cavities in cascade reduce exactly to Gardiner's and Carmichael's cascaded system; a cavity's output
+    fed back through a phase gives L = (sqrt(k2) + e^(i phi) sqrt(k1)) a and the shift sqrt(k1 k2) sin phi (three
+    phases, exactly); a three-mode mesh's S equals PQCF's own symbolic circuit unitary entry by entry; a coherent drive
+    cascaded through two cavities relaxes to <a> = -2 alpha/sqrt(ka), <b> = 2 alpha/sqrt(kb).
 - **Collective systems in the Dicke basis** (`pq_dicke`, quantum optics Q5).
   - **What:** N identical two-level atoms with collective and local emission, dephasing and pumping (PIQS's
     coefficients, Shammah et al., [arXiv:1805.05129](https://arxiv.org/abs/1805.05129)) and H = omega J_z +
