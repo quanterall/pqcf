@@ -298,13 +298,21 @@ frob(Dc, Mc, S, W, Z0, M, Acc, Zm) ->
              false -> pq_mp:neg(pq_mp:divide(Num, Den, W))
          end,
     Zm2 = pq_mp:mul(Zm, Z0, W),
-    T = pq_mp:mul(Cm, Zm2, W),
     Acc2 = [Cm | Acc],
-    case M > 8 andalso negligible(T, W) andalso negligible(pq_mp:mul(hd(tl(Acc2)), Zm, W), W) of
+    % c_m depends on the previous Depth coefficients, so once Depth of them in a row are negligible at Z0, so is every
+    % later one. Two in a row are not enough: a series in z^k (k > 2), such as -phi'' + (a/z^2 + b z^4) phi, has
+    % k - 1 zeros between its terms
+    Depth = max(length(Dc), length(Mc)) - 1,
+    case M > max(8, Depth) andalso tail_negligible(Acc2, Zm2, Z0, Depth, W) of
         true -> lists:reverse(Acc2);
         false when M > 4000 -> throw({ode, frobenius_not_converging});
         false -> frob(Dc, Mc, S, W, Z0, M + 1, Acc2, Zm2)
     end.
+
+%% the last N coefficients [c_m, c_(m-1), ...], times Z0^m, Z0^(m-1), ..., all negligible (Zm = Z0^m)
+tail_negligible(_, _, _, 0, _) -> true;
+tail_negligible([C | Cs], Zm, Z0, N, W) ->
+    negligible(pq_mp:mul(C, Zm, W), W) andalso tail_negligible(Cs, pq_mp:divide(Zm, Z0, W), Z0, N - 1, W).
 
 %% Den negligible against the size of its terms
 mag_rel({mp, 0, _}, _, _) -> true;
@@ -773,7 +781,8 @@ sl_frob(D2, S1, S0, S, W, H0, M, Acc, Hm) ->
          end,
     Hm2 = pq_mp:mul(Hm, H0, W),
     Acc2 = [Cm | Acc],
-    case M > 8 andalso negligible(pq_mp:mul(Cm, Hm2, W), W) andalso negligible(pq_mp:mul(hd(tl(Acc2)), Hm, W), W) of
+    Depth = lists:max([length(D2), length(S1), length(S0) + 1]),   % as in frob/8
+    case M > max(8, Depth) andalso tail_negligible(Acc2, Hm2, H0, Depth, W) of
         true -> lists:reverse(Acc2);
         false when M > 4000 -> throw({ode, frobenius_not_converging});
         false -> sl_frob(D2, S1, S0, S, W, H0, M + 1, Acc2, Hm2)

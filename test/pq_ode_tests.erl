@@ -85,8 +85,9 @@ hardwall_test_() ->
         Near = fun(X, Y, Tol) -> abs(X - Y) =< Tol * abs(Y) end,
         ?assert(Near(F(A, m_a1), 1358.2431775, 1.0e-9)),
         ?assert(Near(F(B, m_a1), 1219.5033847, 1.0e-9)),
-        ?assert(Near(F(A, f_pi), 90.903, 2.0e-4)),
-        ?assert(Near(F(B, f_pi), 82.255, 2.0e-4)),
+        % the chiral-limit f_pi: the exact power series of A(z) (comparison/holographic/scipy_hardwall.py agrees to 1e-9)
+        ?assert(Near(F(A, f_pi), 90.9033372812686, 1.0e-12)),
+        ?assert(Near(F(B, f_pi), 82.2545523007217, 1.0e-12)),
         [?assert(Near(F(M, K), V, 0.005)) || {M, K, V} <- [{A, f_rho, 329}, {B, f_rho, 353}, {A, f_a1, 486}, {B, f_a1, 440},
                                                            {B, m_rho, 832}, {A, m_pi, 139.6}, {B, m_pi, 141}]]
     end}.
@@ -94,8 +95,9 @@ hardwall_test_() ->
 %% Sakai-Sugimoto (hep-th/0412141, https://arxiv.org/abs/hep-th/0412141): the vector and axial mesons,
 %% -K^(1/3) d_z (K d_z psi) = lambda psi, K = 1 + z^2, in u = K^(1/3): u (u^3 - 1) psi'' + (5u^3/2 - 1) psi' + (9u/4)
 %% lambda psi = 0 on [1, infinity), exponent 0 (even, vectors) or 1/2 (odd, axials) at u = 1, decaying u^(-3/2) at
-%% infinity. The paper: lambda = 0.67, 1.6, 2.9, 4.5. An independent SciPy shooting in z, extrapolated in its cutoff,
-%% gives 0.6693144 and 1.5687644 (to its 1e-7); the result must not depend on the match point.
+%% infinity. The paper: lambda = 0.67, 1.6, 2.9, 4.5. An independent SciPy shooting in z, extrapolated in its cutoff
+%% (comparison/holographic/scipy_sakai.py), gives 0.669314492244 and 1.568765751391; the result must not depend on the
+%% match point.
 sakai_sugimoto_test_() ->
     {timeout, 900, fun() ->
         U = {sym, u},
@@ -108,7 +110,28 @@ sakai_sugimoto_test_() ->
         ?assertEqual(V2, V3),
         [L1, L3] = [list_to_float(hd(string:split(S, "e"))) * math:pow(10, list_to_integer(lists:last(string:split(S, "e")))) || S <- V2],
         [L2, L4] = [list_to_float(hd(string:split(S, "e"))) * math:pow(10, list_to_integer(lists:last(string:split(S, "e")))) || S <- Ax],
-        ?assert(abs(L1 - 0.6693144) < 2.0e-7),
-        ?assert(abs(L2 - 1.5687644) < 2.0e-6),
+        ?assert(abs(L1 - 0.669314492244) < 1.0e-11),
+        ?assert(abs(L2 - 1.568765751391) < 1.0e-11),
         [?assert(abs(X - Y) < 0.05 * Y) || {X, Y} <- [{L1, 0.67}, {L2, 1.6}, {L3, 2.9}, {L4, 4.5}]]
     end}.
+
+%% A Frobenius series with gaps: -phi'' + (3/(4 u^2) + u^4) phi = 0 has phi = u^(-1/2) A(u), A = sum a_n u^n with
+%% a_0 = 1, a_n = a_(n-6) / (n (n-2)): every coefficient but each sixth is zero. The series must not stop at the first
+%% two zeros in a row (it once stopped after a_6, an error of 1e-6 at any precision: the hard wall's f_pi).
+frobenius_gaps_test() ->
+    U = {sym, u},
+    V = {add, [{mul, [{rat, 3, 4}, {pow, U, -2}]}, {pow, U, 4}]},
+    {ok, #{phi := Phi, dphi := Dphi}} = pq_ode:frobenius_solution(V, u, 0, #{b => 1, digits => 30, exponent => smaller}),
+    % A(1) and A'(1) exactly, as fractions: phi(1) = A(1), phi'(1) = A'(1) - A(1)/2
+    Terms = lists:foldl(fun(N, [{Pn, Pd} | _] = Acc) -> [{Pn, Pd * N * (N - 2)} | Acc] end, [{1, 1}], lists:seq(6, 120, 6)),
+    Ns = lists:seq(120, 0, -6),
+    Sum = fun(F) -> lists:foldl(fun({{Tn, Td}, N}, {An, Ad}) -> {An * Td + F(N) * Tn * Ad, Ad * Td} end, {0, 1}, lists:zip(Terms, Ns)) end,
+    A = Sum(fun(_) -> 1 end),
+    Ap = Sum(fun(N) -> N end),
+    P = 120,
+    Mp = fun(S) -> pq_mp:from_string(S, P) end,
+    Rel = fun(X, Y) -> pq_mp:to_float(pq_mp:divide(pq_mp:sub(X, Y, P), Y, P)) end,
+    Aexact = pq_mp:from(A, P),
+    Dexact = pq_mp:sub(pq_mp:from(Ap, P), pq_mp:ldexp(Aexact, -1), P),
+    ?assert(abs(Rel(Mp(Phi), Aexact)) < 1.0e-28),
+    ?assert(abs(Rel(Mp(Dphi), Dexact)) < 1.0e-28).
