@@ -5,7 +5,8 @@ FROM erlang:27 AS form
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends git ca-certificates build-essential autoconf \
       automake libtool libgmp-dev libmpfr-dev zlib1g-dev >/dev/null
 ARG FLINT_VERSION=v3.2.2
-ARG FORM_REF=master
+# pinned: the FORM of the published runs (5.0.2-2-gfb12f2e); master has moved since
+ARG FORM_REF=fb12f2ecbd6b3c829180884b63a9cac368e3a3cc
 RUN git clone -q --depth 1 --branch "$FLINT_VERSION" https://github.com/flintlib/flint.git /flint && cd /flint \
  && ./bootstrap.sh >/dev/null 2>&1 && ./configure --prefix=/opt/form >/dev/null && make -j8 -s >/dev/null 2>&1 \
  && make install -s >/dev/null 2>&1
