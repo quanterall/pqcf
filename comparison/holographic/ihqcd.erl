@@ -8,7 +8,7 @@
 %% (about 40 minutes on 16 cores). main/1 also writes ihqcd-raw.etf, the raw results; report_only/1 rewrites IHQCD.md
 %% from it without the runs.
 -module(ihqcd).
--export([main/1, report_only/1, spectrum/3, x_w/1, start/2, model/2, background/3, ir_scale/2]).
+-export([main/1, quick/1, report_only/1, spectrum/3, x_w/1, start/2, model/2, background/3, ir_scale/2]).
 
 -define(D, 12).          % digits of the integrations
 
@@ -183,6 +183,28 @@ main(Dir) ->
     Md = report(R, Secs),
     ok = file:write_file(filename:join(Dir, "IHQCD.md"), unicode:characters_to_binary(Md)),
     io:format("~s", [Md]).
+
+%% The quick check (about 5 minutes on 2 cores): R00 and R20 at b0 = 4.2, lambda0 = 0.15 (two scalar states, one
+%% tensor), computed again and compared with the committed raw results of main/1 (ihqcd-raw.etf in Dir) and with the
+%% paper. Prints the values and PASS or FAIL; returns ok or error.
+quick(Dir) ->
+    {ok, B} = file:read_file(filename:join(Dir, "ihqcd-raw.etf")),
+    {R, _} = binary_to_term(B),
+    {[S1, S2 | _], _} = maps:get(base_s, R),
+    {[T1 | _], _} = maps:get(base_t, R),
+    M = default_model(),
+    Opts = #{range => {0.15, 30}, grid => 10, rmax => 8, ir => true},
+    Self = self(),
+    Ps = [spawn(fun() -> Self ! {self(), spectrum(M, K, Opts#{count => N})} end) || {K, N} <- [{scalar, 2}, {tensor, 1}]],
+    [[Q1, Q2], [Qt]] = [receive {P, V} -> V end || P <- Ps],
+    Close = fun(X, Y) -> abs(X / Y - 1) < 1.0e-7 end,
+    Ok = Close(Q1, S1) andalso Close(Q2, S2) andalso Close(Qt, T1),
+    io:format("m^2: 0++ ~.10f, ~.10f; 2++ ~.10f~n"
+              "committed (ihqcd-raw.etf): 0++ ~.10f, ~.10f; 2++ ~.10f~n"
+              "R00 = ~.4f (paper 1.866), R20 = ~.4f (paper 1.393)~n~s~n",
+              [Q1, Q2, Qt, S1, S2, T1, math:sqrt(Q2 / Q1), math:sqrt(Qt / Q1),
+               case Ok of true -> "PASS: equal to the committed results to 1e-7"; false -> "FAIL: differs from the committed results" end]),
+    case Ok of true -> ok; false -> error end.
 
 %% IHQCD.md again from the raw results of the last main/1 (ihqcd-raw.etf), without the runs
 report_only(Dir) ->
