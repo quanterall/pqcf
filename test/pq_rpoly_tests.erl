@@ -69,7 +69,12 @@ rand_poly(N) ->
                                           || _ <- lists:seq(1, N)]}, Ctx),
     P.
 
-operations_test() ->
+%% 20 rounds of products, sums, powers and conjugates: about 3 s on aarch64, past EUnit's default 5 s on GitHub's x86
+%% runners
+operations_test_() ->
+    {timeout, 120, fun operations/0}.
+
+operations() ->
     rand:seed(exsss, {1, 1, 2}),
     On = #{max_poly_terms => 1000000, max_expand_power => 16, rpoly => true},
     Off = #{max_poly_terms => 1000000, max_expand_power => 16, poly_kernel => false},
