@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use PQCF, please cite it as below. Each result is reproducible from the commit its REPRODUCE page names."
+title: "PQCF: Photonic Quantum Computing Framework"
+type: software
+authors:
+  - name: Quanterall
+repository-code: "https://github.com/quanterall/pqcf"
+url: "https://quanterall.com"
+license: Apache-2.0
+version: 1.4.0
+date-released: 2026-11-08
+keywords:
+  - photonic quantum computing
+  - boson sampling
+  - symbolic computation
+  - Feynman integrals
+  - Erlang
+  - Rust

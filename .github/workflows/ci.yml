@@ -28,6 +28,8 @@ jobs:
           set -o pipefail
           # PQ_SHARED_RUNNER: the NFRs measured on the reference hardware (NFR-09) are reported here, not enforced
           docker run --rm -e PQ_SHARED_RUNNER=1 pqcf-dev 2>&1 | tee suite.log || {
+            # the step runs under bash -e -o pipefail: a grep that finds nothing must not end it before the annotation
+            set +e +o pipefail
             # one annotation with the failures and their context (a step shows at most 10 annotations)
             clean=$(sed 's/\x1b\[[0-9;]*m//g' suite.log)
             msg=$(printf '%s\n' "$clean" | grep -E -A12 '^ +[0-9]+\) |Line [0-9]+|test result: FAILED|^error' | head -80)

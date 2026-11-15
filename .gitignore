@@ -14,3 +14,4 @@ s6.json
 bench/results/ibp.log
 comparison/form/run.log
 comparison/photonic/run.log
+dist/
