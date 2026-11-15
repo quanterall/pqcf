@@ -16,6 +16,13 @@ the public API is additive.
 
 ### Added
 
+- **Collective systems in the Dicke basis** (`pq_dicke`, quantum optics Q5).
+  - **What:** N identical two-level atoms with collective and local emission, dephasing and pumping (PIQS's
+    coefficients, Shammah et al., [arXiv:1805.05129](https://arxiv.org/abs/1805.05129)) and H = omega J_z +
+    omega_x J_x, in arbitrary precision; only the populations when nothing mixes m - m' (about N^2/4 numbers).
+  - **Checks:** the superradiant burst of 100 atoms equals the exact population equations (mpmath, 40 digits) to 34
+    digits; its peak at ln N/(N gamma) as Gross and Haroche give; QuTiP's PIQS on three problems within 1e-8, PIQS's
+    own precision (its rates are single-precision floats, `comparison/dicke`).
 - **Cumulant expansions** (`pq_cumulant`, quantum optics Q4).
   - **Equations for averages** from a Hamiltonian and jump operators (`pq_qop:heisenberg/4`), closed at order K by
     setting the cumulants above K to zero (the sum over partitions with blocks of at most K operators), completed until
