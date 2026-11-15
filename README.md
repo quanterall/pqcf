@@ -1,8 +1,23 @@
 # PQCF — Photonic Quantum Computing Framework
 
-A simulator for photonic quantum computing: Gaussian and Fock-space backends, boson sampling and Gaussian boson
-sampling, a symbolic engine for parameterised circuits, and parallel, reproducible sampling across nodes. The
-top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust library loaded as a NIF
+PQCF has two capabilities, which applications use together:
+
+1. **A scientific engine:** photonic simulation (Gaussian and Fock-space backends, boson sampling and Gaussian boson
+   sampling), exact symbolic computation, reconstruction over finite fields with Feynman-integral reduction,
+   differential equations and series at arbitrary precision, curvature and tensors for holographic models, and
+   quantum optics (master equations, exact steady states). Each part is checked against established tools: FORM,
+   FIRE, Forcer, The Walrus, Piquasso, Perceval, Strawberry Fields, QuTiP, and published results.
+2. **Distributed execution:** an application's work as tasks (`pq_task`), run by executors on this node, on one
+   owner's Erlang nodes or (to come) on a federation; the same result however the work is spread, a lost node's work
+   retried elsewhere, and a provenance record for every result. [GenHub2](https://github.com/quanterall/genhub2),
+   virus classification for genetic labs, is the first application built on it.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/architecture/architecture-dark.svg">
+  <img alt="PQCF's architecture: GenHub2, photonic simulation and scientific computing on PQCF's two capabilities, distributed execution and the scientific engine, which run on Erlang/OTP nodes with Rust kernels" src="docs/architecture/architecture-light.svg">
+</picture>
+
+The top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust library loaded as a NIF
 (`pq_nif`, through [Rustler](https://github.com/rusterlium/rustler)).
 
 PQCF stands for *Photonic Quantum Computing Framework*. It is not a post-quantum cryptography library and
@@ -95,6 +110,26 @@ implements no cryptographic algorithms.
   faster than FIRE on one core, with the same answers (`comparison/fire`, decision record R1).
 - **Simplification by verified rewriting** (`pq_simplify`): factors from an alphabet, coefficients collected by
   monomials, every result checked against the input.
+
+### Mathematical physics (decision record SY2; not yet released)
+- **Algebra:** rational functions in normal form, multivariate gcd and factorisation over the rationals.
+- **Series and precision:** truncated series and limits (`pq_series`); arbitrary-precision evaluation with Gamma,
+  Bessel, Laguerre and 2F1 (`pq_mp`).
+- **Differential equations:** from a Lagrangian to a spectrum to any number of digits (`pq_ode`); nonlinear systems by
+  the Taylor-series method (`pq_jet`).
+- **Geometry:** curvature in components (`pq_geometry`), abstract-index tensors in canonical form (`pq_tensor`).
+- **Holographic QCD:** seven computations from the action to a published number, among them the AdS_5 black brane's
+  free energy, the Weyl anomaly and improved holographic QCD's glueballs
+  ([comparison/holographic](comparison/holographic/README.md)).
+- **Quantum optics:** an operator algebra (`pq_qop`), master equations (`pq_lindblad`), exact steady states and
+  spectra (`pq_qo_exact`), compared with QuTiP ([comparison/quantum-optics](comparison/quantum-optics/README.md)).
+- **The three-loop QCD β-function** through FORM, Forcer and PQCF ([comparison/beta](comparison/beta/README.md)).
+
+### Tasks and applications (decision record P1; not yet released)
+- **The task behaviour** (`pq_task`): an application's work as `{pq_task, Module, Args}`, run by PQCF's executors; a
+  node runs only the modules it allows.
+- **Provenance:** `pq_rexec:map_traced/3` returns each result with its record: task hash, module and code checksum,
+  node, version, times.
 
 ### Gradients
 - Central differences; symbolic gradients for passive circuits and Gaussian inputs; adjoint gradients on the Fock

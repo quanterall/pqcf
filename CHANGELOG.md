@@ -269,6 +269,8 @@ the public API is additive.
     page, the commit it was tested at, its time and what it needs;
   - every step-by-step page has two paths: the published run, at the commit it was tested at, and the latest.
   - every Dockerfile names its base image by digest; the digests are in REPRODUCE.md.
+  - the README opens with PQCF's two capabilities, the scientific engine and distributed execution, and an
+    architecture diagram (`docs/architecture/`); the mathematical physics and the task layer are in "What is done".
 - After an external review of the repository (8 Nov 2026):
   - the user guide's introduction said PQCF was not ready and its API not frozen (stale since 1 Nov); it now
     states the freeze and the release;
