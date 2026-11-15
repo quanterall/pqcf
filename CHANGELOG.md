@@ -106,7 +106,9 @@ the public API is additive.
   - **Improved holographic QCD** (arXiv:0707.1349, `comparison/holographic/IHQCD.md`): background I and the 0++ and
     2++ glueballs.
     - **Checks:** independent of the integration constants (the paper's section 7.2) and of the cutoff.
-    - **Open:** R00 = 1.683 and R20 = 1.310 at b0 = 4.2, against the paper's 1.87 and 1.40.
+    - **Results:** R00 = 1.875 and R20 = 1.394 at b0 = 4.2, against the paper's 1.866 and 1.393; every ratio of the
+      first four 0++ and 2++ states within 0.6 %. The first run used a = 5/16 in X and W, where the paper's (8.4) and
+      (8.6) need a = 3/8 for linear confinement, and was 6-15 % low.
   - `pq_jet:diff/2`: derivatives of right-hand sides with log.
   - **Gubser-Nellore** (arXiv:0804.0434, `comparison/holographic/GUBSER.md`): the nonlinear master equation from the
     horizon series, then the entropy, the temperature and the speed of sound.

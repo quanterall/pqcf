@@ -230,6 +230,19 @@ Bessel's equation.
     visible in the printed formulas, or where the paper imposes the UV condition; its stated initial conditions put
     the boundary at r ~ -0.46.
   - **Phase 6 done** as a computation, with this comparison left open.
+- **15 Nov 2026: the IHQCD discrepancy resolved** (`ihqcd.erl`, `IHQCD.md`).
+  - **Cause:** the script used a = 5/16 in X(lambda) (8.4) and W(lambda) (8.6). The paper uses the symbol a in two
+    ways: in its IR asymptotics (8.2), a = (3/8)(alpha - 1)/alpha = 3/16 for alpha = 2; but (8.4) tends to
+    -1/2 - a/(2 log lambda), so through (8.4) and (8.6) linear confinement needs a = 3/8. The value 5/16 matches
+    neither.
+  - **With a = 3/8:** R00 = 1.875 and R20 = 1.394 (the paper: 1.866 and 1.393), and every ratio of the first four 0++
+    and 2++ states within 0.6 %.
+  - **Checks:** the background has alpha -> 2 (local exponent 2.05 at 16 times the IR scale); the ratios are the same
+    to four decimals for lambda0 = 0.05 (the paper's value), 0.08, 0.15 and 0.25; a longer cutoff changes no mass;
+    the gaps of m^2 over the first 12 0++ states are nearly constant; a fit of b0 to R00 = 1.87 gives 4.147.
+  - **Open:** the remaining difference of up to 0.6 %. IHQCD runs at 12 digits, so it is a numerical result at that
+    precision, not one of the 25-30-digit checks. Next: a convergence study at higher precision and an independent
+    solver.
 - **14 Nov 2026: phase 4, component tensors** (`pq_geometry:curvature/2`). The acceptance checks of phase 4 that
   concern components pass exactly:
   - AdS_5: R = -20/L^2, R_ab = -(4/L^2) g_ab, Weyl tensor zero (Kretschmann 40/L^4);
