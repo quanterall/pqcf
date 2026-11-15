@@ -19,9 +19,14 @@ The research lives on the `research/genome` branch:
 ```sh
 git clone -b research/genome https://github.com/quanterall/pqcf.git
 cd pqcf
+git checkout bb8a5dd
 docker build -t pqcf-dev .
 sh research/genome/data/fetch.sh
 ```
+
+`git checkout bb8a5dd` **reproduces the published runs**: the commit of this page, with the code they were tested
+at (see "Tested"). To **run the latest** version of the branch, leave it out; the results must still be the published
+ones.
 
 `fetch.sh` downloads the two genomes into `research/genome/data/` and checks them; it prints `OK` twice. The smaller
 genomes (SARS-CoV-2 and the others) are in the repository already.
