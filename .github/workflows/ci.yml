@@ -1,5 +1,7 @@
-# The full suite in the dev container on both supported targets (NFR-11): EUnit (property, statistical and
-# distributed tests), Dialyzer, xref, cargo test, clippy. Weekly and on demand: the sanitizer runs (FS 12.6).
+# The full suite in the dev container on both supported targets (NFR-11), in four groups (tools/ci.sh): static
+# (Dialyzer, xref, clippy), fast (unit and property tests), integration (nodes, executors, the service, the NFRs, the
+# Python client) and scientific (the validations against published results and other programs, cargo test).
+# Weekly and on demand: the sanitizer runs (FS 12.6).
 name: CI
 
 on:
@@ -16,18 +18,20 @@ jobs:
       fail-fast: false
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        group: [static, fast, integration, scientific]
+    name: ${{ matrix.group }} (${{ matrix.runner }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v5
       - name: Build the dev image
         run: docker build -t pqcf-dev .
-      - name: Run the suite
+      - name: Run the ${{ matrix.group }} tests
         # failures also become annotations, which anyone can read (the job log needs a GitHub login)
         run: |
           set -o pipefail
           # PQ_SHARED_RUNNER: the NFRs measured on the reference hardware (NFR-09) are reported here, not enforced
-          docker run --rm -e PQ_SHARED_RUNNER=1 pqcf-dev 2>&1 | tee suite.log || {
+          docker run --rm -e PQ_SHARED_RUNNER=1 pqcf-dev sh tools/ci.sh ${{ matrix.group }} 2>&1 | tee suite.log || {
             # the step runs under bash -e -o pipefail: a grep that finds nothing must not end it before the annotation
             set +e +o pipefail
             # one annotation with the failures and their context (a step shows at most 10 annotations)

@@ -1,5 +1,7 @@
 # PQCF — Photonic Quantum Computing Framework
 
+[![CI](https://github.com/quanterall/pqcf/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/quanterall/pqcf/actions/workflows/ci.yml)
+
 PQCF has two capabilities, which applications use together:
 
 1. **A scientific engine:** photonic simulation (Gaussian and Fock-space backends, boson sampling and Gaussian boson
