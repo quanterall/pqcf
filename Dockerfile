@@ -1,6 +1,6 @@
 # The build and test environment: OTP 27 and the pinned Rust toolchain, no system BLAS or LAPACK (FS 2.3).
 #   docker build -t pqcf-dev .              then   docker run --rm pqcf-dev        (runs the tests)
-FROM erlang:27
+FROM erlang:27@sha256:b944db88c674b941248f67562c6e7d56972d6ad9663876ff5ddeafebd8f28e35
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:$PATH
 COPY native/pq_nif/rust-toolchain.toml /tmp/rust-toolchain.toml
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none \
