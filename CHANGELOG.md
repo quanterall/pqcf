@@ -16,6 +16,14 @@ the public API is additive.
 
 ### Added
 
+- **Lie algebras for physics** (`pq_lie`; plan "theoretical physics instruments", step F1).
+  - **Wigner symbols exactly:** 3j, 6j and Clebsch-Gordan coefficients as signed square roots of rationals, 9j symbols
+    as sums over 6j products (Racah's formulas, half-integers as doubled integers). Equal to SymPy's on every 3j and 6j
+    with j =< 3, a sample up to j = 10 (5,402 in all, exactly) and 150 9j symbols (to 40 digits).
+  - **SU(N) colour algebra with N symbolic:** products of traces of generators reduced by the Fierz identity to
+    Laurent polynomials in N; f and d as traces. T_F, C_F, C_A, d33 and the quartic Casimirs of the four-loop beta
+    function (d_F d_F, d_F d_A, d_A d_A over N_A) equal the closed forms of van Ritbergen, Schellekens and Vermaseren
+    ([arXiv:hep-ph/9802376](https://arxiv.org/abs/hep-ph/9802376)) exactly; d_A d_A takes 0.5 s.
 - **Input-output networks** (`pq_slh`, quantum optics Q6).
   - **What:** SLH triples (Gough and James, [arXiv:0707.0048](https://arxiv.org/abs/0707.0048); Combes, Kerckhoff,
     Sarovar, [arXiv:1611.00375](https://arxiv.org/abs/1611.00375)) with pq_qop operators: concatenation, series,
