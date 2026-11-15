@@ -75,7 +75,7 @@ simplify(V) ->
 
 %% Opts:
 %%   params => #{Symbol => number}   the other symbols of V
-%%   left => {frobenius, 0} | {dirichlet, A}
+%%   left => {frobenius, 0} | {dirichlet, A} | {neumann, A}
 %%   right => {dirichlet, B} | {robin, B, Alpha, Beta}
 %%   range => {Lo, Hi}, grid => K (bracketing steps, default 200), count => N (at most N eigenvalues)
 %%   digits => D (default 30)
@@ -221,6 +221,8 @@ start(Prob, E, W) ->
 
 %% {Z0, phi(Z0), phi'(Z0), int_0^Z0 phi^2} for the Frobenius solution of the larger or smaller exponent (c_0 = 1)
 start(#{left := {dirichlet, A}}, _, W, _) -> {pq_mp:from(A, W), {mp, 0, 0}, {mp, 1, 0}, {mp, 0, 0}};
+%% phi'(A) = 0: the even states of a symmetric potential, solved on the half-line
+start(#{left := {neumann, A}}, _, W, _) -> {pq_mp:from(A, W), {mp, 1, 0}, {mp, 0, 0}, {mp, 0, 0}};
 start(#{left := {frobenius, 0}, n := Np, d := Dp, roots := Rs}, E, W, Root) ->
     % D = z^2 d(z), d(0) /= 0; M = E D - N; phi = z^s sum c_k z^k
     case Dp of

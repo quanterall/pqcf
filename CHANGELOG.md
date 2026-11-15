@@ -16,6 +16,10 @@ the public API is additive.
 
 ### Added
 
+- **Spectra on the half-line** (step QM2, first part): `pq_ode:eigenvalues/3` takes a Neumann left end
+  (`{neumann, A}`, psi'(A) = 0), for the even states of symmetric potentials. The quartic oscillator H = p^2 + x^4: its
+  first four eigenvalues (1.0603620904841828996470460166926635455...) equal an independent mpmath shooting
+  (`test/oracle/gt_quartic.py`) to 38 digits.
 - **Perturbation theory to high order** (`pq_perturb`, step QM1): the ground state of H = p^2 + x^2 + g V(x), V a
   polynomial, as an exact power series in g, by Bender and Wu's recursion (rational arithmetic; 100 orders in about
   5 s). The anharmonic oscillator's coefficients equal Bender and Wu's table
