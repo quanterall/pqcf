@@ -11,7 +11,7 @@
 %% Vectors are maps Index => coefficient (the zeros left out); rho' is vectorised row by row (rho'_ij at i D + j);
 %% matrices are maps {Row, Col} => coefficient.
 -module(pq_qo_exact).
--export([liouvillian/5, steady_state/2, operator/5, expect/3, apply_left/3, spectrum/4, real_value/1]).
+-export([liouvillian/5, steady_state/2, operator/5, expect/3, apply_left/3, spectrum/4, real_value/1, kerr_moment/3]).
 
 -define(E, pq_sym_exact).
 
@@ -216,3 +216,43 @@ to_rat(N) when is_integer(N) -> {N, 1};
 to_rat({N, D}) -> ?E:rat(N, D).
 
 real_value({q, Re, _}) -> Re.
+
+%%% The driven Kerr cavity, exactly (Drummond and Walls, J. Phys. A 13, 725 (1980), by the complex-P representation)
+%%%
+%%% For H = Delta a^dagger a + chi a^dagger^2 a^2 + E (a + a^dagger) and L = sqrt(kappa) a, the steady state's normally
+%%% ordered moments are
+%%%   <a^dagger^j a^j> = |x|^(2j) / prod_(k<j) |c + k|^2 * S(j) / S(0),
+%%%   S(j) = sum_n z^n / (n! prod_(k<n) |c + j + k|^2),   x = E/chi, c = (Delta - i kappa/2)/chi, z = 2 |x|^2.
+%%% The Gamma functions of the published form, |Gamma(c)|^2 / |Gamma(c + j)|^2, are these finite products, so every term is a
+%%% real rational for rational parameters: the series (0F2-type, converging like z^n/n!^3) is summed to the precision P.
+
+%% <a^dagger^j a^j> at Params #{delta, chi, e, kappa} (rationals {N, D} or integers), as an mp at P bits
+kerr_moment(#{delta := Dl, chi := Chi, e := E, kappa := K}, J, P) ->
+    Q = fun(V) -> pq_mp:from(case V of {_, _} -> V; N -> {N, 1} end, P) end,
+    Cr = pq_mp:divide(Q(Dl), Q(Chi), P),
+    Ci = pq_mp:divide(pq_mp:mul(Q(K), pq_mp:from({1, 2}, P), P), Q(Chi), P),
+    Abs2 = fun(Shift) -> R = pq_mp:add(Cr, pq_mp:from(Shift, P), P),
+                         pq_mp:add(pq_mp:mul(R, R, P), pq_mp:mul(Ci, Ci, P), P) end,
+    X = pq_mp:divide(Q(E), Q(Chi), P),
+    X2 = pq_mp:mul(X, X, P),
+    Z = pq_mp:mul(pq_mp:from(2, P), X2, P),
+    Pre = lists:foldl(fun(Kk, Acc) -> pq_mp:divide(pq_mp:mul(Acc, X2, P), Abs2(Kk), P) end, pq_mp:from(1, P), lists:seq(0, J - 1)),
+    pq_mp:divide(pq_mp:mul(Pre, kerr_series(Abs2, Z, J, P), P), kerr_series(Abs2, Z, 0, P), P).
+
+%% S(j), summed until a term is below 2^-(P + 8) of the sum
+kerr_series(Abs2, Z, J, P) -> kerr_series(Abs2, Z, J, 0, pq_mp:from(1, P), pq_mp:from(0, P), P).
+
+kerr_series(Abs2, Z, J, N, T, S, P) ->
+    S2 = pq_mp:add(S, T, P),
+    T2 = pq_mp:divide(pq_mp:mul(T, Z, P), pq_mp:mul(pq_mp:from(N + 1, P), Abs2(J + N), P), P),
+    case small(T2, S2, P) of
+        true -> S2;
+        false -> kerr_series(Abs2, Z, J, N + 1, T2, S2, P)
+    end.
+
+small({mp, 0, _}, _, _) -> true;
+small(T, S, P) -> mag(T) < mag(S) - P - 8.
+
+mag({mp, 0, _}) -> -(1 bsl 40);
+mag({mp, M, E}) -> length(integer_to_list(abs(M), 2)) + E.
+

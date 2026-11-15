@@ -1,7 +1,7 @@
 %% pq_qo_exact (quantum optics plan, Q3): exact steady states and spectra against SymPy's dense, exact solutions in the
 %% Fock basis (test/oracle/gt_qo_exact.py, test/fixtures/gt_qo_exact.json), equal as rationals; the Mollow triplet's
-%% strong-field limit; and resonance fluorescence's g2(tau) against its closed form (Kimble and Mandel, Phys. Rev. A
-%% 13, 2123 (1976)).
+%% strong-field limit; resonance fluorescence's g2(tau) against its closed form (Kimble and Mandel, Phys. Rev. A
+%% 13, 2123 (1976)); and the driven Kerr cavity against Drummond and Walls's exact solution.
 -module(pq_qo_exact_tests).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -148,3 +148,30 @@ g2_test() ->
     % g2(0) = 0 exactly: sigma- sigma- = 0
     {N0, _} = ?L:expect_dm(Pe, X0, Pb),
     ?assertEqual(0.0, pq_mp:to_float(N0)).
+
+
+%% the driven Kerr cavity, H = Delta ad a + chi ad^2 a^2 + E (a + ad), L = sqrt(kappa) a, at Delta = -2, chi = 1/2,
+%% kappa = 1 (semiclassically bistable: Delta < -sqrt(3) kappa/2), the drive scanned across the bistable region:
+%% <ad a> and <ad^2 a^2> (so g2(0)) of Drummond and Walls's exact solution (pq_qo_exact:kerr_moment/3) against the
+%% steady state of the master equation truncated at 40 photons (pq_lindblad, 200 bits), to 30 digits
+kerr_exact_test_() ->
+    {timeout, 600, fun() ->
+        P = 200, Q = pq_qop, L = pq_lindblad,
+        A = Q:a(c), Ad = Q:ad(c),
+        H = Q:add([Q:scale(sym(delta), Q:mul(Ad, A)), Q:scale(sym(chi), Q:mul([Ad, Ad, A, A])), Q:scale(sym(e), Q:add(A, Ad))]),
+        Lop = Q:scale({pow, sym(kappa), {rat, 1, 2}}, A),
+        B = L:basis(#{}, #{c => 40}),
+        Nop = L:op(B, #{}, Q:mul(Ad, A), {#{}, P}),
+        N2op = L:op(B, #{}, Q:mul([Ad, Ad, A, A]), {#{}, P}),
+        Close = fun(X, Y) -> D = pq_mp:sub(X, Y, P), element(2, D) =:= 0 orelse
+                             abs(pq_mp:to_float(D)) < 1.0e-30 * max(1.0, abs(pq_mp:to_float(Y))) end,
+        [begin
+             Par = #{delta => {-2, 1}, chi => {1, 2}, e => E, kappa => {1, 1}},
+             Num = maps:map(fun(_, {X, Y}) -> {rat, X, Y} end, Par),
+             Rho = L:steady_state(L:liouvillian(L:op(B, #{}, H, {Num, P}), [L:op(B, #{}, Lop, {Num, P})], P), P),
+             {N1, _} = L:expect_dm(Nop, Rho, P),
+             {N2, _} = L:expect_dm(N2op, Rho, P),
+             ?assert(Close(N1, pq_qo_exact:kerr_moment(Par, 1, P))),
+             ?assert(Close(N2, pq_qo_exact:kerr_moment(Par, 2, P)))
+         end || E <- [{1, 4}, {1, 1}, {3, 2}, {2, 1}]]
+    end}.

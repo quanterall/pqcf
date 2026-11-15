@@ -18,6 +18,11 @@ the public API is additive.
     driven, damped Jaynes-Cummings model; the Mollow triplet's strong-field limit (central peak three times the side
     peaks, at +-Omega); g2(tau) of resonance fluorescence against Kimble and Mandel's closed form to 35 digits, and
     g2(0) = 0.
+  - **The driven Kerr cavity, exactly:** `pq_qo_exact:kerr_moment/3`, Drummond and Walls's complex-P solution
+    ([J. Phys. A 13, 725](https://doi.org/10.1088/0305-4470/13/2/034)) with its Gamma functions as finite products,
+    summed to any precision. Across the semiclassically bistable region (Delta = -2, chi = 1/2, kappa = 1, four
+    drives), <a^dagger a> and <a^dagger^2 a^2> equal the master equation's steady state at 40 photons to 30 digits
+    (to 60 at the first drive).
 - **Master equations** (`pq_lindblad`, quantum optics Q2).
   - **Matrices:** pq_qop operators in a truncated basis (Fock states of each mode, levels of each atom), the
     coefficients evaluated at given parameters; the Liouvillian as a sparse superoperator.
