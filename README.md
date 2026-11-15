@@ -14,8 +14,12 @@ PQCF has two capabilities, which applications use together:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/architecture/architecture-dark.svg">
-  <img alt="PQCF's architecture: GenHub2, photonic simulation and scientific computing on PQCF's two capabilities, distributed execution and the scientific engine, which run on Erlang/OTP nodes with Rust kernels" src="docs/architecture/architecture-light.svg">
+  <img alt="Three layers: L2 the applications (GenHub2, photonic simulation, scientific computing); L1 PQCF, with distributed execution and the scientific engine; L0 the FVLLMP federation of NVIDIA DGX Spark lab nodes, joined by mutual TLS with no central point" src="docs/architecture/architecture-light.svg">
 </picture>
+
+Three layers: the applications (L2) run on PQCF (L1), which runs on every node of the FVLLMP federation (L0): each
+lab's own NVIDIA DGX Spark nodes, joined by mutual-TLS gates, with no central point. Today PQCF runs on one node or
+on one owner's nodes; the federation is in development.
 
 The top layer is an Erlang/OTP application (`pq`); the numerical kernels are a Rust library loaded as a NIF
 (`pq_nif`, through [Rustler](https://github.com/rusterlium/rustler)).
