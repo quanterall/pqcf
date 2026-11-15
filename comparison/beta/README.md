@@ -52,6 +52,11 @@ and the higher poles of Z_g² agree with what the lower orders predict (for exam
   three-loop gluon self-energy in 704 s on 8 cores (FORM + Forcer, everything included), the ghost in 67 s on one.
 - **Next:** equations chosen for such numerators, or graphs split into simpler integrals first, as Forcer does.
 
+## How to reproduce
+
+Every step, from a fresh clone, is one script: [REPRODUCE.md](REPRODUCE.md) (`sh comparison/beta/run.sh`, about 15
+minutes on 8 cores).
+
 ## Files
 
 - **`results/renormalisation_form_forcer_3loops.txt`:** Z₃, Z̃₃, Z_g² and β₀..β₂ at three loops, from FORM + Forcer's
