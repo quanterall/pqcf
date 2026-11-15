@@ -25,6 +25,7 @@ implements no cryptographic algorithms.
   - 1.4: reducing large symbolic results by reconstruction over finite fields, with Feynman-integral reduction
     measured against FIRE (below).
 - Benchmarks are from a provisional reference machine (`bench/HARDWARE.md`).
+- Every published result, and how to reproduce it from a fresh clone: [REPRODUCE.md](REPRODUCE.md).
 
 ## What is done
 

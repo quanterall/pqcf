@@ -264,6 +264,10 @@ the public API is additive.
 
 ### Documentation
 
+- After the external reviews of 15 Nov 2026:
+  - `REPRODUCE.md`: every published result (PQCF's, GenHub2's and quantum_computing_simulations'), its step-by-step
+    page, the commit it was tested at, its time and what it needs;
+  - every step-by-step page has two paths: the published run, at the commit it was tested at, and the latest.
 - After an external review of the repository (8 Nov 2026):
   - the user guide's introduction said PQCF was not ready and its API not frozen (stale since 1 Nov); it now
     states the freeze and the release;
