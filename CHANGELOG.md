@@ -16,6 +16,12 @@ the public API is additive.
 
 ### Added
 
+- **Perturbation theory to high order** (`pq_perturb`, step QM1): the ground state of H = p^2 + x^2 + g V(x), V a
+  polynomial, as an exact power series in g, by Bender and Wu's recursion (rational arithmetic; 100 orders in about
+  5 s). The anharmonic oscillator's coefficients equal Bender and Wu's table
+  ([Phys. Rev. 184, 1231](https://doi.org/10.1103/PhysRev.184.1231)) exactly, and their large-order formula holds to
+  2e-4 at order 100 (with its first correction, the remainder falling like 1/n^2); V = x^2 gives the binomial series of
+  sqrt(1 + g) exactly.
 - **Lie algebras for physics** (`pq_lie`; plan "theoretical physics instruments", step F1).
   - **Wigner symbols exactly:** 3j, 6j and Clebsch-Gordan coefficients as signed square roots of rationals, 9j symbols
     as sums over 6j products (Racah's formulas, half-integers as doubled integers). Equal to SymPy's on every 3j and 6j
