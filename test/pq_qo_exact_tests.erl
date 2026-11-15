@@ -175,3 +175,43 @@ kerr_exact_test_() ->
              ?assert(Close(N2, pq_qo_exact:kerr_moment(Par, 2, P)))
          end || E <- [{1, 4}, {1, 1}, {3, 2}, {2, 1}]]
     end}.
+
+%% the steady state as rational functions of the parameters (finite-field reconstruction): resonance fluorescence's
+%% optical Bloch steady state with Omega, Delta and gamma symbolic, exactly
+symbolic_two_level_test_() ->
+    {timeout, 120, fun() ->
+        {Sp0, H, L} = two_level(),
+        Sp = Sp0#{domains => #{omega => real, delta => real, gamma => positive}},
+        Os = ?Q:with_spaces(Sp, fun() -> [?Q:proj(q, 2, 2), ?Q:add(?Q:sp(q), ?Q:sm(q)),
+                                          ?Q:scale({complex, 0, 1}, ?Q:sub(?Q:sm(q), ?Q:sp(q)))] end),
+        [Pe, Sx, Sy] = [E || {_, E} <- ?X:steady_state_symbolic(?L:basis(Sp, #{}), Sp, H, [L], [omega, delta, gamma], Os)],
+        Den = {add, [{mul, [4, {pow, sym(delta), 2}]}, {pow, sym(gamma), 2}, {mul, [2, {pow, sym(omega), 2}]}]},
+        Is = fun(E, Num) -> {ok, Z} = pq_symbolic:cancel({add, [E, {mul, [-1, Num, {pow, Den, -1}]}]}), Z =:= 0 end,
+        ?assert(Is(Pe, {pow, sym(omega), 2})),
+        ?assert(Is(Sx, {mul, [4, sym(delta), sym(omega)]})),
+        ?assert(Is(Sy, {mul, [2, sym(gamma), sym(omega)]}))
+    end}.
+
+%% the driven Kerr cavity truncated at 2 photons, Delta, chi, E and kappa symbolic: <ad a> and <ad^2 a^2> as rational
+%% functions, equal to the exact steady state (pq_qo_exact:steady_state/2) at three rational points
+symbolic_kerr_test_() ->
+    {timeout, 300, fun() ->
+        A = ?Q:a(c), Ad = ?Q:ad(c),
+        Sp = #{domains => #{delta => real, chi => real, e => real, kappa => positive}},
+        H = ?Q:add([?Q:scale(sym(delta), ?Q:mul(Ad, A)), ?Q:scale(sym(chi), ?Q:mul([Ad, Ad, A, A])), ?Q:scale(sym(e), ?Q:add(A, Ad))]),
+        L = ?Q:scale({pow, sym(kappa), {rat, 1, 2}}, A),
+        B = ?L:basis(Sp, #{c => 2}),
+        Os = [?Q:mul(Ad, A), ?Q:mul([Ad, Ad, A, A])],
+        Sym = [E || {_, E} <- ?X:steady_state_symbolic(B, Sp, H, [L], [delta, chi, e, kappa], Os)],
+        [begin
+             Rho = ?X:steady_state(?X:liouvillian(B, Sp, H, [L], P), B),
+             Bind = maps:map(fun(_, {X, Y}) -> {rat, X, Y} end, P),
+             [begin
+                  {ok, V} = pq_symbolic:evaluate(E, Bind, #{exact => true}),
+                  {q, Want, {0, 1}} = ?X:expect(op(B, Sp, fun() -> O end, P, trace), Rho, 3),
+                  ?assertEqual(Want, case V of {rat, X, Y} -> {X, Y}; N when is_integer(N) -> {N, 1} end)
+              end || {O, E} <- lists:zip(Os, Sym)]
+         end || P <- [#{delta => {0, 1}, chi => {1, 1}, e => {1, 1}, kappa => {1, 1}},
+                      #{delta => {-2, 1}, chi => {1, 3}, e => {1, 2}, kappa => {3, 2}},
+                      #{delta => {5, 7}, chi => {2, 1}, e => {3, 1}, kappa => {1, 4}}]]
+    end}.

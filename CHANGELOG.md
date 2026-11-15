@@ -23,6 +23,12 @@ the public API is additive.
     summed to any precision. Across the semiclassically bistable region (Delta = -2, chi = 1/2, kappa = 1, four
     drives), <a^dagger a> and <a^dagger^2 a^2> equal the master equation's steady state at 40 photons to 30 digits
     (to 60 at the first drive).
+  - **Steady states as rational functions of the parameters:** `pq_qo_exact:steady_state_symbolic/6`. rho' in real
+    coordinates (Hermitian), the master equation's real and imaginary parts with the trace replacing its dependent
+    row, solved by finite-field reconstruction (`pq_recon:linear/4`, decision record R1): no symbolic elimination.
+    Resonance fluorescence with Omega, Delta and gamma symbolic gives the optical Bloch steady state exactly
+    (rho_ee = Omega^2/(4 Delta^2 + gamma^2 + 2 Omega^2), and <sigma_x>, <sigma_y>) in 0.05 s; the Kerr cavity with all
+    four parameters symbolic equals the exact numeric steady state at every point tried.
 - **Master equations** (`pq_lindblad`, quantum optics Q2).
   - **Matrices:** pq_qop operators in a truncated basis (Fock states of each mode, levels of each atom), the
     coefficients evaluated at given parameters; the Liouvillian as a sparse superoperator.

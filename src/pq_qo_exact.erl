@@ -11,7 +11,7 @@
 %% Vectors are maps Index => coefficient (the zeros left out); rho' is vectorised row by row (rho'_ij at i D + j);
 %% matrices are maps {Row, Col} => coefficient.
 -module(pq_qo_exact).
--export([liouvillian/5, steady_state/2, operator/5, expect/3, apply_left/3, spectrum/4, real_value/1, kerr_moment/3]).
+-export([liouvillian/5, steady_state/2, operator/5, expect/3, apply_left/3, spectrum/4, real_value/1, kerr_moment/3, steady_state_symbolic/6]).
 
 -define(E, pq_sym_exact).
 
@@ -255,4 +255,86 @@ small(T, S, P) -> mag(T) < mag(S) - P - 8.
 
 mag({mp, 0, _}) -> -(1 bsl 40);
 mag({mp, M, E}) -> length(integer_to_list(abs(M), 2)) + E.
+
+%%% Steady states as rational functions of the parameters (finite-field reconstruction, decision record R1)
+%%%
+%%% rho' is Hermitian, so its real coordinates are x_ii, and x_ij, y_ij for i < j (rho'_ij = x_ij + i y_ij): D^2 real
+%%% unknowns. The equations are the real parts of (L rho')_ii and the real and imaginary parts of (L rho')_ij, i < j; the
+%%% one dependent equation (row (0,0): the trace of L rho' vanishes) is replaced by Tr rho = 1. The entries are
+%%% expressions of the engine in the parameters, and pq_recon:linear/4 reconstructs each unknown as a reduced rational
+%%% function from eliminations modulo primes at sample points: no symbolic elimination.
+
+%% Tr(O rho) for each O of Os (pq_qop expressions, Hermitian) as a reduced rational function of Vars (a list of the
+%% parameters' symbols, declared real or positive in the spaces' domains): [{O, Expr}]
+steady_state_symbolic(Basis, Spaces, H, Ls, Vars, Os) ->
+    D = pq_lindblad:dim(Basis),
+    Doms = maps:get(domains, Spaces, #{}),
+    Can = fun(E) -> {ok, C} = pq_symbolic:canonicalise(E, #{domains => Doms}), C end,
+    Op = fun(E, Form) -> operator_sym(Basis, Spaces, E, Form) end,
+    Id = maps:from_list([{{I, I}, 1} || I <- lists:seq(0, D - 1)]),
+    MinusI = {complex, 0, -1}, PlusI = {complex, 0, 1}, Half = {rat, -1, 2},
+    Jumps = lists:append([begin
+                              Pairs = [{#{W1 => 1}, #{dag_word(W2) => 1}, Can({mul, [C1, {conj, C2}]})} || W1 := C1 <- L, W2 := C2 <- L],
+                              K = pq_qop:with_spaces(Spaces, fun() -> pq_qop:mul(pq_qop:dag(L), L) end),
+                              [{Op(A, left), Op(B, right), Cf} || {A, B, Cf} <- Pairs]
+                                  ++ [{Op(K, left), Id, Half}, {Id, Op(K, right), Half}]
+                          end || L <- Ls]),
+    Terms = [{Op(H, left), Id, MinusI}, {Id, Op(H, right), PlusI} | Jumps],
+    %% the superoperator: {(i,j), (k,l)} => [products], summed and canonicalised once
+    Acc = lists:foldl(fun({A, B, K}, M) ->
+                              maps:fold(fun({I, Kk}, Va, M1) ->
+                                                maps:fold(fun({L, J}, Vb, M2) ->
+                                                                  Key = {I * D + J, Kk * D + L},
+                                                                  M2#{Key => [{mul, [K, Va, Vb]} | maps:get(Key, M2, [])]}
+                                                          end, M1, B)
+                                        end, M, A)
+                      end, #{}, Terms),
+    Sup = maps:filtermap(fun(_, Es) -> case Can({add, Es}) of 0 -> false; E -> {true, E} end end, Acc),
+    %% the real unknowns, numbered: x_ij (i =< j), then y_ij (i < j)
+    Xs = [{x, I, J} || I <- lists:seq(0, D - 1), J <- lists:seq(I, D - 1)],
+    Ys = [{y, I, J} || I <- lists:seq(0, D - 1), J <- lists:seq(I + 1, D - 1)],
+    Unknowns = Xs ++ Ys,
+    Index = maps:from_list(lists:zip(Unknowns, lists:seq(0, length(Unknowns) - 1))),
+    %% rho'_kl in the unknowns: [{Unknown, Factor}]
+    Coord = fun(K, L) when K =:= L -> [{{x, K, K}, 1}];
+                (K, L) when K < L -> [{{x, K, L}, 1}, {{y, K, L}, {complex, 0, 1}}];
+                (K, L) -> [{{x, L, K}, 1}, {{y, L, K}, {complex, 0, -1}}]
+            end,
+    ByRow = maps:fold(fun({R, C}, E, M) -> M#{R => [{C, E} | maps:get(R, M, [])]} end, #{}, Sup),
+    Row = fun(I, J) ->
+                  Cs = lists:foldl(fun({C, E}, M) ->
+                                           lists:foldl(fun({U, F}, M2) -> M2#{U => [{mul, [F, E]} | maps:get(U, M2, [])]} end,
+                                                       M, Coord(C div D, C rem D))
+                                   end, #{}, maps:get(I * D + J, ByRow, [])),
+                  maps:map(fun(_, Es) -> Can({add, Es}) end, Cs)
+          end,
+    Re = fun(E) -> Can({mul, [{rat, 1, 2}, {add, [E, {conj, E}]}]}) end,
+    Im = fun(E) -> Can({mul, [{complex, 0, -1}, {rat, 1, 2}, {add, [E, {mul, [-1, {conj, E}]}]}]}) end,
+    Dense = fun(M) -> Full = maps:from_list([{maps:get(U, Index), V} || U := V <- M, V =/= 0]),
+                      [maps:get(C, Full, 0) || C <- lists:seq(0, length(Unknowns) - 1)] end,
+    W = weights(Basis),
+    Trace = Dense(maps:from_list([{{x, I, I}, maps:get(I, W)} || I <- lists:seq(0, D - 1)])),
+    Rows = [Trace | [Dense(maps:map(fun(_, E) -> Re(E) end, Row(I, I))) || I <- lists:seq(1, D - 1)]]
+        ++ lists:append([[Dense(maps:map(fun(_, E) -> Re(E) end, Row(I, J))),
+                          Dense(maps:map(fun(_, E) -> Im(E) end, Row(I, J)))]
+                         || I <- lists:seq(0, D - 1), J <- lists:seq(I + 1, D - 1)]),
+    Rhs = [1 | lists:duplicate(length(Unknowns) - 1, 0)],
+    {ok, Sol} = pq_recon:linear(Rows, Rhs, Vars, #{}),
+    Val = maps:from_list([{lists:nth(C + 1, Unknowns),
+                           case map_size(N) of 0 -> 0; _ -> {mul, [pq_sym_norm:to_ast(N), {pow, pq_sym_norm:to_ast(Dn), -1}]} end}
+                          || {C, {N, Dn}} <- Sol]),
+    Rho = fun(K, L) -> {add, [{mul, [F, maps:get(U, Val)]} || {U, F} <- Coord(K, L)]} end,
+    [{O, begin
+             Otr = operator_sym(Basis, Spaces, O, trace),
+             {ok, E} = pq_symbolic:cancel(Can({add, [{mul, [V, Rho(J, I)]} || {I, J} := V <- Otr]})),
+             E
+         end} || O <- Os].
+
+%% operator/5 with the coefficients kept as expressions: {Row, Col} => Expr
+operator_sym(Basis, Spaces, Expr, Form) ->
+    pq_qop:with_spaces(Spaces, fun() ->
+        lists:foldl(fun({{R, C}, V}, Acc) -> Acc#{{R, C} => {add, [V | case Acc of #{{R, C} := V0} -> [V0]; _ -> [] end]}} end, #{},
+                    lists:append([[{RC, {mul, [Cf, N]}} || {RC, {q, {N0, 1}, {0, 1}}} <- word(W, ?E:c(1), Basis, Form), N <- [N0]]
+                                  || W := Cf <- Expr]))
+    end).
 
