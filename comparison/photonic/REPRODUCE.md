@@ -14,11 +14,17 @@ What the tasks are, and what the results mean: [README.md](README.md).
 
 ## Steps
 
+**Reproduce the published run**, at the commit it was tested at (see "Tested" below):
+
 ```sh
 git clone https://github.com/quanterall/pqcf.git
 cd pqcf
+git checkout 92e2aeb
 PQ_BENCH_HOST=my-laptop sh comparison/photonic/run.sh 0
 ```
+
+**Run the latest** version: the same commands without `git checkout 92e2aeb`. The answers must still be
+the published ones; what changed since is in [CHANGELOG.md](../../CHANGELOG.md).
 
 - `0` is the core every program runs on, one after another; pick one with little else on it (default 8).
 - `PQ_BENCH_HOST` is a label for your machine in the results.
@@ -88,5 +94,8 @@ docker run --rm -v "$PWD/comparison/photonic":/p -v /tmp/ph:/out pqcf-photonic-p
 
 ## Tested
 
-From a fresh clone of the public repository on 15 November 2026 (commit d77ead6), aarch64 (Cortex-X925 and
+From a fresh clone on 15 November 2026 at commit 92e2aeb (the published run above), aarch64 (Cortex-X925
+and Cortex-A725): 50 of 50 checks agree, the sizes not run named in the summary, 835 seconds.
+
+Earlier, from a fresh clone of the public repository on 15 November 2026 (commit d77ead6), aarch64 (Cortex-X925 and
 Cortex-A725), core 19: 50 of 50 checks agree, 788 seconds.

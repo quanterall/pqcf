@@ -13,13 +13,19 @@ FORM's own Forcer checks, and its answers are compared with Forcer's and with FO
 
 ## Steps
 
+**Reproduce the published run**, at the commit it was tested at (see "Tested" below):
+
 ```sh
 git clone https://github.com/quanterall/pqcf.git
 cd pqcf
+git checkout 92e2aeb
 docker build -t pqcf-dev .
 docker build -t pqcf-form -f comparison/form/Dockerfile .
 PQ_BENCH_HOST=my-laptop sh comparison/forcer/run.sh 0-7
 ```
+
+**Run the latest** version: the same commands without `git checkout 92e2aeb`. The answers must still be
+the published ones; what changed since is in [CHANGELOG.md](../../CHANGELOG.md).
 
 - The two `docker build` lines are needed once: `run.sh` builds the Forcer image itself, on top of `pqcf-form`.
 - `0-7` are the cores PQCF uses (a Docker cpuset: `0-7`, `0,2,4`, ...); Forcer runs on the first of them.
@@ -87,5 +93,9 @@ cases. The full run takes about 7 minutes on 8 cores once the images are built.
 
 ## Tested
 
-From a fresh clone of the public repository on 15 November 2026 (commit d77ead6), aarch64 (Cortex-X925 and
+From a fresh clone on 15 November 2026 at commit 92e2aeb (the published run above), aarch64 (Cortex-X925
+and Cortex-A725), with nothing else using the comparison images: 15 of 15 checks `equal`, `results/symbolic/`
+unchanged, 465 seconds.
+
+Earlier, from a fresh clone of the public repository on 15 November 2026 (commit d77ead6), aarch64 (Cortex-X925 and
 Cortex-A725), cores 0-7: every check `equal`, `results/symbolic/` unchanged byte for byte, 400 seconds.

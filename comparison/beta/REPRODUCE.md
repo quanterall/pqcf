@@ -15,11 +15,17 @@ one (Tarasov, Vladimirov, Zharkov 1980; Larin and Vermaseren, [arXiv:hep-ph/9302
 
 ## Steps
 
+**Reproduce the published run**, at the commit it was tested at (see "Tested" below):
+
 ```sh
 git clone https://github.com/quanterall/pqcf.git
 cd pqcf
+git checkout eef0e6f
 sh comparison/beta/run.sh 0-7
 ```
+
+**Run the latest** version: the same commands without `git checkout eef0e6f`. The answers must still be
+the published ones; what changed since is in [CHANGELOG.md](../../CHANGELOG.md).
 
 `0-7` are the cores (a Docker cpuset). [run.sh](run.sh) builds the three images and then, in a temporary directory:
 
@@ -62,5 +68,5 @@ known result; PQCF's own reductions are checked at one and two loops.
 
 ## Tested
 
-From a clean clone on 16 November 2026 (commit 92e2aeb with this script), aarch64 (Cortex-X925 and Cortex-A725),
-cores 9-16: `beta functions: as known`, every results file unchanged, 870 seconds.
+From a clean clone on 15 November 2026 (commit 92e2aeb with this script, as committed in eef0e6f), aarch64 (Cortex-X925
+and Cortex-A725), cores 9-16: `beta functions: as known`, every results file unchanged, 870 seconds.

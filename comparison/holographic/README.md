@@ -11,8 +11,13 @@ Docker, and this repository. Everything runs in PQCF's development image, built 
 
 ```sh
 git clone https://github.com/quanterall/pqcf.git && cd pqcf
+git checkout d77ead6
 docker build -t pqcf-dev .
 ```
+
+`git checkout d77ead6` **reproduces the published runs**: it is the commit of this page, with the code they were
+tested at (see below). To **run the latest** version, leave it out; the results must still be the committed ones,
+and what changed since is in [CHANGELOG.md](../../CHANGELOG.md).
 
 Then each script runs from the repository root with the command at the top of its source file, of this form
 (`<script>` one of the names in the table below):

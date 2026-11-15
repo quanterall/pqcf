@@ -12,11 +12,17 @@ the same tasks, on your machine. What the tasks are and why: [README.md](README.
 
 ## Steps
 
+**Reproduce the published run**, at the commit it was tested at (see "Tested" below):
+
 ```sh
 git clone https://github.com/quanterall/pqcf.git
 cd pqcf
+git checkout 92e2aeb
 COMPARISON_MACHINE=my-laptop CPUSET=0 sh comparison/form/run.sh
 ```
+
+**Run the latest** version: the same commands without `git checkout 92e2aeb`. The answers must still be
+the published ones; what changed since is in [CHANGELOG.md](../../CHANGELOG.md).
 
 - `COMPARISON_MACHINE` is a label for your machine; it goes into the results.
 - `CPUSET` is the core the tasks run on (leave it out to let Docker choose). Use a core with little else on it.
@@ -81,5 +87,8 @@ docker run --rm pqcf-form rebar3 eunit --module=pq_form_tests
 
 ## Tested
 
-From a fresh clone of the public repository on 15 November 2026 (commit d77ead6), on an aarch64 machine (Cortex-X925
+From a fresh clone on 15 November 2026 at commit 92e2aeb (the published run above), aarch64 (Cortex-X925
+and Cortex-A725): every check `ok`, 48 seconds with the images built.
+
+Earlier, from a fresh clone of the public repository on 15 November 2026 (commit d77ead6), on an aarch64 machine (Cortex-X925
 and Cortex-A725): every check `ok`, 81 seconds with the images built; the images built without cache in 45 s and 87 s.

@@ -14,13 +14,19 @@ by both, on the same core, the answers compared exactly. The method is decision 
 
 ## Steps
 
+**Reproduce the published run**, at the commit it was tested at (see "Tested" below):
+
 ```sh
 git clone https://github.com/quanterall/pqcf.git
 cd pqcf
+git checkout 92e2aeb
 docker build -t pqcf-dev .
 docker build -t pqcf-fire2 comparison/fire
 PQ_BENCH_HOST=my-laptop bench/ibp.sh 0
 ```
+
+**Run the latest** version: the same commands without `git checkout 92e2aeb`. The answers must still be
+the published ones; what changed since is in [CHANGELOG.md](../../CHANGELOG.md).
 
 - `0` is the core the timed runs use; pick one with little else on it.
 - `PQ_BENCH_HOST` is a label for your machine in the results file.
@@ -80,6 +86,9 @@ PQCF's own (FIRE has no example for them).
 
 ## Tested
 
-From a fresh clone of the public repository on 15 November 2026 (commit d77ead6, with the FIRE image built from the
+From a fresh clone on 15 November 2026 at commit 92e2aeb (the published run above), aarch64 (Cortex-X925
+and Cortex-A725): every check `equal`, 97 seconds.
+
+Earlier, from a fresh clone of the public repository on 15 November 2026 (commit d77ead6, with the FIRE image built from the
 pinned Dockerfile of this page's commit), aarch64 (Cortex-X925 and Cortex-A725), core 18: every check `equal`,
 90 seconds.
