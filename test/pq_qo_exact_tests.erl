@@ -1,0 +1,150 @@
+%% pq_qo_exact (quantum optics plan, Q3): exact steady states and spectra against SymPy's dense, exact solutions in the
+%% Fock basis (test/oracle/gt_qo_exact.py, test/fixtures/gt_qo_exact.json), equal as rationals; the Mollow triplet's
+%% strong-field limit; and resonance fluorescence's g2(tau) against its closed form (Kimble and Mandel, Phys. Rev. A
+%% 13, 2123 (1976)).
+-module(pq_qo_exact_tests).
+-include_lib("eunit/include/eunit.hrl").
+
+-define(X, pq_qo_exact).
+-define(Q, pq_qop).
+-define(L, pq_lindblad).
+
+fixture() ->
+    Dir = filename:dirname(code:which(?MODULE)),
+    Paths = [filename:join([Dir, "..", "test", "fixtures", "gt_qo_exact.json"]),
+             filename:join([Dir, "..", "..", "..", "..", "test", "fixtures", "gt_qo_exact.json"]),
+             "test/fixtures/gt_qo_exact.json"],
+    [P | _] = [P || P <- Paths, filelib:is_regular(P)],
+    {ok, B} = file:read_file(P),
+    json:decode(B).
+
+%% "p/q" or "p" as a rational {P, Q}
+q(B) when is_binary(B) ->
+    case binary:split(B, <<"/">>) of
+        [N, D] -> pq_sym_exact:rat(binary_to_integer(N), binary_to_integer(D));
+        [N] -> {binary_to_integer(N), 1}
+    end.
+c([Re, Im]) -> {q, q(Re), q(Im)}.
+par(B) -> q(B).
+
+sym(X) -> {sym, X}.
+
+two_level() ->
+    Sp = #{q => {atom, 2}, domains => #{gamma => positive}},
+    H = ?Q:with_spaces(Sp, fun() ->
+            ?Q:add(?Q:scale({mul, [{rat, 1, 2}, sym(omega)]}, ?Q:add(?Q:sp(q), ?Q:sm(q))),
+                   ?Q:scale({mul, [-1, sym(delta)]}, ?Q:proj(q, 2, 2)))
+        end),
+    L = ?Q:with_spaces(Sp, fun() -> ?Q:scale({pow, sym(gamma), {rat, 1, 2}}, ?Q:sm(q)) end),
+    {Sp, H, L}.
+
+op(B, Sp, E, P, F) -> ?X:operator(B, Sp, ?Q:with_spaces(Sp, fun() -> E() end), P, F).
+
+two_level_test_() ->
+    {timeout, 120, fun() ->
+        #{<<"cases">> := Cases} = fixture(),
+        {Sp, H, L} = two_level(),
+        B = ?L:basis(Sp, #{}),
+        [begin
+             P = #{omega => par(Om), delta => par(Dl), gamma => par(G)},
+             Lv = ?X:liouvillian(B, Sp, H, [L], P),
+             Rho = ?X:steady_state(Lv, B),
+             Pe = op(B, Sp, fun() -> ?Q:proj(q, 2, 2) end, P, trace),
+             Sm = op(B, Sp, fun() -> ?Q:sm(q) end, P, trace),
+             ?assertEqual(c(WantPe), ?X:expect(Pe, Rho, 2)),
+             ?assertEqual(c(WantSm), ?X:expect(Sm, Rho, 2)),
+             Spec = ?X:spectrum(Lv, {op(B, Sp, fun() -> ?Q:sp(q) end, P, trace), op(B, Sp, fun() -> ?Q:sm(q) end, P, left),
+                                     Sm, Rho, B}, [q(W) || [W, _] <- WantSpec], #{}),
+             ?assertEqual([q(S) || [_, S] <- WantSpec], [S || {_, S} <- Spec])
+         end || #{<<"model">> := <<"two_level">>, <<"params">> := #{<<"omega">> := Om, <<"delta">> := Dl, <<"gamma">> := G},
+                  <<"pe">> := WantPe, <<"sm">> := WantSm, <<"spectrum">> := WantSpec} <- Cases]
+    end}.
+
+kerr_test_() ->
+    {timeout, 120, fun() ->
+        #{<<"cases">> := Cases} = fixture(),
+        Sp = #{domains => #{kappa => positive}},
+        A = ?Q:a(c), Ad = ?Q:ad(c),
+        H = ?Q:add([?Q:scale(sym(delta), ?Q:mul(Ad, A)), ?Q:scale(sym(chi), ?Q:mul([Ad, Ad, A, A])), ?Q:scale(sym(e), ?Q:add(A, Ad))]),
+        L = ?Q:scale({pow, sym(kappa), {rat, 1, 2}}, A),
+        [begin
+             B = ?L:basis(Sp, #{c => N}),
+             P = #{e => par(E), chi => par(Chi), kappa => par(K), delta => par(Dl)},
+             Rho = ?X:steady_state(?X:liouvillian(B, Sp, H, [L], P), B),
+             D = N + 1,
+             ?assertEqual(c(WantN), ?X:expect(op(B, Sp, fun() -> ?Q:mul(Ad, A) end, P, trace), Rho, D)),
+             ?assertEqual(c(WantA), ?X:expect(op(B, Sp, fun() -> A end, P, trace), Rho, D)),
+             ?assertEqual(c(WantN2), ?X:expect(op(B, Sp, fun() -> ?Q:mul([Ad, Ad, A, A]) end, P, trace), Rho, D))
+         end || #{<<"model">> := <<"kerr">>, <<"params">> := #{<<"n">> := N, <<"e">> := E, <<"chi">> := Chi,
+                                                               <<"kappa">> := K, <<"delta">> := Dl},
+                  <<"n">> := WantN, <<"a">> := WantA, <<"n2">> := WantN2} <- Cases]
+    end}.
+
+jaynes_cummings_test_() ->
+    {timeout, 120, fun() ->
+        #{<<"cases">> := Cases} = fixture(),
+        [#{<<"params">> := #{<<"n">> := N, <<"g">> := G, <<"e">> := E, <<"kappa">> := K, <<"gamma">> := Gm},
+           <<"n">> := WantN, <<"pe">> := WantPe, <<"a">> := WantA}] = [C || #{<<"model">> := <<"jc">>} = C <- Cases],
+        Sp = #{q => {atom, 2}, domains => #{kappa => positive, gamma => positive}},
+        {H, Ls} = ?Q:with_spaces(Sp, fun() ->
+            {?Q:add(?Q:scale(sym(g), ?Q:add(?Q:mul(?Q:ad(c), ?Q:sm(q)), ?Q:mul(?Q:a(c), ?Q:sp(q)))),
+                    ?Q:scale(sym(e), ?Q:add(?Q:a(c), ?Q:ad(c)))),
+             [?Q:scale({pow, sym(kappa), {rat, 1, 2}}, ?Q:a(c)), ?Q:scale({pow, sym(gamma), {rat, 1, 2}}, ?Q:sm(q))]}
+        end),
+        B = ?L:basis(Sp, #{c => N}),
+        P = #{g => par(G), e => par(E), kappa => par(K), gamma => par(Gm)},
+        Rho = ?X:steady_state(?X:liouvillian(B, Sp, H, Ls, P), B),
+        D = 2 * (N + 1),
+        ?assertEqual(c(WantN), ?X:expect(op(B, Sp, fun() -> ?Q:mul(?Q:ad(c), ?Q:a(c)) end, P, trace), Rho, D)),
+        ?assertEqual(c(WantPe), ?X:expect(op(B, Sp, fun() -> ?Q:proj(q, 2, 2) end, P, trace), Rho, D)),
+        ?assertEqual(c(WantA), ?X:expect(op(B, Sp, fun() -> ?Q:a(c) end, P, trace), Rho, D))
+    end}.
+
+%% the Mollow triplet: for Omega >> gamma the incoherent spectrum has a central peak and two side peaks at about
+%% +-Omega, the central one three times as high (widths gamma/2 and 3 gamma/4, weights 1/2 and 1/4)
+mollow_triplet_test() ->
+    {Sp, H, L} = two_level(),
+    B = ?L:basis(Sp, #{}),
+    P = #{omega => {200, 1}, delta => {0, 1}, gamma => {1, 1}},
+    Lv = ?X:liouvillian(B, Sp, H, [L], P),
+    Rho = ?X:steady_state(Lv, B),
+    Sm = op(B, Sp, fun() -> ?Q:sm(q) end, P, trace),
+    [{_, S0}, {_, Sside}, {_, Sbelow}, {_, Sabove}, {_, Smid}] =
+        ?X:spectrum(Lv, {op(B, Sp, fun() -> ?Q:sp(q) end, P, trace), op(B, Sp, fun() -> ?Q:sm(q) end, P, left), Sm, Rho, B},
+                    [{1, 1000}, {200, 1}, {195, 1}, {205, 1}, {100, 1}], #{}),
+    F = fun pq_sym_exact:to_float/1,
+    ?assert(abs(F(S0) / F(Sside) - 3) < 0.01),
+    ?assert(F(Sside) > F(Sbelow) andalso F(Sside) > F(Sabove)),
+    ?assert(F(Smid) < F(Sside) / 100).
+
+%% g2(tau) of resonance fluorescence, H = (Omega/2)(sigma+ + sigma-), L = sqrt(gamma) sigma-:
+%%   g2(tau) = 1 - e^(-3 gamma tau/4) (cos(mu tau) + (3 gamma/(4 mu)) sin(mu tau)), mu = sqrt(Omega^2 - gamma^2/16),
+%% g2(0) = 0 (antibunching). Tr[sigma+ sigma- e^(L tau)(sigma- rho sigma+)] / <sigma+ sigma->^2, evolved at 150 bits.
+g2_test() ->
+    Pb = 150,
+    {Sp, H, L} = two_level(),
+    B = ?L:basis(Sp, #{}),
+    P = #{omega => 2, delta => 0, gamma => 1},
+    Hm = ?L:op(B, Sp, H, {P, Pb}), Lm = ?L:op(B, Sp, L, {P, Pb}),
+    Pe = ?L:op(B, Sp, ?Q:with_spaces(Sp, fun() -> ?Q:proj(q, 2, 2) end), {#{}, Pb}),
+    Lv = ?L:liouvillian(Hm, [Lm], Pb),
+    Rho = ?L:steady_state(Lv, Pb),
+    {N, _} = ?L:expect_dm(Pe, Rho, Pb),
+    % sigma- rho sigma+ = rho_ee |1><1|: the vector with rho_ee at index 0
+    Z = {{mp, 0, 0}, {mp, 0, 0}},
+    X0 = {element(4, Rho), Z, Z, Z},
+    Mu = pq_mp:sqrt(pq_mp:sub(pq_mp:from(4, Pb), pq_mp:from({1, 16}, Pb), Pb), Pb),
+    [begin
+         {Num, _} = ?L:expect_dm(Pe, X, Pb),
+         G2 = pq_mp:divide(Num, pq_mp:mul(N, N, Pb), Pb),
+         Tm = pq_mp:from(T, Pb),
+         MT = pq_mp:mul(Mu, Tm, Pb),
+         Want = pq_mp:sub(pq_mp:from(1, Pb),
+                          pq_mp:mul(pq_mp:exp(pq_mp:neg(pq_mp:mul(pq_mp:from({3, 4}, Pb), Tm, Pb)), Pb),
+                                    pq_mp:add(pq_mp:cos(MT, Pb),
+                                              pq_mp:mul(pq_mp:divide(pq_mp:from({3, 4}, Pb), Mu, Pb), pq_mp:sin(MT, Pb), Pb), Pb), Pb), Pb),
+         ?assert(abs(pq_mp:to_float(pq_mp:sub(G2, Want, Pb))) < 1.0e-35)
+     end || {T, X} <- ?L:evolve(Lv, X0, [{1, 2}, 1, 2, 5], Pb)],
+    % g2(0) = 0 exactly: sigma- sigma- = 0
+    {N0, _} = ?L:expect_dm(Pe, X0, Pb),
+    ?assertEqual(0.0, pq_mp:to_float(N0)).

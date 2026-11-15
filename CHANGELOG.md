@@ -7,6 +7,17 @@ the public API is additive.
 
 ### Added
 
+- **Exact steady states and spectra** (`pq_qo_exact`, quantum optics Q3).
+  - **Exact Liouvillian:** pq_qop operators with rational parameters, in Gaussian rationals. In the basis
+    f_n = sqrt(n!) |n> the boson operators are integer matrices, so the master equation of a rational model is rational;
+    the jump terms take the products of the coefficients symbolically, under the declared domains.
+  - **Steady states** by exact sparse elimination; **spectra** by the quantum regression theorem, S(w) at rational w,
+    exactly.
+  - **Checks:** equal, as rationals, to SymPy's dense exact solutions in the Fock basis (`test/oracle/gt_qo_exact.py`)
+    for resonance fluorescence (steady state and spectrum, five drives and detunings), a driven Kerr cavity and the
+    driven, damped Jaynes-Cummings model; the Mollow triplet's strong-field limit (central peak three times the side
+    peaks, at +-Omega); g2(tau) of resonance fluorescence against Kimble and Mandel's closed form to 35 digits, and
+    g2(0) = 0.
 - **Master equations** (`pq_lindblad`, quantum optics Q2).
   - **Matrices:** pq_qop operators in a truncated basis (Fock states of each mode, levels of each atom), the
     coefficients evaluated at given parameters; the Liouvillian as a sparse superoperator.

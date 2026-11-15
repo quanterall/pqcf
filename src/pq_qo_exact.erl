@@ -1,0 +1,218 @@
+%% Exact steady states and spectra of master equations (quantum optics plan, Q3): the Liouvillian of pq_qop operators
+%% with rational parameters, in Gaussian rationals (pq_sym_exact's {q, Re, Im}), solved by exact elimination.
+%%
+%% In the Fock basis the matrix elements of a and a^dagger are square roots, so even a rational model has an
+%% irrational Liouvillian. In the basis f_n = sqrt(n!) |n> they are integers: a^dagger f_n = f_(n+1), a f_n = n f_(n-1).
+%% With S = diag(sqrt(n!)) (the atoms untouched) and rho' = S^-1 rho S^-1, a term A rho B of the master equation becomes
+%% A' rho' B'' with A' = S^-1 A S (the "left" form) and B'' = S B S^-1 (the "right" form), both rational; a trace
+%% Tr(O rho) = Tr(S O S rho') (the "trace" form, rational too). The jump terms L rho L^dagger take the products of the
+%% coefficients c conj(c') symbolically, under the declared domains, so that sqrt(gamma) conj(sqrt(gamma)) = gamma.
+%%
+%% Vectors are maps Index => coefficient (the zeros left out); rho' is vectorised row by row (rho'_ij at i D + j);
+%% matrices are maps {Row, Col} => coefficient.
+-module(pq_qo_exact).
+-export([liouvillian/5, steady_state/2, operator/5, expect/3, apply_left/3, spectrum/4, real_value/1]).
+
+-define(E, pq_sym_exact).
+
+%%% Operators in the rescaled basis
+
+%% the matrix of a pq_qop expression in one of the forms left (S^-1 O S), right (S O S^-1) or trace (S O S), the
+%% coefficients exact at the rational Params (#{omega => 2, gamma => {1, 2}}); Basis from pq_lindblad:basis/2
+operator(Basis, Spaces, Expr, Params, Form) ->
+    pq_qop:with_spaces(Spaces, fun() ->
+        lists:foldl(fun({{R, C}, V}, Acc) -> madd(Acc, R, C, V) end, #{},
+                    lists:append([word(W, coef(Cf, Params, Spaces), Basis, Form) || W := Cf <- Expr]))
+    end).
+
+%% the elements {{Row, Col}, Value} of one word: the tensor product over the subsystems, the last name fastest
+word(W, Cv, Basis, Form) ->
+    lists:foldl(fun({N, S, Kind}, Acc) ->
+                        Local = case proplists:get_value(N, W, none) of
+                                    % the identity: S 1 S = diag(n!) in the trace form, 1 otherwise
+                                    none -> [{I, I, case {Kind, Form} of {boson, trace} -> fact(I); _ -> 1 end}
+                                             || I <- lists:seq(0, S - 1)];
+                                    F -> factor(Kind, F, S, Form)
+                                end,
+                        [{{R * S + R1, C * S + C1}, ?E:cmul(V, ?E:c(V1))} || {{R, C}, V} <- Acc, {R1, C1, V1} <- Local]
+                end, [{{0, 0}, Cv}], Basis).
+
+%% (a^dagger)^P a^Q from f_n to f_m, m = n - Q + P: left n!/(n-Q)!, right m!/(n-Q)!, trace n! m!/(n-Q)!
+factor(boson, {P, Q}, S, Form) ->
+    [{M, N, case Form of
+                left -> fact(N) div fact(N - Q);
+                right -> fact(M) div fact(N - Q);
+                trace -> fact(N) * fact(M) div fact(N - Q)
+            end} || N <- lists:seq(Q, S - 1), M <- [N - Q + P], M =< S - 1];
+factor(atom, {I, J}, _, _) -> [{I - 1, J - 1, 1}].
+
+fact(0) -> 1;
+fact(N) -> N * fact(N - 1).
+
+%%% The Liouvillian
+
+%% -i [H, rho] + sum_k (L_k rho L_k^dagger - (1/2) {L_k^dagger L_k, rho}) on rho', as {liouvillian, D, Rows}: Rows a
+%% map Row => [{Col, Value}]. H and Ls are pq_qop expressions, Spaces as for pq_qop (domains included).
+liouvillian(Basis, Spaces, H, Ls, Params) ->
+    D = pq_lindblad:dim(Basis),
+    Op = fun(E, Form) -> operator(Basis, Spaces, E, Params, Form) end,
+    Id = maps:from_list([{{I, I}, ?E:c(1)} || I <- lists:seq(0, D - 1)]),
+    MinusI = ?E:cq({0, 1}, {-1, 1}), PlusI = ?E:cq({0, 1}, {1, 1}), Half = ?E:c({-1, 2}),
+    Terms0 = [{Op(H, left), Id, MinusI}, {Id, Op(H, right), PlusI}],
+    Cf = fun(E) -> coef(E, Params, Spaces) end,
+    Jumps = lists:append([jump_terms(L, Op, Cf, Id, Half, Spaces) || L <- Ls]),
+    Elems = lists:foldl(fun({A, B, K}, Acc) -> super(A, B, K, D, Acc) end, #{}, Terms0 ++ Jumps),
+    Rows = maps:fold(fun({R, C}, V, Acc) -> Acc#{R => [{C, V} | maps:get(R, Acc, [])]} end, #{}, Elems),
+    {liouvillian, D, Rows}.
+
+%% L rho L^dagger word by word: the coefficient c_w conj(c_w') of each pair taken symbolically (the domains apply);
+%% then -(1/2) (L^dagger L rho + rho L^dagger L)
+jump_terms(L, Op, Cf, Id, Half, Spaces) ->
+    Pairs = [{#{W1 => 1}, #{dag_word(W2) => 1}, {mul, [C1, {conj, C2}]}} || W1 := C1 <- L, W2 := C2 <- L],
+    K = pq_qop:with_spaces(Spaces, fun() -> pq_qop:mul(pq_qop:dag(L), L) end),
+    [{Op(A, left), Op(B, right), Cf(C)} || {A, B, C} <- Pairs]
+        ++ [{Op(K, left), Id, Half}, {Id, Op(K, right), Half}].
+
+dag_word(W) -> [{N, {Y, X}} || {N, {X, Y}} <- W].
+
+%% A rho B into the superoperator: the element ((i,j),(k,l)) = K A_ik B_lj
+super(A, B, Kv, D, Acc) ->
+    ByRowB = maps:fold(fun({L, J}, V, M) -> M#{L => [{J, V} | maps:get(L, M, [])]} end, #{}, B),
+    maps:fold(fun({I, Kk}, Va, Acc1) ->
+                      lists:foldl(fun({L, J}, Acc2) ->
+                                          Vb = maps:get({L, J}, B),
+                                          madd(Acc2, I * D + J, Kk * D + L, ?E:cmul(Kv, ?E:cmul(Va, Vb)))
+                                  end, Acc1, [{L, J} || L <- lists:seq(0, D - 1), {J, _} <- maps:get(L, ByRowB, [])])
+              end, Acc, A).
+
+madd(M, R, C, V) ->
+    case ?E:is_zero(V) of
+        true -> M;
+        false ->
+            case maps:find({R, C}, M) of
+                {ok, V0} ->
+                    S = ?E:cadd(V0, V),
+                    case ?E:is_zero(S) of true -> maps:remove({R, C}, M); false -> M#{{R, C} => S} end;
+                error -> M#{{R, C} => V}
+            end
+    end.
+
+%%% Coefficients: an engine expression at rational parameters, exactly; the domains of the spaces apply
+
+coef(Expr, Params, Spaces) ->
+    Domains = maps:get(domains, Spaces, #{}),
+    Sub = pq_symbolic:substitute(Expr, maps:map(fun(_, V) -> num(V) end, Params)),
+    case pq_symbolic:canonicalise(Sub, #{domains => Domains}) of
+        {ok, C} -> exact(C);
+        {error, E} -> error({pq_qo_exact, E})
+    end.
+
+num({N, D}) when is_integer(N), is_integer(D) -> {rat, N, D};
+num({rat, _, _} = R) -> R;
+num(N) when is_integer(N) -> N.
+
+exact(N) when is_integer(N) -> ?E:c(N);
+exact({rat, N, D}) -> ?E:c({N, D});
+exact({complex, A, B}) -> ?E:cadd(exact(A), ?E:cmul(?E:cq({0, 1}, {1, 1}), exact(B)));
+exact({add, L}) -> lists:foldl(fun(X, S) -> ?E:cadd(S, exact(X)) end, ?E:c(0), L);
+exact({mul, L}) -> lists:foldl(fun(X, S) -> ?E:cmul(S, exact(X)) end, ?E:c(1), L);
+exact({pow, B, K}) when is_integer(K) -> ?E:cpow_int(exact(B), K);
+exact({conj, X}) -> ?E:cconj(exact(X));
+exact(E) -> error({pq_qo_exact, {not_rational, E}}).
+
+%%% The steady state: L rho' = 0 with Tr rho = 1, by exact elimination
+
+%% rho' as a vector map; the first equation replaced by the trace, sum_i w_i rho'_ii = 1, w_i the product of n! over
+%% the bosons of state i (Tr rho = Tr(S rho' S))
+steady_state({liouvillian, D, Rows}, Basis) ->
+    W = weights(Basis),
+    Trace = maps:from_list([{I * D + I, ?E:c(maps:get(I, W))} || I <- lists:seq(0, D - 1)]),
+    Eqs = [{Trace, ?E:c(1)} | [{maps:from_list(maps:get(R, Rows, [])), ?E:c(0)} || R <- lists:seq(1, D * D - 1)]],
+    solve(Eqs, D * D).
+
+weights(Basis) ->
+    {_, W} = lists:foldl(fun({_, S, Kind}, {Sz, Acc}) ->
+                                 Loc = [case Kind of boson -> fact(N); atom -> 1 end || N <- lists:seq(0, S - 1)],
+                                 {Sz * S, maps:from_list([{I * S + J, maps:get(I, Acc) * lists:nth(J + 1, Loc)}
+                                                          || I <- lists:seq(0, Sz - 1), J <- lists:seq(0, S - 1)])}
+                         end, {1, #{0 => 1}}, Basis),
+    W.
+
+%% Gaussian elimination on sparse rows [{RowMap, Rhs}], column by column; the pivot the shortest row (exact
+%% arithmetic: any non-zero pivot will do, the shortest keeps the fill-in small)
+solve(Eqs, N) -> back(elim(Eqs, 0, N, []), #{}).
+
+elim(_, Col, N, Done) when Col >= N -> Done;
+elim(Eqs, Col, N, Done) ->
+    {With, Without} = lists:partition(fun({Row, _}) -> is_map_key(Col, Row) end, Eqs),
+    case With of
+        [] -> elim(Without, Col + 1, N, Done);
+        _ ->
+            [{PRow, PRhs} = Pivot | _] = lists:sort(fun({A, _}, {B, _}) -> map_size(A) =< map_size(B) end, With),
+            Inv = ?E:cinv(maps:get(Col, PRow)),
+            Rest = [begin
+                        F = ?E:cmul(maps:get(Col, Row), Inv),
+                        {row_sub(Row, PRow, F, Col), ?E:cadd(Rhs, ?E:cneg(?E:cmul(F, PRhs)))}
+                    end || {Row, Rhs} = E <- With, E =/= Pivot],
+            elim(Rest ++ Without, Col + 1, N, [{Col, PRow, PRhs} | Done])
+    end.
+
+row_sub(Row, PRow, F, Col) ->
+    maps:remove(Col, maps:fold(fun(C, V, Acc) ->
+                                       New = ?E:cadd(maps:get(C, Acc, ?E:c(0)), ?E:cneg(?E:cmul(F, V))),
+                                       case ?E:is_zero(New) of true -> maps:remove(C, Acc); false -> Acc#{C => New} end
+                               end, Row, PRow)).
+
+back([], Sol) -> Sol;
+back([{Col, Row, Rhs} | T], Sol) ->
+    S = maps:fold(fun(C, V, Acc) when C =/= Col -> ?E:cadd(Acc, ?E:cneg(?E:cmul(V, maps:get(C, Sol, ?E:c(0)))));
+                     (_, _, Acc) -> Acc
+                  end, Rhs, Row),
+    X = ?E:cmul(S, ?E:cinv(maps:get(Col, Row))),
+    back(T, case ?E:is_zero(X) of true -> Sol; false -> Sol#{Col => X} end).
+
+%%% Expectation values and spectra
+
+%% Tr(O rho) from the trace form of O (operator(..., trace)) and rho': sum_ij O_ij rho'_ji
+expect(Otr, Rho, D) ->
+    maps:fold(fun({I, J}, V, S) -> ?E:cadd(S, ?E:cmul(V, maps:get(J * D + I, Rho, ?E:c(0)))) end, ?E:c(0), Otr).
+
+%% B rho' from the left form of B: (B rho')_ij = sum_k B_ik rho'_kj
+apply_left(Bl, Rho, D) ->
+    maps:fold(fun({I, K}, V, Acc) ->
+                      lists:foldl(fun(J, A2) ->
+                                          case maps:find(K * D + J, Rho) of
+                                              {ok, R} -> vadd(A2, I * D + J, ?E:cmul(V, R));
+                                              error -> A2
+                                          end
+                                  end, Acc, lists:seq(0, D - 1))
+              end, #{}, Bl).
+
+vadd(M, K, V) ->
+    S = ?E:cadd(maps:get(K, M, ?E:c(0)), V),
+    case ?E:is_zero(S) of true -> maps:remove(K, M); false -> M#{K => S} end.
+
+%% The incoherent spectrum by the quantum regression theorem: S(w) = Re Tr[A (-(L + i w))^-1 (B rho - <B> rho)] =
+%% Re of the integral over tau > 0 of e^(i w tau) <dA(tau) dB(0)>, at the rational frequencies Ws (non-zero), exactly.
+%% Spec = {Atrace, Bleft, Btrace, Rho, Basis}: A's trace form, B's left and trace forms. [{W, S(W)}], S as a rational.
+spectrum({liouvillian, D, Rows}, {Atr, Bl, Btr, Rho, _Basis}, Ws, _Opts) ->
+    Bmean = expect(Btr, Rho, D),
+    X0 = apply_left(Bl, Rho, D),
+    X = maps:fold(fun(K, V, Acc) -> vadd(Acc, K, ?E:cneg(?E:cmul(Bmean, V))) end, X0, Rho),
+    [begin
+         Wq = ?E:cq({0, 1}, to_rat(W)),
+         % (L + i w) y = -X
+         Eqs = [{row_plus(maps:get(R, Rows, []), R, Wq), ?E:cneg(maps:get(R, X, ?E:c(0)))} || R <- lists:seq(0, D * D - 1)],
+         Y = solve(Eqs, D * D),
+         {W, real_value(expect(Atr, Y, D))}
+     end || W <- Ws].
+
+row_plus(Row, R, Wq) ->
+    M = maps:from_list(Row),
+    S = ?E:cadd(maps:get(R, M, ?E:c(0)), Wq),
+    case ?E:is_zero(S) of true -> maps:remove(R, M); false -> M#{R => S} end.
+
+to_rat(N) when is_integer(N) -> {N, 1};
+to_rat({N, D}) -> ?E:rat(N, D).
+
+real_value({q, Re, _}) -> Re.
