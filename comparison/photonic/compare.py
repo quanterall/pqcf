@@ -1,6 +1,9 @@
 """Checks the answers of the photonic head-to-head against each other and writes the tables (README.md).
     python compare.py <dir with inputs.json and <tool>.json> <record.json> <RESULTS.md> <history.csv> <meta.json>
-Exits 1 if any answer disagrees.
+Exits 1 if any answer disagrees, or if the run is incomplete: a program's results missing, or a task it covers with no
+answer at all. Sizes skipped under the time limit (a smaller size took more than 120 s, or the program cannot hold
+the size) are not failures; they are listed by name in the summary and in RESULTS.md, so the number of checks of two
+runs can differ only for a stated reason.
 """
 import csv
 import json
@@ -22,6 +25,19 @@ NAMES = {"pqcf": "PQCF", "thewalrus": "The Walrus", "piquasso": "Piquasso", "per
 res = {t: json.load(open(os.path.join(work, f"{t}.json"))) for t in TOOLS
        if os.path.exists(os.path.join(work, f"{t}.json"))}
 checks = []  # (task, what, ok, detail)
+# what each program must answer (README.md, "The programs"); the sizes of each task (inputs.json)
+EXPECTED = {"pqcf": ["permanent", "torontonian", "boson_sampling", "boson_check", "fock"],
+            "thewalrus": ["permanent", "torontonian"],
+            "piquasso": ["permanent", "torontonian", "boson_sampling", "boson_check", "fock"],
+            "perceval": ["permanent", "boson_sampling", "boson_check"],
+            "deepquantum": ["permanent", "torontonian", "boson_sampling", "boson_check", "fock"],
+            "strawberryfields": ["fock"]}
+SIZES = {"permanent": [c["n"] for c in inp["permanent"]], "torontonian": [c["k"] for c in inp["torontonian"]],
+         "boson_sampling": [c["photons"] for c in inp["boson_sampling"]]}
+incomplete = [f"{NAMES[t]}: no results" for t in TOOLS if t not in res] + \
+             [f"{NAMES[t]}: no {task} answers" for t in res for task in EXPECTED[t] if not res[t].get(task)]
+not_run = [f"{NAMES[t]} {task} {size}" for t in res for task in EXPECTED[t] if task in SIZES
+           for size in SIZES[task] if size not in {r["size"] for r in res[t].get(task, [])}]
 
 
 def check(task, what, ok, detail):
@@ -135,7 +151,9 @@ md = [f"# Photonic head-to-head: latest run",
       f"{meta['date']} on {meta['host']} ({meta['cpu']}), every program pinned to one core with one thread. PQCF "
       f"at commit {meta['commit']}. {ver}. Written by `run.sh`; the method is in [README.md](README.md).",
       "",
-      f"**Answers: {sum(c['ok'] for c in checks)} of {len(checks)} checks agree.**",
+      f"**Answers: {sum(c['ok'] for c in checks)} of {len(checks)} checks agree.**"
+      + (f" **INCOMPLETE:** {'; '.join(incomplete)}." if incomplete else "")
+      + (f" Not run (time limit or capacity): {', '.join(not_run)}." if not_run else ""),
       "",
       "*Not run*: a smaller size took more than 120 s or could not run, so the program's larger sizes were skipped.",
       "",
@@ -191,6 +209,10 @@ with open(history_csv, "a", newline="") as f:
 
 bad = [c for c in checks if not c["ok"]]
 print(f"{len(checks) - len(bad)} of {len(checks)} checks agree")
+if not_run:
+    print(f"not run (time limit or capacity): {', '.join(not_run)}")
 for c in bad:
     print("DISAGREES:", c["task"], c["what"], c["detail"])
-sys.exit(1 if bad else 0)
+for x in incomplete:
+    print("INCOMPLETE:", x)
+sys.exit(1 if bad or incomplete else 0)

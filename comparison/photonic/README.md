@@ -90,7 +90,10 @@ The inputs come from fixed seeds (`gen_inputs.py`), so every program gets exactl
 
 From the first run (12 November 2026, PQCF at ef79196). The full tables are in [RESULTS.md](RESULTS.md).
 
-**Every answer agrees: 51 of 51 checks.**
+**Every answer agrees: 51 of 51 checks** in this first run. The number of checks depends on how many sizes each
+program reaches within the 120 s limit: on 15 November, DeepQuantum's torontonian at k = 22 took 123 s, so k = 24 was
+not run and that run has 50 checks. Every run names the sizes it did not run, and a run in which a program produced no
+results at all fails as incomplete.
 - Permanents and torontonians agree within 1e-8 and 1e-7.
 - Every program's boson samples pass the chi-square test against the exact distribution.
 - Piquasso's Fock states match PQCF's to 5e-16 on every mode.

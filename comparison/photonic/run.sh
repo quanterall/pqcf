@@ -22,9 +22,10 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/pqcf-photonic-XXXXXX")
 mkdir -p "$WORK/src" "$WORK/out"
 git archive HEAD | tar -x -C "$WORK/src"
 ONE="--cpuset-cpus=$CORE -e OMP_NUM_THREADS=1 -e NUMBA_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e OPENBLAS_NUM_THREADS=1"
+FAILED=0
 peer() {
     docker run --rm $ONE -v "$WORK/src/comparison/photonic":/p -v "$WORK/out":/out "$1" python /p/peers.py "$2" /out ||
-        echo "$2 failed: its results are missing from the tables"
+        { echo "$2 failed: the run is incomplete"; FAILED=1; }
 }
 docker run --rm -v "$WORK/src/comparison/photonic":/p -v "$WORK/out":/out pqcf-photonic-peers \
     sh -c 'python /p/gen_inputs.py > /out/inputs.json'
@@ -43,4 +44,5 @@ docker run --rm -v "$WORK/out":/out -v "$PWD/comparison/photonic":/c --user "$(i
     python /c/compare.py /out "/c/results/$HOST-$DATE.json" /c/RESULTS.md /c/history.csv /out/meta.json || CHECK=1
 docker run --rm -v "$WORK":/w pqcf-photonic-peers chown -R "$(id -u):$(id -g)" /w
 rm -rf "${WORK:?}"
+[ $FAILED = 0 ] || CHECK=1
 exit $CHECK

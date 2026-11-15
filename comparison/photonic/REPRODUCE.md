@@ -53,7 +53,13 @@ strawberryfields done
 
 ## How to compare with the published results
 
-- **The answers:** `50 of 50 checks agree`, as in the published [RESULTS.md](RESULTS.md).
+- **The answers:** every check agrees: `50 of 50 checks agree` in the published [RESULTS.md](RESULTS.md) (the run of
+  15 November). The number of checks depends on how many sizes each program reaches within the 120 s limit on your
+  machine; the summary names every size that was not run, for example
+  `not run (time limit or capacity): ..., DeepQuantum torontonian 24, ...`. The first published run (12 November) had
+  51 checks: there DeepQuantum's torontonian at k = 22 took less than 120 s, so k = 24 ran too.
+- **Incomplete runs fail:** if a program produces no results, or no answer for a task it covers, `compare.py` prints
+  `INCOMPLETE: ...` and the script exits with 1, whatever the other checks say.
 - **The times:** the run rewrites `RESULTS.md` with your tables, appends to [history.csv](history.csv) and writes
   `results/<host>-<date>.json`. The seconds depend on your machine; compare each program's time relative to PQCF's
   (the factor in brackets in every table), and PQCF's place in each task, with [README.md](README.md)'s summary.
@@ -75,8 +81,9 @@ docker run --rm -v "$PWD/comparison/photonic":/p -v /tmp/ph:/out pqcf-photonic-p
 
 ## If something goes wrong
 
-- **A peer fails:** the run goes on and says `<program> failed: its results are missing from the tables`; the others
-  are still compared. The peers' versions are pinned, so this should not happen; please open an issue.
+- **A program fails:** the run goes on and says `<program> failed: the run is incomplete`; the others are still
+  compared and tabled, but the run fails (exit 1). The versions are pinned, so this should not happen; please open an
+  issue.
 - **A check fails:** please open an issue with the output: <https://github.com/quanterall/pqcf/issues>.
 
 ## Tested
