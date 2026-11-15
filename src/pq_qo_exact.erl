@@ -11,7 +11,7 @@
 %% Vectors are maps Index => coefficient (the zeros left out); rho' is vectorised row by row (rho'_ij at i D + j);
 %% matrices are maps {Row, Col} => coefficient.
 -module(pq_qo_exact).
--export([liouvillian/5, steady_state/2, operator/5, expect/3, apply_left/3, spectrum/4, real_value/1, kerr_moment/3, steady_state_symbolic/6]).
+-export([liouvillian/5, steady_state/2, operator/5, expect/3, apply_left/3, spectrum/4, real_value/1, kerr_moment/3, kerr2_moment/4, steady_state_symbolic/6]).
 
 -define(E, pq_sym_exact).
 
@@ -337,4 +337,83 @@ operator_sym(Basis, Spaces, Expr, Form) ->
                     lists:append([[{RC, {mul, [Cf, N]}} || {RC, {q, {N0, 1}, {0, 1}}} <- word(W, ?E:c(1), Basis, Form), N <- [N0]]
                                   || W := Cf <- Expr]))
     end).
+
+%%% The Kerr resonator with one- and two-photon driving and dissipation, exactly (Bartolo, Minganti, Casteels, Ciuti,
+%%% PRA 94, 033841 (2016), arXiv:1607.06739; Eqs. 5-11 there). For
+%%%   H = -Delta ad a + (U/2) ad^2 a^2 + F (ad + a) + (G/2) (ad^2 + a^2),   L1 = sqrt(gamma) a,   L2 = sqrt(eta) a^2
+%%% (F and G real here), with c = (Delta + i gamma/2)/(U - i eta), f = F/(U - i eta), g = G/(U - i eta):
+%%%   <ad^i a^j> = (1/N) sum_m (2^m/m!) F_(m+j) conj(F_(m+i)),   N = sum_m (2^m/m!) |F_m|^2,
+%%%   F_m = (i sqrt(g))^m 2F1(-m, -c - i f/sqrt(g); -2c; 2),
+%%% the hypergeometric function terminating (a polynomial of degree m in 2). With U = 0 and F = 0 it is the degenerate
+%%% parametric oscillator with its pump adiabatically eliminated (two-photon driving and two-photon loss). G must not be
+%%% 0 (the limit g -> 0 is the Kerr cavity of kerr_moment/3). The sums are taken until a term falls below 2^-(P + 8) of
+%%% the normalisation, at precision P + 64 bits (the terms of N alternate in size before they fall).
+
+%% <ad^i a^j> as {Re, Im} mps at P bits; Params #{delta, u, f, g, gamma, eta} (rationals {N, D} or integers)
+kerr2_moment(Params, I, J, P) ->
+    Pw = P + 64,
+    R = fun(K) -> V = maps:get(K, Params), pq_mp:from(case V of {_, _} -> V; N -> {N, 1} end, Pw) end,
+    Den = {R(u), pq_mp:neg(R(eta))},
+    Over = fun(Z) -> cdiv(Z, Den, Pw) end,
+    C = Over({R(delta), pq_mp:mul(R(gamma), pq_mp:from({1, 2}, Pw), Pw)}),
+    Fp = Over({R(f), zero_mp()}),
+    G = Over({R(g), zero_mp()}),
+    Sg = csqrt(G, Pw),
+    Ip = {zero_mp(), pq_mp:from(1, Pw)},
+    B = csub2(cneg(C), cmul2(Ip, cdiv(Fp, Sg, Pw), Pw), Pw),            % -c - i f/sqrt(g)
+    Cc = cneg(cscale2(C, 2, Pw)),                                        % -2c
+    Pre = cmul2(Ip, Sg, Pw),
+    Fm = fun(M) -> cmul2(cpow2(Pre, M, Pw), hyp(M, B, Cc, Pw), Pw) end,
+    Sum = fun(Term) -> sum_series(Term, 0, {zero_mp(), zero_mp()}, zero_mp(), Pw, 0) end,
+    Norm = Sum(fun(M) -> cscale_r(cmul2(Fm(M), cconj2(Fm(M)), Pw), w(M, Pw), Pw) end),
+    Corr = Sum(fun(M) -> cscale_r(cmul2(Fm(M + J), cconj2(Fm(M + I)), Pw), w(M, Pw), Pw) end),
+    {Re, Im} = cdiv(Corr, Norm, Pw),
+    {pq_mp:from(Re, P), pq_mp:from(Im, P)}.
+
+%% 2^m / m!
+w(M, P) -> pq_mp:divide(pq_mp:from(1 bsl M, P), pq_mp:from(fact(M), P), P).
+
+%% 2F1(-m, b; c; 2) = sum_(k=0..m) (-m)_k (b)_k / ((c)_k k!) 2^k
+hyp(M, B, C, P) ->
+    {S, _} = lists:foldl(fun(K, {Acc, T}) ->
+                                 T2 = case K of
+                                          0 -> T;
+                                          _ -> cdiv(cmul2(cscale2(T, 2 * (K - 1 - M), P), cadd2(B, {pq_mp:from(K - 1, P), zero_mp()}, P), P),
+                                                    cscale2(cadd2(C, {pq_mp:from(K - 1, P), zero_mp()}, P), K, P), P)
+                                      end,
+                                 {cadd2(Acc, T2, P), T2}
+                         end, {{zero_mp(), zero_mp()}, {pq_mp:from(1, P), zero_mp()}}, lists:seq(0, M)),
+    S.
+
+%% sum_m Term(m) until the terms (after the first few) stay below 2^-(P + 8) of the sum for 8 consecutive m
+sum_series(_, M, Acc, _, _, Quiet) when Quiet >= 8, M > 16 -> Acc;
+sum_series(Term, M, Acc, Max, P, Quiet) ->
+    T = Term(M),
+    Acc2 = cadd2(Acc, T, P),
+    Mag = max(cm(T), -(1 bsl 40)),
+    Ref = max(cm(Acc2), Mag),
+    sum_series(Term, M + 1, Acc2, Max, P, case Mag < Ref - P - 8 of true -> Quiet + 1; false -> 0 end).
+
+cm({A, B}) -> max(mag(A), mag(B)).
+
+cadd2({A, B}, {C, D}, P) -> {pq_mp:add(A, C, P), pq_mp:add(B, D, P)}.
+csub2({A, B}, {C, D}, P) -> {pq_mp:sub(A, C, P), pq_mp:sub(B, D, P)}.
+cmul2({A, B}, {C, D}, P) -> {pq_mp:sub(pq_mp:mul(A, C, P), pq_mp:mul(B, D, P), P), pq_mp:add(pq_mp:mul(A, D, P), pq_mp:mul(B, C, P), P)}.
+cneg({A, B}) -> {pq_mp:neg(A), pq_mp:neg(B)}.
+cconj2({A, B}) -> {A, pq_mp:neg(B)}.
+cscale2({A, B}, K, P) -> {pq_mp:mul(A, pq_mp:from(K, P), P), pq_mp:mul(B, pq_mp:from(K, P), P)}.
+cscale_r({A, B}, R, P) -> {pq_mp:mul(A, R, P), pq_mp:mul(B, R, P)}.
+cdiv({A, B}, {C, D}, P) ->
+    N = pq_mp:add(pq_mp:mul(C, C, P), pq_mp:mul(D, D, P), P),
+    {pq_mp:divide(pq_mp:add(pq_mp:mul(A, C, P), pq_mp:mul(B, D, P), P), N, P),
+     pq_mp:divide(pq_mp:sub(pq_mp:mul(B, C, P), pq_mp:mul(A, D, P), P), N, P)}.
+cpow2(_, 0, P) -> {pq_mp:from(1, P), zero_mp()};
+cpow2(Z, K, P) -> cmul2(Z, cpow2(Z, K - 1, P), P).
+%% the principal square root
+csqrt({X, Y}, P) ->
+    R = pq_mp:sqrt(pq_mp:add(pq_mp:mul(X, X, P), pq_mp:mul(Y, Y, P), P), P),
+    Re = pq_mp:sqrt(pq_mp:mul(pq_mp:add(R, X, P), pq_mp:from({1, 2}, P), P), P),
+    Im0 = pq_mp:sqrt(pq_mp:mul(pq_mp:sub(R, X, P), pq_mp:from({1, 2}, P), P), P),
+    {Re, case pq_mp:cmp(Y, zero_mp()) of -1 -> pq_mp:neg(Im0); _ -> Im0 end}.
+zero_mp() -> {mp, 0, 0}.
 

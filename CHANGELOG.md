@@ -29,6 +29,12 @@ the public API is additive.
     Resonance fluorescence with Omega, Delta and gamma symbolic gives the optical Bloch steady state exactly
     (rho_ee = Omega^2/(4 Delta^2 + gamma^2 + 2 Omega^2), and <sigma_x>, <sigma_y>) in 0.05 s; the Kerr cavity with all
     four parameters symbolic equals the exact numeric steady state at every point tried.
+  - **One- and two-photon driving and dissipation, exactly:** `pq_qo_exact:kerr2_moment/4`, Bartolo, Minganti,
+    Casteels and Ciuti's complex-P solution ([arXiv:1607.06739](https://arxiv.org/abs/1607.06739)): the Kerr resonator
+    with coherent and parametric drives and one- and two-photon loss, its terminating 2F1 functions summed in
+    arbitrary precision. With U = 0 and F = 0 it is the degenerate parametric oscillator with its pump eliminated.
+    <a^dagger a> and <a^2> equal the master equation at 40 photons to 30 digits in three cases, that one included.
+  - `pq_lindblad`: zero to a positive real power is 0 (it took the logarithm of 0).
 - **Master equations** (`pq_lindblad`, quantum optics Q2).
   - **Matrices:** pq_qop operators in a truncated basis (Fock states of each mode, levels of each atom), the
     coefficients evaluated at given parameters; the Liouvillian as a sparse superoperator.

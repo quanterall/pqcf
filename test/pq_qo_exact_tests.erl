@@ -215,3 +215,31 @@ symbolic_kerr_test_() ->
                       #{delta => {-2, 1}, chi => {1, 3}, e => {1, 2}, kappa => {3, 2}},
                       #{delta => {5, 7}, chi => {2, 1}, e => {3, 1}, kappa => {1, 4}}]]
     end}.
+
+%% the Kerr resonator with one- and two-photon driving and dissipation (Bartolo et al., arXiv:1607.06739):
+%% H = -Delta ad a + (U/2) ad^2 a^2 + F (ad + a) + (G/2)(ad^2 + a^2), L1 = sqrt(gamma) a, L2 = sqrt(eta) a^2.
+%% <ad a> and <a^2> of the exact solution (pq_qo_exact:kerr2_moment/4) against the master equation truncated at 40
+%% photons (pq_lindblad, 200 bits), to 30 digits; the second case (U = 0, F = 0) is the degenerate parametric oscillator
+%% with its pump eliminated (two-photon driving and loss)
+kerr_two_photon_test_() ->
+    {timeout, 900, fun() ->
+        P = 200, Q = pq_qop, L = pq_lindblad,
+        A = Q:a(c), Ad = Q:ad(c),
+        H = Q:add([Q:scale({mul, [-1, sym(delta)]}, Q:mul(Ad, A)), Q:scale({mul, [{rat, 1, 2}, sym(u)]}, Q:mul([Ad, Ad, A, A])),
+                   Q:scale(sym(f), Q:add(A, Ad)), Q:scale({mul, [{rat, 1, 2}, sym(g)]}, Q:add(Q:mul(Ad, Ad), Q:mul(A, A)))]),
+        Ls = [Q:scale({pow, sym(gamma), {rat, 1, 2}}, A), Q:scale({pow, sym(eta), {rat, 1, 2}}, Q:mul(A, A))],
+        B = L:basis(#{}, #{c => 40}),
+        Close = fun(X, Y) -> D = pq_mp:sub(X, Y, P), element(2, D) =:= 0 orelse
+                             abs(pq_mp:to_float(D)) < 1.0e-30 * max(1.0, abs(pq_mp:to_float(Y))) end,
+        [begin
+             Num = maps:map(fun(_, {X, Y}) -> {rat, X, Y} end, Par),
+             Rho = L:steady_state(L:liouvillian(L:op(B, #{}, H, {Num, P}), [L:op(B, #{}, X, {Num, P}) || X <- Ls], P), P),
+             {N1, _} = L:expect_dm(L:op(B, #{}, Q:mul(Ad, A), {#{}, P}), Rho, P),
+             {A2r, A2i} = L:expect_dm(L:op(B, #{}, Q:mul(A, A), {#{}, P}), Rho, P),
+             {Wn, _} = pq_qo_exact:kerr2_moment(Par, 1, 1, P),
+             {Wr, Wi} = pq_qo_exact:kerr2_moment(Par, 0, 2, P),
+             ?assert(Close(N1, Wn)), ?assert(Close(A2r, Wr)), ?assert(Close(A2i, Wi))
+         end || Par <- [#{delta => {0, 1}, u => {1, 1}, f => {1, 2}, g => {1, 2}, gamma => {1, 1}, eta => {0, 1}},
+                        #{delta => {0, 1}, u => {0, 1}, f => {0, 1}, g => {2, 1}, gamma => {1, 1}, eta => {1, 1}},
+                        #{delta => {1, 1}, u => {1, 2}, f => {1, 3}, g => {1, 1}, gamma => {1, 2}, eta => {1, 4}}]]
+    end}.

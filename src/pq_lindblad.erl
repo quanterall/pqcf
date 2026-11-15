@@ -409,9 +409,12 @@ ceval({mul, L}, Ps, P) -> lists:foldl(fun(T, S) -> cmul(S, ceval(T, Ps, P), P) e
 ceval({pow, B, K}, Ps, P) when is_integer(K), K >= 0 -> cpow(ceval(B, Ps, P), K, P);
 ceval({pow, B, K}, Ps, P) when is_integer(K) -> cinv(cpow(ceval(B, Ps, P), -K, P), P);
 ceval({pow, B, E}, Ps, P) ->
-    % a real power of a positive real base
+    % a real power of a positive real base; 0 to a positive power is 0
     {Br, _} = ceval(B, Ps, P), {Er, _} = ceval(E, Ps, P),
-    {pq_mp:exp(pq_mp:mul(Er, pq_mp:log(Br, P), P), P), zero_mp()};
+    case Br of
+        {mp, 0, _} -> zero();
+        _ -> {pq_mp:exp(pq_mp:mul(Er, pq_mp:log(Br, P), P), P), zero_mp()}
+    end;
 ceval({conj, X}, Ps, P) -> cconj(ceval(X, Ps, P));
 ceval({exp, X}, Ps, P) ->
     {A, B} = ceval(X, Ps, P),
