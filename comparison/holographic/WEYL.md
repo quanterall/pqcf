@@ -1,6 +1,6 @@
 # The holographic Weyl anomaly: a = c = N^2/4
 
-Produced by `weyl.erl` (decision record SY2, phase 5), PQCF 0c4a889. Every value below is PQCF's output.
+Produced by `weyl.erl` (decision record SY2, phase 5), PQCF 2c971f2. Every value below is PQCF's output.
 
 ## Method
 
@@ -31,4 +31,4 @@ Solodukhin, [hep-th/0002230](https://arxiv.org/abs/hep-th/0002230).
 
 Against N^2/4, PQCF's `equiv` answers `{{ok,true},{ok,true}}`.
 
-Times: S^4 2.6 s, S^2 x S^2 0.7 s.
+Times: S^4 2.5 s, S^2 x S^2 0.7 s.

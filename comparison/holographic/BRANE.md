@@ -1,6 +1,6 @@
 # The AdS_5 black brane's free energy by holographic renormalisation
 
-Produced by `brane.erl` (decision record SY2, phase 5), PQCF 5eb5a60. Each step below is computed by PQCF; the expressions are its output.
+Produced by `brane.erl` (decision record SY2, phase 5), PQCF 2c971f2. Each step below is computed by PQCF; the expressions are its output.
 
 ## Set-up
 

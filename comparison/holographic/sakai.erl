@@ -34,9 +34,9 @@ main(Dir) ->
           "| n | meson | psi(z) | lambda_n, PQCF | the paper (4.12) |\n| --- | --- | --- | --- | --- |\n", Rows,
           io_lib:format("~n- **Mass ratios:** m_a1^2/m_rho^2 = lambda_2/lambda_1 = ~.4f (paper ~~2.4, experiment 2.51);\n"
                         "  m_rho(1450)^2/m_rho^2 = lambda_3/lambda_1 = ~.4f (paper ~~4.3, experiment 3.56).~n", [L2 / L1, L3 / L1]),
-          "- **Independent check:** a SciPy shooting in z (DOP853) with the decaying condition at a cutoff Z, extrapolated\n",
-          "  in 1/Z, gives lambda_1 = 0.6693144 and lambda_2 = 1.5687644. It agrees with the values above to its own\n",
-          "  accuracy (about 1e-7).\n",
+          "- **Independent check** ([scipy_sakai.py](scipy_sakai.py), in the oracle image): a SciPy shooting in z (DOP853)\n",
+          "  with the decaying condition at a cutoff Z, extrapolated in Z, gives the first four eigenvalues equal to these to\n",
+          "  a relative 3e-11 or better (its tolerance: 1e-9).\n",
           "- **Self-check:** the result does not depend on the match point (`test/pq_ode_tests.erl`).\n",
           io_lib:format("~nTimes: vectors ~.1f s, axial vectors ~.1f s.~n", [Tv / 1.0e6, Ta / 1.0e6])],
     ok = file:write_file(filename:join(Dir, "SAKAI.md"), unicode:characters_to_binary(Md)),

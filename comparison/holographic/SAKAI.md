@@ -1,6 +1,6 @@
 # The Sakai-Sugimoto model: vector and axial-vector mesons
 
-Produced by `sakai.erl` (decision record SY2, phase 6), PQCF 75dbdf0.
+Produced by `sakai.erl` (decision record SY2, phase 6), PQCF 2c971f2.
 The model is Sakai and Sugimoto, [hep-th/0412141](https://arxiv.org/abs/hep-th/0412141), eq. (3.28):
 -K^(1/3) d_z (K d_z psi) = lambda psi with K = 1 + z^2, and m_n^2 = lambda_n M_KK^2.
 
@@ -27,9 +27,9 @@ The model is Sakai and Sugimoto, [hep-th/0412141](https://arxiv.org/abs/hep-th/0
 
 - **Mass ratios:** m_a1^2/m_rho^2 = lambda_2/lambda_1 = 2.3438 (paper ~2.4, experiment 2.51);
   m_rho(1450)^2/m_rho^2 = lambda_3/lambda_1 = 4.2944 (paper ~4.3, experiment 3.56).
-- **Independent check:** a SciPy shooting in z (DOP853) with the decaying condition at a cutoff Z, extrapolated
-  in 1/Z, gives lambda_1 = 0.6693144 and lambda_2 = 1.5687644. It agrees with the values above to its own
-  accuracy (about 1e-7).
+- **Independent check** ([scipy_sakai.py](scipy_sakai.py), in the oracle image): a SciPy shooting in z (DOP853)
+  with the decaying condition at a cutoff Z, extrapolated in Z, gives the first four eigenvalues equal to these to
+  a relative 3e-11 or better (its tolerance: 1e-9).
 - **Self-check:** the result does not depend on the match point (`test/pq_ode_tests.erl`).
 
-Times: vectors 5.4 s, axial vectors 9.3 s.
+Times: vectors 5.5 s, axial vectors 9.4 s.

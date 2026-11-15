@@ -71,6 +71,29 @@ PASS: equal to the committed results to 1e-7
 
 `ihqcd:report_only("comparison/holographic")` rewrites IHQCD.md from the raw results without computing, in a second.
 
+## Independent checks in double precision
+
+Three of the computations are also solved by a separate program: SciPy's DOP853, in the paper's own coordinates,
+sharing no code or method with PQCF. Each script reads PQCF's committed result file and exits 1 if they differ by
+more than its tolerance. They run in the oracle image ([test/oracle](../../test/oracle/Dockerfile): SciPy 1.17.1),
+in seconds:
+
+```sh
+docker build -t pqcf-oracle test/oracle
+for s in sakai hardwall gubser; do
+  docker run --rm -v "$PWD":/w -w /w pqcf-oracle python comparison/holographic/scipy_$s.py
+done
+```
+
+| script | checks | tolerance | agreement |
+| --- | --- | --- | --- |
+| [scipy_sakai.py](scipy_sakai.py) | the first four Sakai-Sugimoto eigenvalues (SAKAI.md) | relative 1e-9 | 3e-11 or better |
+| [scipy_hardwall.py](scipy_hardwall.py) | m_a1 and the chiral-limit f_pi of both models (HARDWALL.md) | relative 1e-7, the published rounding | m_a1 2e-8, f_pi 1e-9 |
+| [scipy_gubser.py](scipy_gubser.py) | c_s^2 for phi_H =< 5 (GUBSER.md) | 2e-6 | 5e-7, the table's rounding |
+
+The hard-wall check found an error in PQCF on 15 November 2026: its f_pi was 1e-6 low, because a Frobenius series
+whose terms have gaps was summed too few terms. Fixed (2c971f2), with a test; HARDWALL.md says what changed.
+
 ## What these results are, and are not
 
 - **Precision.** Soft wall, hard wall and Sakai-Sugimoto are computed to 25-30 digits; brane and Weyl are exact. Gubser-Nellore

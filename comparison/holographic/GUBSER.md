@@ -1,6 +1,6 @@
 # Gubser-Nellore: a black hole with the equation of state of QCD
 
-Produced by `gubser.erl` (decision record SY2, phase 6), PQCF 3acee2e. The model is Gubser and Nellore, [arXiv:0804.0434](https://arxiv.org/abs/0804.0434), with the potential (62)
+Produced by `gubser.erl` (decision record SY2, phase 6), PQCF 2c971f2. The model is Gubser and Nellore, [arXiv:0804.0434](https://arxiv.org/abs/0804.0434), with the potential (62)
 and the parameters (64): V = -12 cosh(gamma phi) + b phi^2, gamma = 0.606, b = 2.06 (L = 1).
 
 ## Method
@@ -21,10 +21,11 @@ and the parameters (64): V = -12 cosh(gamma phi) + b phi^2, gamma = 0.606, b = 2
 - **Ultraviolet limit:** c_s^2 -> 1/3 at small phi_H (high T).
 - **The crossover:** c_s^2 dips near T_c, then rises toward its infrared value, as in the paper's figures 3 and 4.
   The figures give no table to compare digits with.
-- **An independent double-precision solution** (SciPy DOP853, the same equations) agrees to 6 digits up to
-  phi_H = 4. Beyond that it is unstable: at phi_H = 6 it swings between 0.0602 and 0.32 as its tolerance
-  changes, because of the 0/0 at the horizon. PQCF's 0.06021565 does not change from 20 to 30 digits or
-  with h halved.
+- **An independent double-precision solution** ([scipy_gubser.py](scipy_gubser.py), SciPy DOP853, the same
+  equations, in the oracle image) agrees with the table to its 6 decimals (5e-7; tolerance 2e-6) up to
+  phi_H = 5. Beyond that it depends on its tolerance, because of the 0/0 at the horizon: at phi_H = 6 it gives
+  0.060254 at rtol 1e-10 and 0.060224 at 1e-12, approaching PQCF's 0.060216, which does not change from 20
+  to 30 digits or with h halved.
 
 ## Results (T_c: the temperature of the minimum of c_s^2 on this grid)
 
@@ -48,4 +49,4 @@ and the parameters (64): V = -12 cosh(gamma phi) + b phi^2, gamma = 0.606, b = 2
 | 12.00 | 0.3348 | 0.140095 |
 | 16.00 | 0.1295 | 0.148126 |
 
-Time: 245.5 s.
+Time: 254.6 s.

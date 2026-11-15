@@ -5,6 +5,15 @@ the public API is additive.
 
 ## Unreleased
 
+### Fixed
+
+- **`pq_ode`: Frobenius series with gaps were cut short.** The series stopped once two coefficients in a row were
+  negligible; a series in z^k (k > 2) has k - 1 zeros between its terms. The hard wall's chiral-limit f_pi
+  (`comparison/holographic/HARDWALL.md`) was 1e-6 low: 90.903245 and 82.254526 MeV, now 90.903337 and 82.254552,
+  equal to the exact power series; m_pi (GOR) moves in its fourth decimal. Found by the new SciPy cross-check. No
+  other published result changed: walls, Sakai-Sugimoto, the brane, the Weyl anomaly, Gubser-Nellore and the IHQCD
+  quick check were rerun.
+
 ### Added
 
 - **Exact steady states and spectra** (`pq_qo_exact`, quantum optics Q3).
@@ -269,6 +278,8 @@ the public API is additive.
     page, the commit it was tested at, its time and what it needs;
   - every step-by-step page has two paths: the published run, at the commit it was tested at, and the latest.
   - every Dockerfile names its base image by digest; the digests are in REPRODUCE.md.
+  - the SciPy cross-checks quoted in SAKAI.md, HARDWALL.md and GUBSER.md as committed scripts with tolerances
+    (`comparison/holographic/scipy_*.py`, in the oracle image);
   - CI in four groups on both targets (`tools/ci.sh`: static, fast, integration, scientific), each its own job; the
     README shows its status. The x86 failures since 14 Nov were one test past EUnit's default 5 s timeout.
   - the README opens with PQCF's two capabilities, the scientific engine and distributed execution, and an
