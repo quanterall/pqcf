@@ -16,6 +16,14 @@ the public API is additive.
 
 ### Added
 
+- **QCD's renormalisation group** (`pq_qcd`, step QCD1): beta_0 .. beta_4 and gamma_m 0 .. 4 exactly (rationals and
+  zeta values, polynomials in n_f); alpha_s and MS-bar masses run at arbitrary precision (ln(mu1^2/mu0^2) =
+  -int da/beta(a) solved by Newton's method, ln(m1/m0) = int gamma/beta, the integrals by pq_quad); alpha_s decoupled
+  at an MS-bar threshold to three loops, upward by the inverse series. beta_0 .. beta_3 also for any gauge group
+  (vRVL's formula in pq_lie's invariants), which for SU(3) equals the SU(3) coefficients exactly. Against mpmath (a
+  separate transcription; its ODE solver at 45 digits): coefficients to 38 digits, running and decoupling to 28;
+  against CRunDec 3.1.2: running to 1e-8 (its step tolerance), decoupling to 1e-14 (`comparison/qcd`).
+- `pq_quad`: an integral with its limits reversed is minus the integral the other way (it failed before).
 - **The one-loop four-point function D0** (`pq_oneloop:d0/11`, step F3, third part), at arbitrary precision for
   real kinematics. One analytic integration of 1/F^2 leaves singularities that are not integrable, so D0 is reduced by
   the dimension-shift relation (Bern, Dixon and Kosower, [hep-ph/9306240](https://arxiv.org/abs/hep-ph/9306240);

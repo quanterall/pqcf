@@ -24,7 +24,8 @@ bits(P, E) -> E * P + 96.
 
 integrate(F, Lo, Hi, P) -> integrate(F, Lo, Hi, [], P).
 
-%% the sum over the pieces between Lo, the breakpoints inside (Lo, Hi) and Hi
+%% the sum over the pieces between Lo, the breakpoints inside (Lo, Hi) and Hi; Lo > Hi gives minus the integral from
+%% Hi to Lo
 integrate(F, Lo0, Hi0, Breaks, P) -> integrate(F, Lo0, Hi0, Breaks, P, #{}).
 
 %% Opts: #{parallel => true} evaluates each level's new nodes in parallel processes (for expensive integrands, such
@@ -40,6 +41,16 @@ integrate(F, Lo0, Hi0, Breaks, P, Opts) ->
            end,
     Ends = maps:get(ends, Opts, 2),
     W = bits(P, Ends),
+    case pq_mp:cmp(pq_mp:from(Lo0, W), pq_mp:from(Hi0, W)) of
+        0 -> {{mp, 0, 0}, {mp, 0, 0}};
+        1 ->
+            % the limits reversed: minus the integral the other way
+            {R, I} = integrate1(Eval, Lim, Hi0, Lo0, Breaks, P, Ends, W),
+            {pq_mp:neg(R), pq_mp:neg(I)};
+        -1 -> integrate1(Eval, Lim, Lo0, Hi0, Breaks, P, Ends, W)
+    end.
+
+integrate1(Eval, Lim, Lo0, Hi0, Breaks, P, Ends, W) ->
     Lo = pq_mp:from(Lo0, W), Hi = pq_mp:from(Hi0, W),
     Inside = lists:usort(fun(A, B) -> pq_mp:cmp(A, B) =< 0 end,
                          [B || B0 <- Breaks, B <- [pq_mp:from(B0, W)], pq_mp:cmp(B, Lo) > 0, pq_mp:cmp(B, Hi) < 0]),
