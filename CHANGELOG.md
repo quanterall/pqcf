@@ -24,8 +24,8 @@ the public API is additive.
   negative (Euclidean configurations among them). Zero momenta in closed form (a divided difference of z log z);
   soft and collinear divergences refused.
   - **Checks** (`test/oracle/gt_c0.sh`, 40 configurations, 0.3-3 s each at 36 digits): mpmath's direct integral to
-    28 digits where D > 0 on the whole triangle (10 configurations); mpmath's contour deformation to 1e-12 where two
-    deformation parameters agree (27); elsewhere the value two of the deformation, QCDLoop 2.1.0 and LoopTools 2.16
+    28 digits where D > 0 on the whole triangle (9 configurations); mpmath's contour deformation to 1e-12 where two
+    deformation parameters agree (28); elsewhere the value two of the deformation, QCDLoop 2.1.0 and LoopTools 2.16
     agree on; C0(1, 1, 1; 1, 1, 1) = -0.671253105748004686.
   - **The two external programs**, in our aarch64 builds: QCDLoop is wrong in 6 of the 40 configurations (and off
     by 7e-9 in one more), LoopTools in 7; each of them with lambda < 0, where PQCF equals the deformation to 1e-14 or

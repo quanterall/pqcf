@@ -55,12 +55,13 @@ kinematics, both signs of lambda, massless lines):
 
 | reference | configurations | PQCF agrees |
 | --- | --- | --- |
-| mpmath, direct integral (D > 0) | 10 | to 28 digits |
-| mpmath, contour deformation, stable under kappa = 0.05 / 0.1 | 27 | to 1e-12 (largest difference 1.3e-14) |
-| two of deformation (kappa = 0.1), QCDLoop, LoopTools agreeing to 1e-12 | the rest but one | to 1e-12 |
+| mpmath, direct integral (D > 0) | 9 | to 28 digits |
+| mpmath, contour deformation, stable under kappa = 0.05 / 0.1 | 28 | to 1e-12 (largest difference 1.3e-14) |
+| two of deformation (kappa = 0.1), QCDLoop, LoopTools agreeing to 1e-12 | 11 of the other 12 | to 1e-12 |
 | the deformation alone (both programs wrong, deformation not stable) | 1 | to 1e-6 (in fact 1e-16) |
 
-QCDLoop disagrees with the others in 6 configurations (and by 7e-9 in one more), LoopTools in 7, always with
-lambda < 0; the deformation is unstable (its two values differ by more than 1e-12, up to 0.14) in 13, mostly with
+QCDLoop disagrees with PQCF in 6 configurations (and by 7e-9 in one more), LoopTools in 7, always with
+lambda < 0; the deformation is unstable (its two values differ by more than 1e-12, up to 0.14) in 12, mostly with
 massless lines, where the corners of the triangle are singular. Where the deformation is unstable and the two
-programs agree, they agree with PQCF to about 1e-15.
+programs agree, they agree with PQCF to about 1e-15. (`gt_c0.sh`'s own summary counts 12 disagreements for each
+program: its flags compare with the deformation, which is itself off in some of those configurations.)
