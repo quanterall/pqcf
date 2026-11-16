@@ -92,7 +92,7 @@ eigenvalues(V0, Z, Opts) ->
                       {ok, ND} -> ND;
                       {error, _} -> throw({ode, potential_not_rational})
                   end,
-        Np = coeffs(N, Z), Dp = coeffs(Dd, Z),
+        {Np, Dp} = double_pole(coeffs(N, Z), coeffs(Dd, Z), maps:get(left, Opts, {frobenius, 0})),
         Digits = maps:get(digits, Opts, 30),
         P = ceil(Digits * 3.3219280948873622) + 24,
         Prob = #{n => Np, d => Dp, roots => roots(Dp), left => maps:get(left, Opts, {frobenius, 0}),
@@ -266,6 +266,12 @@ start(#{left := {frobenius, 0}, n := Np, d := Dp, roots := Rs}, E, W, Root) ->
                               end
                       end, {mp, 0, 0}, lists:seq(0, 2 * Nc - 2)),
     {Z0, pq_mp:mul(Zs, Sum, W), pq_mp:divide(pq_mp:mul(Zs, DSum, W), Z0, W), Int}.
+
+%% A simple pole of V at the Frobenius point 0 (D = z d(z), d(0) /= 0: the s-states of a Coulomb potential) is a
+%% regular singular point too: N and D are both multiplied by z, which gives the double-pole form the Frobenius start
+%% takes (the same equation; the exponents are then 0 and 1)
+double_pole(Np, [{0, _}, {D1, _} | _] = Dp, {frobenius, 0}) when D1 =/= 0 -> {[{0, 1} | Np], [{0, 1} | Dp]};
+double_pole(Np, Dp, _) -> {Np, Dp}.
 
 %% the coefficients of M = E D - N
 mcoeffs(Np, Dp, E, W) ->
