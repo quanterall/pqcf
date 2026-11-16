@@ -16,6 +16,11 @@ the public API is additive.
 
 ### Added
 
+- **Dirac algebra in d dimensions** (`pq_dirac`, step F2, first part): traces of gamma matrices and slashed momenta
+  natively. Repeated indices are removed first by the identity gamma^mu X S gamma_mu = 2 S X - X (gamma^mu S gamma_mu)
+  (gamma^mu gamma_mu = d), then the rest by the pairing recursion, memoised: a trace of 18 matrices with six
+  contracted indices takes 0.2 s. 60 fully contracted traces of up to 12 matrices equal FORM's `tracen` exactly
+  (`test/oracle/gt_dirac.sh`).
 - **Spectra on the half-line** (step QM2, first part): `pq_ode:eigenvalues/3` takes a Neumann left end
   (`{neumann, A}`, psi'(A) = 0), for the even states of symmetric potentials. The quartic oscillator H = p^2 + x^4: its
   first four eigenvalues (1.0603620904841828996470460166926635455...) equal an independent mpmath shooting
