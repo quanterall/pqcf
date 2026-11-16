@@ -16,13 +16,31 @@ the public API is additive.
 
 ### Added
 
+- **The one-loop three-point function C0** (`pq_oneloop:c0/7`, step F3, second part), at arbitrary precision for
+  real kinematics, every region in one method: the y integral of the Feynman parameters in closed form (the roots of
+  D as a quadratic in y with their -i eps prescription, the logarithms through the roots' products so nothing cancels
+  where a root meets an end), the x integral by `pq_quad`, split where h(x) is singular. 't Hooft and Veltman's real
+  substitution was tried first and dropped: it does not exist when the Kallen function lambda(p1^2, p2^2, p3^2) is
+  negative (Euclidean configurations among them). Zero momenta in closed form (a divided difference of z log z);
+  soft and collinear divergences refused.
+  - **Checks** (`test/oracle/gt_c0.sh`, 40 configurations, 0.3-3 s each at 36 digits): mpmath's direct integral to
+    28 digits where D > 0 on the whole triangle (10 configurations); mpmath's contour deformation to 1e-12 where two
+    deformation parameters agree (27); elsewhere the value two of the deformation, QCDLoop 2.1.0 and LoopTools 2.16
+    agree on; C0(1, 1, 1; 1, 1, 1) = -0.671253105748004686.
+  - **The two external programs**, in our aarch64 builds: QCDLoop is wrong in 6 of the 40 configurations (and off
+    by 7e-9 in one more), LoopTools in 7; each of them with lambda < 0, where PQCF equals the deformation to 1e-14 or
+    better. Below threshold with lambda < 0 LoopTools is wrong as well (C0(1, 1, 1; 1, 1, 1) = 6.87 + 34.2 i).
+    Details: `comparison/oneloop/README.md`.
+- **Quadrature at arbitrary precision** (`pq_quad`): tanh-sinh (Takahasi and Mori), nodes placed from the ends so
+  logarithmic and inverse-square-root end singularities cost nothing, breakpoints for interior singular points,
+  complex integrands.
 - **One-loop two-point functions** (`pq_oneloop`, step F3, first part): A0, B0, B1, B00, B11 and dB0/dp^2 at
   arbitrary precision for real kinematics, in LoopTools' conventions; B0 in closed form in every region (space-like,
   between the thresholds through an angle, above threshold with Im B0 = pi sqrt(lambda)/p^2, massless lines, p^2 = 0),
   the rest by Passarino-Veltman reduction. 60 configurations equal mpmath's Feynman-parameter integrals to 35 digits
-  and LoopTools 2.16 to 1e-11 (`comparison/oneloop/`, `test/oracle/gt_oneloop.sh`). On the way: LoopTools' default
-  C0 is wrong below threshold when the Kallen function is negative (6.87 + 34.2 i for C0(1, 1, 1; 1, 1, 1), whose
-  value is the real -0.67125...); its Denner version is right. `pq_mp:atan/2` added (the header listed it already).
+  and LoopTools 2.16 to 1e-11 (`comparison/oneloop/`, `test/oracle/gt_oneloop.sh`). `pq_mp:atan/2` added (the header
+  listed it already). (This entry said first that LoopTools' default C0 is wrong for a negative Kallen function and
+  its Denner version right; corrected below under the three-point function: no version of our build is right there.)
 - **Dirac algebra in d dimensions** (`pq_dirac`, step F2, first part): traces of gamma matrices and slashed momenta
   natively. Repeated indices are removed first by the identity gamma^mu X S gamma_mu = 2 S X - X (gamma^mu S gamma_mu)
   (gamma^mu gamma_mu = d), then the rest by the pairing recursion, memoised: a trace of 18 matrices with six

@@ -1,14 +1,16 @@
 %% pq_oneloop (plan "theoretical physics instruments", F3): the two-point functions against two independent references
 %% (test/oracle/gt_oneloop.sh, test/fixtures/gt_oneloop.json): mpmath's Feynman-parameter integrals at 40 digits
 %% (B0, B1, B11 to 35 digits) and LoopTools 2.16 (B0, B1, B00, B11, DB0 to 1e-11 relative), in 60 configurations over
-%% every kinematic region.
+%% every kinematic region; the three-point function C0 against mpmath (test/oracle/gt_c0.sh): the direct integral
+%% to 28 digits where D > 0, contour deformation to 1e-12 elsewhere.
 -module(pq_oneloop_tests).
 -include_lib("eunit/include/eunit.hrl").
 
-fixture() ->
+fixture() -> fixture("gt_oneloop.json").
+fixture(Name) ->
     Dir = filename:dirname(code:which(?MODULE)),
-    Paths = [filename:join([Dir, "..", "test", "fixtures", "gt_oneloop.json"]),
-             filename:join([Dir, "..", "..", "..", "..", "test", "fixtures", "gt_oneloop.json"]), "test/fixtures/gt_oneloop.json"],
+    Paths = [filename:join([Dir, "..", "test", "fixtures", Name]),
+             filename:join([Dir, "..", "..", "..", "..", "test", "fixtures", Name]), filename:join("test/fixtures", Name)],
     [P | _] = [P || P <- Paths, filelib:is_regular(P)],
     {ok, B} = file:read_file(P),
     json:decode(B).
@@ -106,3 +108,65 @@ atan_test() ->
                  pq_mp:to_string(pq_mp:atan(pq_mp:sqrt(pq_mp:from(3, P), P), P), 100)),
     ?assertEqual(pq_mp:to_string(pq_mp:neg(pq_mp:atan({1, 7}, P)), 100), pq_mp:to_string(pq_mp:atan({-1, 7}, P), 100)),
     ?assert(abs(pq_mp:to_float(pq_mp:atan(1.0e6, P)) - math:atan(1.0e6)) < 1.0e-15).
+
+%% C0 in 40 configurations: against mpmath's direct integral (28 digits) where D > 0, its contour deformation (1e-12)
+%% where two deformation parameters agree, and elsewhere against the value two of the deformation (kappa = 0.1),
+%% QCDLoop and LoopTools agree on (1e-12), and failing all of those (one configuration, where both programs are wrong)
+%% against the deformation at 1e-6
+c0_test_() ->
+    {timeout, 600, fun() ->
+        lists:foreach(
+          fun(#{<<"args">> := Args, <<"deformed">> := [Dr, Di], <<"stable">> := Stable} = Rec) ->
+                  {R, I} = apply(pq_oneloop, c0, [q(A) || A <- Args] ++ [110]),
+                  case maps:find(<<"direct">>, Rec) of
+                      {ok, Direct} ->
+                          ?assert(close(R, Direct, 28), {Args, direct}),
+                          ?assert(close(I, 0.0, 28), {Args, direct_im});
+                      error -> ok
+                  end,
+                  case {Stable, programs(Rec)} of
+                      {true, _} ->
+                          ?assert(close(R, Dr, 12), {Args, deformed_re}),
+                          ?assert(close(I, Di, 12), {Args, deformed_im});
+                      {false, {Pr, Pi}} ->
+                          ?assert(close(R, Pr, 12), {Args, programs_re}),
+                          ?assert(close(I, Pi, 12), {Args, programs_im});
+                      {false, none} ->
+                          % only the deformation, unstable at 1e-12: a weaker check
+                          ?assert(close(R, Dr, 6), {Args, deformed_loose_re}),
+                          ?assert(close(I, Di, 6), {Args, deformed_loose_im})
+                  end
+          end, fixture("gt_c0.json"))
+    end}.
+
+%% C0 where LoopTools (lambda < 0, below threshold) and QCDLoop (lambda < 0, above) are wrong in our builds, the
+%% closed form at p^2 = 0, and the refusals
+c0_cases_test() ->
+    P = 110,
+    V = fun(X) -> pq_mp:to_float(X) end,
+    {R1, I1} = pq_oneloop:c0(1, 1, 1, 1, 1, 1, P),
+    ?assert(abs(V(R1) + 0.671253105748004686) < 1.0e-15), ?assertEqual(0.0, V(I1)),
+    {R2, I2} = pq_oneloop:c0({9, 2}, 7, 20, 1, {1, 4}, 2, P),
+    ?assert(abs(V(R2) - 0.408381951022) < 1.0e-11), ?assert(abs(V(I2) + 0.152701852704) < 1.0e-11),
+    % C0(0, 0, 0; m^2, m^2, m^2) = -1/(2 m^2)
+    {R3, _} = pq_oneloop:c0(0, 0, 0, 2, 2, 2, P),
+    ?assertEqual(-0.25, V(R3)),
+    % a massless propagator between two on-shell lines
+    ?assertError({pq_oneloop, infrared_divergent}, pq_oneloop:c0(1, 0, 1, 0, 1, 1, P)).
+
+%% the value two of the three (the deformation at kappa = 0.1, QCDLoop, LoopTools) agree on to 1e-12, else none
+programs(Rec) ->
+    F = fun(B) when is_binary(B) -> try binary_to_float(B) catch _:_ -> nan end; (_) -> nan end,
+    Val = fun([A, B]) ->
+                  case {F(A), F(B)} of {X, Y} when is_float(X), is_float(Y) -> [{X, Y}]; _ -> [] end;
+             (_) -> []
+          end,
+    Vs = Val(maps:get(<<"deformed">>, Rec)) ++ Val(maps:get(<<"qcdloop">>, Rec, null)) ++
+         Val(maps:get(<<"looptools">>, Rec, null)),
+    Near = fun({A, B}, {C, D}) ->
+                   math:sqrt((A - C) * (A - C) + (B - D) * (B - D)) =< 1.0e-12 * max(1.0, math:sqrt(A * A + B * B))
+           end,
+    case [X || {K, X} <- lists:enumerate(Vs), {L, Y} <- lists:enumerate(Vs), K < L, Near(X, Y)] of
+        [V | _] -> V;
+        [] -> none
+    end.

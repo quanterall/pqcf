@@ -18,7 +18,7 @@
 %% Arguments are exact: integers or fractions {N, D}; mu2 also. Results are {Re, Im} of pq_mp numbers at P bits, or
 %% decimal strings (value/3).
 -module(pq_oneloop).
--export([a0/2, a0/3, b0/4, b0/5, b1/4, b1/5, b00/4, b00/5, b11/4, b11/5, db0/4, db0/5, value/3]).
+-export([a0/2, a0/3, b0/4, b0/5, b1/4, b1/5, b00/4, b00/5, b11/4, b11/5, db0/4, db0/5, c0/7, value/3]).
 
 -define(Z, {mp, 0, 0}).
 
@@ -213,6 +213,200 @@ l_over_sqrt(S, A, B, W) ->
 lambda(S, A, B) ->
     qsub(qadd(qadd(qmul(S, S), qmul(A, A)), qmul(B, B)),
          qmul({2, 1}, qadd(qadd(qmul(S, A), qmul(S, B)), qmul(A, B)))).
+
+%%% The three-point function
+%%
+%% C0(p1^2, p2^2, p3^2; m1^2, m2^2, m3^2) in LoopTools' order (p3 = p1 + p2; propagators q^2 - m1^2,
+%% (q + p1)^2 - m2^2, (q + p1 + p2)^2 - m3^2), UV finite and independent of mu:
+%%   C0 = int_0^1 h(x) dx,  h(x) = - int_0^x dy 1 / (D(x, y) - i eps),
+%%   D = a x^2 + b y^2 + c x y + d x + e y + f,
+%%   a = p1^2, b = p2^2, c = p3^2 - p1^2 - p2^2, d = m2^2 - m1^2 - p1^2, e = m3^2 - m2^2 + p1^2 - p3^2, f = m1^2.
+%% The y integral in closed form: D = b (y - r1)(y - r2) as a quadratic in y; real roots get the prescription of
+%% D - i eps, r_k + i eps sign(D'(r_k)), so log(u - i eps s) = log|u| - i pi s [u < 0]; complex roots need none (the
+%% logs stay on one sheet along y in [0, x]); b = 0 is linear. The x integral by pq_quad, split where a root crosses
+%% an end of [0, x] (D(x, 0) = 0, D(x, x) = 0) and where the discriminant in y vanishes: there h is singular
+%% (logarithms, inverse square roots), elsewhere analytic. No change of variables into the complex plane, so every
+%% region (lambda < 0 included, where 't Hooft and Veltman's real substitution does not exist) is one case.
+%% All p^2 = 0: the closed form -phi[m1^2, m2^2, m3^2], the second divided difference of phi(z) = z log z
+%% (Hermite-Genocchi). Refused: infrared-divergent configurations, soft (a massless propagator between two on-shell
+%% lines) and collinear (a massless external line between two massless propagators).
+c0(P1, P2, P3, M1, M2, M3, P) ->
+    [Q1, Q2, Q3, Ma, Mb, Mc] = [q(X) || X <- [P1, P2, P3, M1, M2, M3]],
+    ir_check(Q1, Q2, Q3, Ma, Mb, Mc),
+    W = pq_quad:bits(P + 16),
+    R = case [Q1, Q2, Q3] of
+            [{0, _}, {0, _}, {0, _}] -> {neg(divided2(Ma, Mb, Mc, W)), ?Z};
+            _ -> c0_int(Q1, Q2, Q3, Ma, Mb, Mc, P, W)
+        end,
+    round_c(R, P).
+
+%% soft: a massless propagator whose two neighbouring lines are on shell; collinear: a massless external line
+%% (p^2 = 0) between two massless propagators
+ir_check(P1, P2, P3, M1, M2, M3) ->
+    Soft = [I || {I, M, Pa, Ma, Pb, Mb} <- [{1, M1, P1, M2, P3, M3}, {2, M2, P1, M1, P2, M3}, {3, M3, P3, M1, P2, M2}],
+                 sgn(M) =:= 0, Pa =:= Ma, Pb =:= Mb],
+    Coll = [Pij || {Pij, Mi, Mj} <- [{P1, M1, M2}, {P2, M2, M3}, {P3, M1, M3}], sgn(Pij) =:= 0, sgn(Mi) =:= 0, sgn(Mj) =:= 0],
+    Soft =:= [] andalso Coll =:= [] orelse error({pq_oneloop, infrared_divergent}).
+
+c0_int(P1, P2, P3, M1, M2, M3, P, W) ->
+    A = P1, B = P2, C = qsub(qsub(P3, P1), P2),
+    D = qsub(qsub(M2, M1), P1), E = qadd(qsub(qsub(M3, M2), P3), P1), F = M1,
+    % where h is singular: D(x, 0) = 0, D(x, x) = 0, the discriminant (c x + e)^2 - 4 b (a x^2 + d x + f) = 0,
+    % and for b = 0 the zero of the y coefficient c x + e
+    Edges = [{A, D, F}, {qadd(qadd(A, B), C), qadd(D, E), F},
+             {qsub(qmul(C, C), qmul({4, 1}, qmul(A, B))), qsub(qmul({2, 1}, qmul(C, E)), qmul({4, 1}, qmul(B, D))),
+              qsub(qmul(E, E), qmul({4, 1}, qmul(B, F)))}],
+    Breaks = lists:append([real_roots(Qd, W) || Qd <- Edges]) ++
+             case sgn(B) of 0 -> real_roots({{0, 1}, C, E}, W); _ -> [] end,
+    % D on the two edges, y = 0 and y = x, through their zeros: accurate next to them, where the roots in y reach 0 or x
+    G0 = {A, D, F}, G1 = {qadd(qadd(A, B), C), qadd(D, E), F},
+    Ctx = #{g0 => {G0, real_roots(G0, W)}, g1 => {G1, real_roots(G1, W)}},
+    H = fun(X) -> cneg(inner(X, A, B, C, D, E, F, Ctx, W)) end,
+    {R, I} = pq_quad:integrate(H, 0, 1, Breaks, P + 16),
+    {pq_mp:from(R, W), pq_mp:from(I, W)}.
+
+%% int_0^x dy / (b y^2 + beta y + gamma - i eps), beta = c x + e, gamma = a x^2 + d x + f, x real in (0, 1).
+%% The logarithms need -r_k and x - r_k; their products are gamma/b and D(x, x)/b, computed through the edges' zeros,
+%% so the smaller of each pair is the product over the larger: no cancellation where a root meets 0 or x.
+inner(X, A, B, C, D, E, F, #{g0 := {G0, Z0}, g1 := {G1, Z1}}, W) ->
+    Beta = add(mul(mp(C, W), X, W), mp(E, W), W),
+    Gamma = qeval_r(G0, Z0, X, W),                       % D(x, 0)
+    Dxx = qeval_r(G1, Z1, X, W),                         % D(x, x)
+    _ = A, _ = D, _ = F,
+    case sgn(B) of
+        0 ->
+            % b = 0: D(x, y) = beta y + gamma, and D(x, x) = beta x + gamma
+            case is_zero(Beta) of
+                true -> cdiv({X, ?Z}, {Gamma, ?Z}, W);
+                false -> cscale(csub(logr(Dxx, W), logr(Gamma, W), W), divide(one(), Beta, W), W)
+            end;
+        _ ->
+            Bm = mp(B, W),
+            Disc = sub(mul(Beta, Beta, W), mul(from(4, W), mul(Bm, Gamma, W), W), W),
+            case pq_mp:cmp(Disc, ?Z) of
+                1 ->
+                    Sq = pq_mp:sqrt(Disc, W),
+                    % the stable pair: q = -(beta + sign(beta) sqrt(disc))/2, roots q/b and gamma/q
+                    Qv = neg(pq_mp:ldexp(case pq_mp:cmp(Beta, ?Z) < 0 of true -> sub(Beta, Sq, W); false -> add(Beta, Sq, W) end, -1)),
+                    {R1, R2} = case is_zero(Qv) of
+                                   true -> {?Z, ?Z};
+                                   false -> {divide(Qv, Bm, W), divide(Gamma, Qv, W)}
+                               end,
+                    D1 = mul(Bm, sub(R1, R2, W), W),
+                    S1 = pq_mp:cmp(D1, ?Z),
+                    {N1, N2} = pair(neg(R1), neg(R2), divide(Gamma, Bm, W), W),          % -r1, -r2
+                    {X1, X2} = pair(sub(X, R1, W), sub(X, R2, W), divide(Dxx, Bm, W), W), % x - r1, x - r2
+                    L1 = csub(logs(X1, S1, W), logs(N1, S1, W), W),
+                    L2 = csub(logs(X2, -S1, W), logs(N2, -S1, W), W),
+                    cscale(csub(L1, L2, W), divide(one(), D1, W), W);
+                -1 ->
+                    % complex roots r, conj(r): 1/D = (1/(y - r) - 1/(y - conj r)) / (b (r - conj r))
+                    Inv2b = divide(one(), mul(from(2, W), Bm, W), W),
+                    Re = neg(mul(Beta, Inv2b, W)),
+                    Im = mul(pq_mp:sqrt(neg(Disc), W), rabs(Inv2b), W),
+                    Rr = {Re, Im}, Rc = {Re, neg(Im)},
+                    La = csub(clog(csub({X, ?Z}, Rr, W), W), clog(cneg(Rr), W), W),
+                    Lb = csub(clog(csub({X, ?Z}, Rc, W), W), clog(cneg(Rc), W), W),
+                    cdiv(csub(La, Lb, W), {?Z, mul(Bm, pq_mp:ldexp(Im, 1), W)}, W);
+                0 ->
+                    % a double root r: (1/(-r) - 1/(x - r)) / b
+                    R = neg(divide(Beta, mul(from(2, W), Bm, W), W)),
+                    {divide(sub(divide(one(), neg(R), W), divide(one(), sub(X, R, W), W), W), Bm, W), ?Z}
+            end
+    end.
+
+%% a quadratic {t^2, t, 1} (exact) at a real t, through its real zeros when it has any (accurate next to them)
+qeval_r({{0, _}, {0, _}, C}, _, _, W) -> mp(C, W);
+qeval_r({{0, _}, B, _}, [R], T, W) -> mul(mp(B, W), sub(T, R, W), W);
+qeval_r({A, _, _}, [R1, R2], T, W) -> mul(mp(A, W), mul(sub(T, R1, W), sub(T, R2, W), W), W);
+qeval_r({A, _, _}, [R], T, W) -> mul(mp(A, W), mul(sub(T, R, W), sub(T, R, W), W), W);
+qeval_r({A, B, C}, [], T, W) -> add(mul(add(mul(mp(A, W), T, W), mp(B, W), W), T, W), mp(C, W), W).
+
+%% two numbers whose product Prod is known: the larger as given, the smaller as Prod over the larger
+pair(U1, U2, Prod, W) ->
+    case pq_mp:cmp(rabs(U1), rabs(U2)) >= 0 of
+        true -> {U1, small(Prod, U1, W)};
+        false -> {small(Prod, U2, W), U2}
+    end.
+small(_, {mp, 0, _}, _) -> ?Z;
+small(Prod, Big, W) -> divide(Prod, Big, W).
+
+%% log(u - i eps s) of a real u, s = +-1
+logs(U, S, W) ->
+    case pq_mp:cmp(U, ?Z) < 0 of
+        true -> {pq_mp:log(neg(U), W), case S > 0 of true -> neg(pq_mp:pi(W)); false -> pq_mp:pi(W) end};
+        false -> {pq_mp:log(U, W), ?Z}
+    end.
+
+
+is_zero({mp, 0, _}) -> true;
+is_zero(_) -> false.
+
+%% the real zeros of a quadratic {t^2, t, 1} with exact coefficients (pq_quad keeps those inside (0, 1))
+real_roots({{0, _}, {0, _}, _}, _) -> [];
+real_roots({{0, _}, B, C}, W) -> [mp(qneg(qdiv(C, B)), W)];
+real_roots({A, B, C}, W) ->
+    Disc = qsub(qmul(B, B), qmul({4, 1}, qmul(A, C))),
+    case sgn(Disc) of
+        -1 -> [];
+        0 -> [mp(qneg(qdiv(B, qmul({2, 1}, A))), W)];
+        1 ->
+            Sq = pq_mp:sqrt(mp(Disc, W), W),
+            Inv = mp(qdiv({1, 1}, qmul({2, 1}, A)), W),
+            [mul(sub(neg(mp(B, W)), Sq, W), Inv, W), mul(add(neg(mp(B, W)), Sq, W), Inv, W)]
+    end.
+
+%% log(v - i eps) of a real v, and of a complex value (real ones get the -i eps)
+logr(V, W) ->
+    case pq_mp:cmp(V, ?Z) < 0 of
+        true -> {pq_mp:log(neg(V), W), neg(pq_mp:pi(W))};
+        false -> {pq_mp:log(V, W), ?Z}
+    end.
+
+%% the second divided difference of z log z at three points (masses squared, exact)
+divided2(A, B, C, W) ->
+    case lists:sort([A, B, C]) of
+        [X, X, X] -> sgn(X) =:= 0 andalso error({pq_oneloop, infrared_divergent}),
+                     mp(qdiv({1, 1}, qmul({2, 1}, X)), W);
+        [X, X, Y] -> confluent2(X, Y, W);
+        [X, Y, Y] -> confluent2(Y, X, W);
+        [X, Y, Z] ->
+            Phi = fun(V) -> zlogz(V, W) end,
+            add(add(divide(Phi(X), mp(qmul(qsub(X, Y), qsub(X, Z)), W), W),
+                    divide(Phi(Y), mp(qmul(qsub(Y, X), qsub(Y, Z)), W), W), W),
+                divide(Phi(Z), mp(qmul(qsub(Z, X), qsub(Z, Y)), W), W), W)
+    end.
+
+%% phi[x, x, y] = (phi[x, y] - phi'(x)) / (y - x), phi'(x) = log x + 1
+confluent2(X, Y, W) ->
+    sgn(X) =:= 0 andalso error({pq_oneloop, infrared_divergent}),
+    Dxy = divide(sub(zlogz(Y, W), zlogz(X, W), W), mp(qsub(Y, X), W), W),
+    divide(sub(Dxy, add(log_(X, W), one(), W), W), mp(qsub(Y, X), W), W).
+
+zlogz({0, _}, _) -> ?Z;
+zlogz(X, W) -> mul(mp(X, W), log_(X, W), W).
+
+%%% Complex numbers {Re, Im} of pq_mp numbers
+
+csub({A, B}, {C, D}, W) -> {sub(A, C, W), sub(B, D, W)}.
+cneg({A, B}) -> {neg(A), neg(B)}.
+cscale({A, B}, S, W) -> {mul(A, S, W), mul(B, S, W)}.
+cdiv({A, B}, {C, D}, W) ->
+    N = add(mul(C, C, W), mul(D, D, W), W),
+    {divide(add(mul(A, C, W), mul(B, D, W), W), N, W), divide(sub(mul(B, C, W), mul(A, D, W), W), N, W)}.
+clog({A, B}, W) ->
+    {pq_mp:ldexp(pq_mp:log(add(mul(A, A, W), mul(B, B, W), W), W), -1), atan2(B, A, W)}.
+rabs({mp, M, E}) -> {mp, abs(M), E}.
+
+atan2(Y, X, W) ->
+    case {pq_mp:cmp(X, ?Z), pq_mp:cmp(Y, ?Z)} of
+        {1, _} -> pq_mp:atan(divide(Y, X, W), W);
+        {-1, S} when S >= 0 -> add(pq_mp:atan(divide(Y, X, W), W), pq_mp:pi(W), W);
+        {-1, _} -> sub(pq_mp:atan(divide(Y, X, W), W), pq_mp:pi(W), W);
+        {0, 1} -> pq_mp:ldexp(pq_mp:pi(W), -1);
+        {0, -1} -> neg(pq_mp:ldexp(pq_mp:pi(W), -1));
+        {0, 0} -> error({pq_oneloop, log_of_zero})
+    end.
 
 %%% Exact rationals {N, D}, D > 0, reduced
 
