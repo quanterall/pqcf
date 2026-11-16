@@ -18,7 +18,7 @@
 %% Arguments are exact: integers or fractions {N, D}; mu2 also. Results are {Re, Im} of pq_mp numbers at P bits, or
 %% decimal strings (value/3).
 -module(pq_oneloop).
--export([a0/2, a0/3, b0/4, b0/5, b1/4, b1/5, b00/4, b00/5, b11/4, b11/5, db0/4, db0/5, c0/7, value/3]).
+-export([a0/2, a0/3, b0/4, b0/5, b1/4, b1/5, b00/4, b00/5, b11/4, b11/5, db0/4, db0/5, c0/7, d0/11, value/3]).
 
 -define(Z, {mp, 0, 0}).
 
@@ -268,11 +268,15 @@ c0_int(P1, P2, P3, M1, M2, M3, P, W) ->
 %% int_0^x dy / (b y^2 + beta y + gamma - i eps), beta = c x + e, gamma = a x^2 + d x + f, x real in (0, 1).
 %% The logarithms need -r_k and x - r_k; their products are gamma/b and D(x, x)/b, computed through the edges' zeros,
 %% so the smaller of each pair is the product over the larger: no cancellation where a root meets 0 or x.
-inner(X, A, B, C, D, E, F, #{g0 := {G0, Z0}, g1 := {G1, Z1}}, W) ->
+inner(X, _A, B, C, _D, E, _F, #{g0 := {G0, Z0}, g1 := {G1, Z1}}, W) ->
     Beta = add(mul(mp(C, W), X, W), mp(E, W), W),
     Gamma = qeval_r(G0, Z0, X, W),                       % D(x, 0)
     Dxx = qeval_r(G1, Z1, X, W),                         % D(x, x)
-    _ = A, _ = D, _ = F,
+    inner_q(X, B, Beta, Gamma, Dxx, undefined, W).
+
+%% int_0^X dz / (b z^2 + beta z + gamma - i eps): b exact, beta, gamma = D(0) and Dxx = D(X) given (accurate where
+%% they vanish), and the discriminant beta^2 - 4 b gamma if the caller has it more accurately than by the subtraction
+inner_q(X, B, Beta, Gamma, Dxx, Disc0, W) ->
     case sgn(B) of
         0 ->
             % b = 0: D(x, y) = beta y + gamma, and D(x, x) = beta x + gamma
@@ -282,7 +286,10 @@ inner(X, A, B, C, D, E, F, #{g0 := {G0, Z0}, g1 := {G1, Z1}}, W) ->
             end;
         _ ->
             Bm = mp(B, W),
-            Disc = sub(mul(Beta, Beta, W), mul(from(4, W), mul(Bm, Gamma, W), W), W),
+            Disc = case Disc0 of
+                       undefined -> sub(mul(Beta, Beta, W), mul(from(4, W), mul(Bm, Gamma, W), W), W);
+                       _ -> Disc0
+                   end,
             case pq_mp:cmp(Disc, ?Z) of
                 1 ->
                     Sq = pq_mp:sqrt(Disc, W),
@@ -385,6 +392,192 @@ confluent2(X, Y, W) ->
 
 zlogz({0, _}, _) -> ?Z;
 zlogz(X, W) -> mul(mp(X, W), log_(X, W), W).
+
+%%% The four-point function
+%%
+%% D0(p1^2, p2^2, p3^2, p4^2, s12, s23; m1^2, m2^2, m3^2, m4^2) in LoopTools' order (propagators q^2 - m1^2,
+%% (q + p1)^2 - m2^2, (q + p1 + p2)^2 - m3^2, (q - p4)^2 - m4^2; s12 = (p1 + p2)^2, s23 = (p2 + p3)^2):
+%%   D0 = int over the 3-simplex of 1 / (x^T S x - i eps)^2,  S_ij = (m_i^2 + m_j^2 - p_ij^2) / 2,
+%% with p_12 = p1, p_23 = p2, p_34 = p3, p_14 = p4, p_13 = s12, p_24 = s23. One analytic integration of 1/F^2 leaves
+%% singularities that are not integrable, so D0 is reduced by the dimension-shift relation (Bern, Dixon and Kosower,
+%% hep-ph/9306240; Binoth, Guillet and Heinrich, hep-ph/9911342):
+%%   D0 = -(1/2) sum_i b_i C0^(i) - (1/2) B E,   b = S^-1 (1, 1, 1, 1),  B = sum_i b_i,
+%% C0^(i) the triangle without propagator i and E = int over the simplex of 1/(F - i eps) (the six-dimensional box,
+%% finite). E as C0: x1 = 1 - x, x2 = x - y, x3 = y - z, x4 = z, the z integral in closed form (inner_q), y and x by
+%% pq_quad, split where F vanishes on the faces z = 0 and z = y or the discriminant in z vanishes (quadratics in y),
+%% and in x where those curves turn, meet y = 0 or y = x, or meet each other (resultants, pq_rroots).
+%% Refused: det S = 0, where the reduction does not apply (the leading Landau singularity, but also degenerate cases
+%% where D0 is finite, such as zero momenta with equal masses), and divergent triangles with b_i =/= 0.
+d0(P1, P2, P3, P4, S12, S23, M1, M2, M3, M4, P) ->
+    Pij = #{{1, 2} => q(P1), {2, 3} => q(P2), {3, 4} => q(P3), {1, 4} => q(P4), {1, 3} => q(S12), {2, 4} => q(S23)},
+    Ms = [q(M) || M <- [M1, M2, M3, M4]],
+    Sm = [[qdiv(qsub(qadd(lists:nth(I, Ms), lists:nth(J, Ms)), pij(Pij, I, J)), {2, 1}) || J <- lists:seq(1, 4)]
+          || I <- lists:seq(1, 4)],
+    Bv = case solve(Sm, [{1, 1} || _ <- Sm]) of
+             singular -> error({pq_oneloop, degenerate_kinematics});
+             V -> V
+         end,
+    Pw = P + 16,
+    W = pq_quad:bits(Pw),
+    Tri = [begin
+               [J, K, L] = [N || N <- lists:seq(1, 4), N =/= I],
+               {Rt, It} = c0(pij(Pij, J, K), pij(Pij, K, L), pij(Pij, J, L),
+                             lists:nth(J, Ms), lists:nth(K, Ms), lists:nth(L, Ms), Pw),
+               cscale({pq_mp:from(Rt, W), pq_mp:from(It, W)}, mp(Bi, W), W)
+           end || {I, Bi} <- lists:enumerate(Bv), sgn(Bi) =/= 0],
+    Bsum = lists:foldl(fun qadd/2, {0, 1}, Bv),
+    {Er, Ei} = box6(Sm, Pw),
+    Ebox = cscale({pq_mp:from(Er, W), pq_mp:from(Ei, W)}, mp(Bsum, W), W),
+    Sum = lists:foldl(fun(T, Acc) -> cadd2(Acc, T, W) end, Ebox, Tri),
+    round_c(cscale(Sum, mp({-1, 2}, W), W), P).
+
+pij(_, I, I) -> {0, 1};
+pij(Pij, I, J) -> maps:get({min(I, J), max(I, J)}, Pij).
+
+%% E = int over the 3-simplex of 1 / (x^T S x - i eps)
+box6(Sm, P) ->
+    Dot = fun(X, Y) -> lists:foldl(fun qadd/2, {0, 1},
+                                   [qmul(qmul(Xi, lists:nth(J, lists:nth(I, Sm))), Yj)
+                                    || {I, Xi} <- lists:enumerate(X), {J, Yj} <- lists:enumerate(Y)]) end,
+    Z = {0, 1}, O = {1, 1}, Mo = {-1, 1},
+    V = [Z, Z, Mo, O], U0 = [O, Z, Z, Z], U1 = [Mo, O, Z, Z], U2 = [Z, Mo, O, Z],
+    Two = fun(X) -> qmul({2, 1}, X) end,
+    Bz = Dot(V, V),
+    {B0, Bx, By} = {Two(Dot(U0, V)), Two(Dot(U1, V)), Two(Dot(U2, V))},
+    {C00, Cx, Cy} = {Dot(U0, U0), Two(Dot(U0, U1)), Two(Dot(U0, U2))},
+    {Cxx, Cxy, Cyy} = {Dot(U1, U1), Two(Dot(U1, U2)), Dot(U2, U2)},
+    F4 = {4, 1},
+    % quadratics in y, coefficients polynomials in x: F on z = 0, F on z = y, the discriminant in z
+    G0 = {[Cyy], [Cy, Cxy], [C00, Cx, Cxx]},
+    G1 = {[qadd(qadd(Cyy, By), Bz)], [qadd(Cy, B0), qadd(Cxy, Bx)], [C00, Cx, Cxx]},
+    Dz = {[qsub(qmul(By, By), qmul(F4, qmul(Bz, Cyy)))],
+          [qsub(qmul({2, 1}, qmul(By, B0)), qmul(F4, qmul(Bz, Cy))), qsub(qmul({2, 1}, qmul(By, Bx)), qmul(F4, qmul(Bz, Cxy)))],
+          [qsub(qmul(B0, B0), qmul(F4, qmul(Bz, C00))), qsub(qmul({2, 1}, qmul(B0, Bx)), qmul(F4, qmul(Bz, Cx))),
+           qsub(qmul(Bx, Bx), qmul(F4, qmul(Bz, Cxx)))]},
+    Curves = [G0, G1, Dz] ++ case sgn(Bz) of 0 -> [{[Z], [By], [B0, Bx]}]; _ -> [] end,
+    Wn = pq_quad:bits(P, 3),
+    OuterBreaks = lists:append([pq_rroots:roots(Pl, 0, 1, Wn) || Pl <- outer_polys(Curves)]),
+    % the discriminant in z, Dz(x, y) = a (y - re)^2 - disc_y(x) / (4 a), with disc_y(x) (exact, degree 2) through its
+    % zeros: accurate where it vanishes, where the subtraction beta^2 - 4 b gamma would lose everything
+    {[Ad], Bd, Cd} = Dz,
+    DiscY = pq_rroots:sub(pq_rroots:mul(Bd, Bd), pq_rroots:scale(pq_rroots:mul([Ad], Cd), 4)),
+    DiscYq = list_to_tuple(lists:reverse(lists:sublist(DiscY ++ [Z, Z, Z], 3))),
+    DiscYr = real_roots(DiscYq, Wn),
+    G = fun(X) ->
+                Ev = fun({A, Bp, Cp}) -> {peval(A, X, Wn), peval(Bp, X, Wn), peval(Cp, X, Wn)} end,
+                [Q0, Q1 | _] = Qs = [Ev(Cv) || Cv <- Curves],
+                R0 = mp_roots(Q0, Wn), R1 = mp_roots(Q1, Wn),
+                % the real roots, and the real parts of complex ones close to the real line (near-singularities)
+                Near = pq_mp:ldexp(X, -4),
+                Breaks = lists:append([mp_roots(Qv, Wn) ++ near_roots(Qv, Near, Wn) || Qv <- Qs]),
+                BetaX = add(mp(B0, Wn), mul(mp(Bx, Wn), X, Wn), Wn),
+                DzAt = dz_at(Ad, Bd, DiscYq, DiscYr, X, Wn),
+                H = fun(Y) ->
+                            Beta = add(BetaX, mul(mp(By, Wn), Y, Wn), Wn),
+                            inner_q(Y, Bz, Beta, mp_qeval(Q0, R0, Y, Wn), mp_qeval(Q1, R1, Y, Wn), DzAt(Y), Wn)
+                    end,
+                pq_quad:integrate(H, 0, X, Breaks, P, #{on_no_convergence => last, max_level => 11, ends => 3})
+        end,
+    pq_quad:integrate(G, 0, 1, OuterBreaks, P, #{parallel => true, ends => 3}).
+
+%% Dz(x, y) at fixed x as a function of y, without the cancellation of beta^2 - 4 b gamma: a (y - re)^2 - d / (4 a),
+%% re = -b_d(x) / (2 a), d = disc_y(x) through its zeros (through its real roots in y when d > 0); undefined (the
+%% subtraction) when a = 0
+dz_at({0, _}, _, _, _, _, _) -> fun(_) -> undefined end;
+dz_at(Ad, Bd, DiscYq, DiscYr, X, W) ->
+    A = mp(Ad, W),
+    Re = neg(divide(peval(Bd, X, W), pq_mp:ldexp(A, 1), W)),
+    Dv = qeval_r(DiscYq, DiscYr, X, W),
+    case pq_mp:cmp(Dv, ?Z) > 0 of
+        true ->
+            % real roots re -+ sqrt(d) / (2 |a|): through them
+            H = divide(pq_mp:sqrt(Dv, W), rabs(pq_mp:ldexp(A, 1)), W),
+            {R1, R2} = {sub(Re, H, W), add(Re, H, W)},
+            fun(Y) -> mul(A, mul(sub(Y, R1, W), sub(Y, R2, W), W), W) end;
+        false ->
+            K = divide(Dv, pq_mp:ldexp(A, 2), W),
+            fun(Y) -> T = sub(Y, Re, W), sub(mul(A, mul(T, T, W), W), K, W) end
+    end.
+
+%% the polynomials in x whose roots are the outer breakpoints
+outer_polys(Curves) ->
+    Each = lists:append([[pq_rroots:sub(pq_rroots:mul(B, B), pq_rroots:scale(pq_rroots:mul(A, C), 4)),   % double root
+                          C,                                                                            % root at y = 0
+                          pq_rroots:add(pq_rroots:add(pq_rroots:mul([0, 0, 1], A), pq_rroots:mul([0, 1], B)), C)]  % at y = x
+                         ++ case lists:all(fun(K) -> sgn(K) =:= 0 end, A) of true -> [B]; false -> [] end
+                         || {A, B, C} <- Curves]),
+    Pairs = [resultant(Q1, Q2) || {I, Q1} <- lists:enumerate(Curves), {J, Q2} <- lists:enumerate(Curves), I < J],
+    [Pl || Pl <- Each ++ Pairs, Pl =/= []].
+
+%% the resultant in y of a1 y^2 + b1 y + c1 and a2 y^2 + b2 y + c2
+resultant({A1, B1, C1}, {A2, B2, C2}) ->
+    M = fun pq_rroots:mul/2, S = fun pq_rroots:sub/2,
+    S(M(S(M(A1, C2), M(A2, C1)), S(M(A1, C2), M(A2, C1))), M(S(M(A1, B2), M(A2, B1)), S(M(B1, C2), M(B2, C1)))).
+
+peval(Poly, X, W) -> lists:foldr(fun(C, Acc) -> add(mul(Acc, X, W), mp(C, W), W) end, ?Z, Poly).
+
+%% the real roots of a y^2 + b y + c (pq_mp coefficients), the stable pair
+mp_roots({A, B, C}, W) ->
+    case is_zero(A) of
+        true -> case is_zero(B) of true -> []; false -> [neg(divide(C, B, W))] end;
+        false ->
+            Disc = sub(mul(B, B, W), mul(from(4, W), mul(A, C, W), W), W),
+            case pq_mp:cmp(Disc, ?Z) of
+                -1 -> [];
+                _ ->
+                    Sq = pq_mp:sqrt(Disc, W),
+                    Qv = neg(pq_mp:ldexp(case pq_mp:cmp(B, ?Z) < 0 of true -> sub(B, Sq, W); false -> add(B, Sq, W) end, -1)),
+                    case is_zero(Qv) of
+                        true -> [?Z];
+                        false -> [divide(Qv, A, W), divide(C, Qv, W)]
+                    end
+            end
+    end.
+
+%% the real part of a complex pair of roots of a y^2 + b y + c whose imaginary part is below Near
+near_roots({A, B, C}, Near, W) ->
+    case is_zero(A) of
+        true -> [];
+        false ->
+            Disc = sub(mul(B, B, W), mul(from(4, W), mul(A, C, W), W), W),
+            case pq_mp:cmp(Disc, ?Z) < 0 of
+                false -> [];
+                true ->
+                    Im = divide(pq_mp:sqrt(neg(Disc), W), rabs(pq_mp:ldexp(A, 1)), W),
+                    case pq_mp:cmp(Im, Near) < 0 of
+                        true -> [neg(divide(B, pq_mp:ldexp(A, 1), W))];
+                        false -> []
+                    end
+            end
+    end.
+
+%% a y^2 + b y + c at y through its real roots
+mp_qeval({A, B, C}, Roots, Y, W) ->
+    case {is_zero(A), Roots} of
+        {true, [R]} -> mul(B, sub(Y, R, W), W);
+        {true, []} -> C;
+        {false, [R1, R2]} -> mul(A, mul(sub(Y, R1, W), sub(Y, R2, W), W), W);
+        {false, _} -> add(mul(add(mul(A, Y, W), B, W), Y, W), C, W)
+    end.
+
+%% S x = rhs over the rationals (Gauss-Jordan); singular if det S = 0
+solve(Sm, Rhs) ->
+    Rows = [Row ++ [R] || {Row, R} <- lists:zip(Sm, Rhs)],
+    gj(Rows, 1, length(Sm)).
+
+gj(Rows, K, N) when K > N -> [lists:last(R) || R <- Rows];
+gj(Rows, K, N) ->
+    case [R || R <- lists:nthtail(K - 1, Rows), sgn(lists:nth(K, R)) =/= 0] of
+        [] -> singular;
+        [Piv | _] ->
+            Others = lists:sublist(Rows, K - 1) ++ (lists:nthtail(K - 1, Rows) -- [Piv]),
+            Pn = [qdiv(X, lists:nth(K, Piv)) || X <- Piv],
+            Elim = [[qsub(X, qmul(lists:nth(K, R), Y)) || {X, Y} <- lists:zip(R, Pn)] || R <- Others],
+            {Before, After} = lists:split(K - 1, Elim),
+            gj(Before ++ [Pn] ++ After, K + 1, N)
+    end.
+
+cadd2({A, B}, {C, D}, W) -> {add(A, C, W), add(B, D, W)}.
 
 %%% Complex numbers {Re, Im} of pq_mp numbers
 

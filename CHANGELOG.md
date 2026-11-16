@@ -16,6 +16,24 @@ the public API is additive.
 
 ### Added
 
+- **The one-loop four-point function D0** (`pq_oneloop:d0/11`, step F3, third part), at arbitrary precision for
+  real kinematics. One analytic integration of 1/F^2 leaves singularities that are not integrable, so D0 is reduced by
+  the dimension-shift relation (Bern, Dixon and Kosower, [hep-ph/9306240](https://arxiv.org/abs/hep-ph/9306240);
+  Binoth, Guillet and Heinrich, [hep-ph/9911342](https://arxiv.org/abs/hep-ph/9911342)):
+  D0 = -(1/2) sum_i b_i C0^(i) - (1/2) B E, b = S^-1 (1, 1, 1, 1), E the six-dimensional box (the integral of 1/F over
+  the simplex, finite), computed like C0 one dimension higher: the innermost integral in closed form, the two others
+  by pq_quad, split where the singular curves (quadratics in y with coefficients polynomial in x) cross and meet.
+  - **Checks** (`test/oracle/gt_d0.sh`): three Euclidean configurations equal mpmath's direct 3D integral to 16
+    digits; four above threshold equal LoopTools to 1e-15, two of them also QCDLoop (which returns nan for the other
+    two).
+  - **Speed:** 7-11 s for a Euclidean configuration at 18 digits, 45 s to 5 minutes above threshold (20 cores; the
+    outer integral's nodes run in parallel). Refused: det S = 0, where the reduction does not apply.
+- **Real roots of rational polynomials** (`pq_rroots`): Sturm sequences in exact rationals, bisection to any
+  precision; for the singular points of loop integrands.
+- `pq_quad`: `ends => 3` takes the nodes to 2^-(3P + 48) from the ends (singularities up to x^-2/3, met where two
+  singular curves of the box meet; the default stays 2^-(2P + 48)), `parallel => true` for expensive integrands, and for an integral inside an integral
+  `on_no_convergence => last` with `max_level` (it fails only at outer nodes whose weight makes any value
+  negligible; the outer integral keeps its own test).
 - **The one-loop three-point function C0** (`pq_oneloop:c0/7`, step F3, second part), at arbitrary precision for
   real kinematics, every region in one method: the y integral of the Feynman parameters in closed form (the roots of
   D as a quadratic in y with their -i eps prescription, the logarithms through the roots' products so nothing cancels

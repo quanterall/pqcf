@@ -170,3 +170,26 @@ programs(Rec) ->
         [V | _] -> V;
         [] -> none
     end.
+
+%% D0 (test/oracle/gt_d0.sh): three Euclidean configurations against mpmath's direct integral (15 digits), three
+%% above threshold against LoopTools (1e-12; QCDLoop returns nan for one of them). The fourth configuration of the
+%% fixture takes about 5 minutes and is left out of the suite.
+d0_test_() ->
+    {timeout, 900, fun() ->
+        #{<<"euclidean">> := Eu, <<"physical">> := Ph} = fixture("gt_d0.json"),
+        [begin
+             {R, I} = apply(pq_oneloop, d0, [q(A) || A <- Args] ++ [60]),
+             ?assert(close(R, Want, 15), {Args, re}),
+             ?assert(close(I, 0.0, 15), {Args, im})
+         end || #{<<"args">> := Args, <<"mpmath">> := Want} <- Eu],
+        [begin
+             {R, I} = apply(pq_oneloop, d0, [q(A) || A <- Args] ++ [50]),
+             ?assert(close(R, binary_to_float(Lr), 12), {Args, re}),
+             ?assert(close(I, binary_to_float(Li), 12), {Args, im})
+         end || #{<<"args">> := Args, <<"looptools">> := [Lr, Li]} <- lists:sublist(Ph, 3)]
+    end}.
+
+%% D0 refuses det S = 0, where its reduction does not apply: here zero momenta with equal masses (S has equal rows),
+%% where D0 itself is finite, 1/(6 m^4)
+d0_degenerate_test() ->
+    ?assertError({pq_oneloop, degenerate_kinematics}, pq_oneloop:d0(0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 50)).

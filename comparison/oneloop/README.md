@@ -1,8 +1,8 @@
 # One-loop integrals: PQCF against LoopTools, QCDLoop and mpmath
 
-`pq_oneloop` computes the one-loop one- and two-point functions (A0, B0, B1, B00, B11 and dB0/dp^2) and the
-three-point function C0 at arbitrary precision for real kinematics, in LoopTools' conventions (finite parts,
-Delta = 0, scale mu^2).
+`pq_oneloop` computes the one-loop one- and two-point functions (A0, B0, B1, B00, B11 and dB0/dp^2), the
+three-point function C0 and the four-point function D0 at arbitrary precision for real kinematics, in LoopTools'
+conventions (finite parts, Delta = 0, scale mu^2).
 
 The references are independent of each other and of PQCF:
 
@@ -65,3 +65,11 @@ lambda < 0; the deformation is unstable (its two values differ by more than 1e-1
 massless lines, where the corners of the triangle are singular. Where the deformation is unstable and the two
 programs agree, they agree with PQCF to about 1e-15. (`gt_c0.sh`'s own summary counts 12 disagreements for each
 program: its flags compare with the deformation, which is itself off in some of those configurations.)
+
+## The four-point function
+
+`test/oracle/gt_d0.sh` writes `test/fixtures/gt_d0.json`: three Euclidean configurations by mpmath's direct 3D
+integral (20 digits) and four above threshold by LoopTools and QCDLoop. PQCF equals mpmath to 16 digits and LoopTools
+to about 1e-15 in all seven; QCDLoop returns `nan` for two of the four above threshold (D0(2, 3, 1, 4, 20, -5;
+1, 2, 1, 3) and D0(1, 2, 3, 4, 30, -10; 2, 1, 2, 1)) and agrees with the others in the other two. D0 is slow above
+threshold (45 s to 5 minutes at 18 digits on 20 cores); the test suite checks three of the four.
