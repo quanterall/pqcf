@@ -9,14 +9,14 @@
 %% - pi: Machin's formula; log 2: 2 atanh(1/3); Euler's gamma: Brent and McMillan's algorithm B1; zeta(k):
 %%   Borwein's algorithm 2 in exact rationals;
 %% - exp: reduction by log 2 and halving, Taylor, squaring; log: Newton on exp; sin, cos: reduction modulo pi/2,
-%%   Taylor; atan by halving;
+%%   Taylor; atan: halving (atan x = 2 atan(x / (1 + sqrt(1 + x^2)))) to |x| < 2^-8, Taylor;
 %% - Gamma: shift up, Stirling's series with exact Bernoulli numbers, reflection below 1/2; polygamma likewise;
 %% - Bessel J_nu (nu rational) and Y_n (n an integer): their power series with guard bits for the cancellation (x up
 %%   to a few hundred); their zeros: McMahon's asymptotic start, Newton;
 %% - Laguerre L_n^alpha: the sum; 2F1(a, b; c; z) for |z| < 1: the series.
 -module(pq_mp).
 -export([from/2, from_string/2, to_float/1, to_string/2, add/3, sub/3, mul/3, divide/3, neg/1, sqrt/2, cmp/2, ldexp/2,
-         pi/1, ln2/1, euler_gamma/1, zeta/2, exp/2, log/2, sin/2, cos/2, gamma/2, polygamma/3,
+         pi/1, ln2/1, euler_gamma/1, zeta/2, exp/2, log/2, sin/2, cos/2, atan/2, gamma/2, polygamma/3,
          besselj/3, bessely/3, besselj_zero/3, laguerre/4, hyp2f1/5, evaluate/3, pslq/3]).
 
 -export_type([mp/0]).
@@ -360,6 +360,35 @@ series_alt(R, W, R2, Term, S, Acc, K) ->
         false -> series_alt(R, W, R2, T2, S, add(Acc, T2, W), K + 1)
     end.
 
+%% atan(x): |x| halved by atan x = 2 atan(x / (1 + sqrt(1 + x^2))) until below 2^-8, the series, times 2^s
+atan(X0, P) ->
+    X = from(X0, P + 32),
+    case is_zero(X) of
+        true -> {mp, 0, 0};
+        false ->
+            W = P + 32 + max(0, mag(X)),
+            {R, S} = atan_halve(X, W, 0),
+            from(ldexp(series_atan(R, W), S), P)
+    end.
+
+atan_halve(X, W, S) ->
+    case mag(X) < -8 of
+        true -> {X, S};
+        false ->
+            Den = add({mp, 1, 0}, sqrt(add({mp, 1, 0}, mul(X, X, W), W), W), W),
+            atan_halve(divide(X, Den, W), W, S + 1)
+    end.
+
+%% sum of (-1)^k r^(2k + 1) / (2k + 1)
+series_atan(R, W) -> series_atan(R, W, mul(R, R, W), R, R, 1).
+series_atan(R, W, R2, Pow, Acc, K) ->
+    Pow2 = neg(mul(Pow, R2, W)),
+    T = divide(Pow2, from(2 * K + 1, W), W),
+    case is_zero(T) orelse mag(T) < mag(Acc) - W - 2 of
+        true -> Acc;
+        false -> series_atan(R, W, R2, Pow2, add(Acc, T, W), K + 1)
+    end.
+
 %%% Gamma and polygamma
 
 %% Bernoulli numbers B_0 .. B_N as fractions (cached), by the Akiyama-Tanigawa algorithm: for m = 0, 1, ..:
@@ -638,6 +667,7 @@ ev({exp, X}, B, P) -> exp(ev(X, B, P), P);
 ev({log, X}, B, P) -> log(ev(X, B, P), P);
 ev({sin, X}, B, P) -> sin(ev(X, B, P), P);
 ev({cos, X}, B, P) -> cos(ev(X, B, P), P);
+ev({atan, X}, B, P) -> atan(ev(X, B, P), P);
 ev({const, pi}, _, P) -> pi(P);
 ev({const, euler_gamma}, _, P) -> euler_gamma(P);
 ev({zeta, K}, _, P) -> zeta(K, P);

@@ -16,6 +16,13 @@ the public API is additive.
 
 ### Added
 
+- **One-loop two-point functions** (`pq_oneloop`, step F3, first part): A0, B0, B1, B00, B11 and dB0/dp^2 at
+  arbitrary precision for real kinematics, in LoopTools' conventions; B0 in closed form in every region (space-like,
+  between the thresholds through an angle, above threshold with Im B0 = pi sqrt(lambda)/p^2, massless lines, p^2 = 0),
+  the rest by Passarino-Veltman reduction. 60 configurations equal mpmath's Feynman-parameter integrals to 35 digits
+  and LoopTools 2.16 to 1e-11 (`comparison/oneloop/`, `test/oracle/gt_oneloop.sh`). On the way: LoopTools' default
+  C0 is wrong below threshold when the Kallen function is negative (6.87 + 34.2 i for C0(1, 1, 1; 1, 1, 1), whose
+  value is the real -0.67125...); its Denner version is right. `pq_mp:atan/2` added (the header listed it already).
 - **Dirac algebra in d dimensions** (`pq_dirac`, step F2, first part): traces of gamma matrices and slashed momenta
   natively. Repeated indices are removed first by the identity gamma^mu X S gamma_mu = 2 S X - X (gamma^mu S gamma_mu)
   (gamma^mu gamma_mu = d), then the rest by the pairing recursion, memoised: a trace of 18 matrices with six
