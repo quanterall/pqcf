@@ -16,6 +16,18 @@ the public API is additive.
 
 ### Added
 
+- **Feynman diagrams** (`pq_diagrams`, step F4, first part): every graph of a theory (vertex types as multisets of
+  fields, the propagators that join them) with given external legs and loops, and its weight 1/S, computed exactly as
+  the number of Wick pairings over the vertex normalisations (no automorphism group); legs of a vertex with the same
+  field paired as classes; graphs identified by a canonical form from colour refinement. Filters as in QGRAF:
+  connected, one_pi, no_tadpoles, no_snails.
+  - **Checks** against zero-dimensional field theory (Cvitanovic, Lautrup and Pearson,
+    [doi:10.1103/PhysRevD.18.1939](https://doi.org/10.1103/PhysRevD.18.1939)), its generating functions computed in the
+    test in exact rationals: phi^4 vacuum graphs = ln Z to six loops (1/8, 1/12, 11/96, 17/72, 619/960; 1, 2, 4, 10,
+    28 graphs), connected and one-particle-irreducible two- and four-point graphs = the cumulants of Z(J), the
+    self-energy 1 - 1/G and the vertex G_c4 / G^4; phi^3 and a two-field theory (phi^2 chi) vacuum graphs = ln Z.
+  - **Reach:** labelled pairings, so phi^4 to six loops in 0.3 s, phi^3 to four loops in 4 s; eight cubic vertices
+    are out of reach. Next: orderly generation, fermions (signs, oriented lines), and the QED and QCD counts.
 - **QCD's renormalisation group** (`pq_qcd`, step QCD1): beta_0 .. beta_4 and gamma_m 0 .. 4 exactly (rationals and
   zeta values, polynomials in n_f); alpha_s and MS-bar masses run at arbitrary precision (ln(mu1^2/mu0^2) =
   -int da/beta(a) solved by Newton's method, ln(m1/m0) = int gamma/beta, the integrals by pq_quad); alpha_s decoupled

@@ -14,7 +14,7 @@ SCIENTIFIC="stat_samplers_tests pq_holo_tests pq_ode_tests pq_qo_exact_tests pq_
   pq_ibp_tests pq_recon_tests pq_tensor_tests pq_geometry_tests pq_series_tests pq_mp_tests gt_h02_tests
   gt_p01_tests phase4_noise_tests phase4_feed_forward_tests phase4_dm_blocks_tests sample_boson_tests
   pq_cumulant_tests pq_dicke_tests pq_slh_tests pq_lie_tests pq_perturb_tests pq_spectra_tests pq_dirac_tests
-  pq_oneloop_tests pq_qcd_tests"
+  pq_oneloop_tests pq_qcd_tests pq_diagrams_tests"
 
 all_modules() {
     for f in test/*_tests.erl; do basename "$f" .erl; done
