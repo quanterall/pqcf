@@ -1,22 +1,26 @@
-%% Feynman diagrams (plan "theoretical physics instruments", F4, first part): every graph of a theory with given
-%% external legs and number of loops, with its weight 1/S, as Wick's theorem produces them.
+%% Feynman diagrams (plan "theoretical physics instruments", F4): every graph of a theory with given external legs and
+%% number of loops, with its weight sign/S.
 %%
-%% A theory is a list of vertex types {Name, Fields} (Fields the multiset of field names on the vertex, e.g.
-%% {v4, [phi, phi, phi, phi]}) and the propagators {F1, F2} (which field ends can be joined; {phi, phi} for a real
-%% scalar). External legs are labelled nodes {ext, 1}, {ext, 2}, .. carrying a field each.
+%% A theory: #{vertices => [{Name, Fields}], propagators => [{F1, F2}], fermions => [F]}. Fields is the multiset of
+%% field names on a vertex (e.g. {v4, [phi, phi, phi, phi]}, QED's {v, ['ELE', ele, pho]}); a propagator {F1, F2}
+%% joins a leg F1 to a leg F2 ({phi, phi} for a real field, {ele, 'ELE'} for a charged one, as in FORM's and QGRAF's
+%% models); fermions are the Grassmann fields (fermions and ghosts). External legs are nodes {ext, 1}, {ext, 2}, ..
+%% carrying one field each (the field of the leg they join, as FORM writes them).
 %%
-%% Method: for each multiset of vertices with sum_t n_t (k_t - 2) = 2 L - 2 + E (L loops, E legs), every complete
-%% pairing of the half-edges (Wick's contractions) is generated, the resulting graph brought to a canonical form
-%% (internal vertices relabelled within each type to the smallest edge list), and the pairings of each graph counted.
-%% With a vertex normalised as g / prod(m_f!) (m_f the multiplicity of field f on it, the usual g/4! phi^4),
-%%   1/S = (number of pairings) / prod_t (n_t! prod_f m_f!^n_t),
-%% exactly: no automorphism group is computed. Filters: connected (default), one_pi (no internal bridge), no_tadpoles
-%% (no part without external legs hanging on one line) and no_snails (no line from a vertex to itself), as in QGRAF.
-%% Reach: the pairings are enumerated with labelled vertices, so the work grows with the number of labelled graphs:
-%% phi^4 vacuum graphs to six loops (5 vertices) in 0.3 s, phi^3 to four loops (6 vertices) in 4 s; eight cubic
-%% vertices are out of reach. Orderly generation (as QGRAF does) is the next step.
+%% Method (the default, orderly): for each multiset of vertices with sum_t n_t (k_t - 2) = 2 L - 2 + E, the multigraphs
+%% are built by joining the first free leg to a partner, partners of one leg class in increasing order, and a vertex
+%% not yet joined to anything only if it is the first such vertex of its type: each graph comes a few times instead of
+%% once per labelling. Each is brought to a canonical form by individualisation and refinement (colour refinement of
+%% the vertices by their type, legs and neighbours; a vertex of the first ambiguous class fixed in turn); the leaves of
+%% that search that give the smallest edge list are its automorphisms. Then
+%%   S = |Aut| prod (multiplicity of each multiple line)! 2^(lines from a vertex to itself with one field at both ends),
+%%   sign = (-1)^(closed fermion loops)   (a vertex carries at most one fermion line).
+%% method => wick counts every pairing of the legs instead (Wick's theorem, 1/S = pairings / prod_t (n_t! prod_f
+%% m_f!^n_t)): slow, kept as an independent check for theories without fermions.
+%% Filters, as in QGRAF and FORM: connected (always), one_pi, no_tadpoles (no part without external legs hanging on
+%% one line), no_snails (no line from a vertex to itself).
 -module(pq_diagrams).
--export([graphs/4, graphs/5, sum_weights/1]).
+-export([graphs/4, graphs/5, sum_weights/1, fermion_loops/2]).
 
 -type field() :: atom().
 -type vtype() :: {atom(), [field()]}.
@@ -27,11 +31,18 @@ graphs(Theory, Ext, Loops, Opts) -> graphs(Theory, Ext, Loops, Opts, #{}).
 
 -spec graphs(#{vertices := [vtype()], propagators := [{field(), field()}]}, [field()], non_neg_integer(), [atom()], map()) ->
           [{term(), {integer(), pos_integer()}}].
-graphs(#{vertices := Vts, propagators := Props}, Ext, Loops, Opts, _More) ->
+graphs(#{vertices := Vts, propagators := Props} = Th, Ext, Loops, Opts, More) ->
     E = length(Ext),
     Target = 2 * Loops - 2 + E,
     Counts = vertex_counts(Vts, Target),
-    lists:append([graphs_for(Vts, Props, Ext, Ns, Opts) || Ns <- Counts]).
+    case maps:get(method, More, orderly) of
+        wick ->
+            maps:get(fermions, Th, []) =:= [] orelse error({pq_diagrams, wick_without_fermions_only}),
+            lists:append([graphs_for(Vts, Props, Ext, Ns, Opts) || Ns <- Counts]);
+        orderly ->
+            Fer = sets:from_list(maps:get(fermions, Th, []), [{version, 2}]),
+            lists:append([orderly(Vts, Props, Fer, Ext, Ns, Opts) || Ns <- Counts])
+    end.
 
 %% the vectors n_t >= 0 with sum n_t (k_t - 2) = Target (k_t > 2 for every type; k_t = 2 would give infinitely many)
 vertex_counts(Vts, Target) ->
@@ -54,7 +65,7 @@ graphs_for(Vts, Props, Ext, Ns, Opts) ->
     Types = [{I, Name} || {I, {Name, _}} <- Verts],
     Pairings = pairings(Half, Join, #{}),
     Classes = maps:fold(fun(Edges, C, Acc) ->
-                                Key = canonical(Types, Edges),
+                                {Key, _} = canonical(Types, Edges),
                                 Acc#{Key => maps:get(Key, Acc, 0) + C}
                         end, #{}, Pairings),
     Den = lists:foldl(fun({N, {_, Fs}}, D) -> D * fact(N) * pow(mult_fact(Fs), N) end, 1, lists:zip(Ns, Vts)),
@@ -94,16 +105,29 @@ replace_nth(L, K, V) -> {A, [_ | B]} = lists:split(K - 1, L), A ++ [V | B].
 edge(A, B) when A =< B -> {A, B};
 edge(A, B) -> {B, A}.
 
-%% the canonical form: internal vertices coloured by colour refinement (their type and legs, then repeatedly the
-%% multiset of {own field, neighbour's field, neighbour's colour} over their edges, external legs by number), ordered
-%% by colour and renumbered 1..n; within a colour class every order is tried and the smallest edge list kept. Colours
-%% are invariant terms, so equal graphs get equal forms, and the classes are small.
+%% the canonical form and the number of automorphisms: internal vertices coloured by colour refinement (type and legs,
+%% then repeatedly the multiset of {own field, neighbour's field, neighbour's colour}; external legs keep their
+%% numbers); while a colour class has more than one vertex, each of its vertices is individualised in turn and the
+%% colours refined again. Each leaf orders the vertices; the smallest relabelled edge list is the form, and the leaves
+%% that give it differ by automorphisms (colours are invariant, so equal graphs get equal forms).
 canonical(Types, Edges) ->
     Col0 = maps:from_list([{{v, I}, {T, lists:sort(legs({v, I}, Edges))}} || {I, T} <- Types]),
-    Col = refine(Col0, Edges, length(Types) + 1),
-    Classes = group_by_colour(Col),
-    Orders = orders(Classes),
-    lists:min([relabel(Edges, maps:from_list([{I, K} || {K, {v, I}} <- lists:enumerate(Order)])) || Order <- Orders]).
+    Leaves = search(refine(Col0, Edges, length(Types) + 1), Edges, length(Types) + 1),
+    Forms = [relabel(Edges, maps:from_list([{I, K} || {K, {v, I}} <- lists:enumerate(Order)])) || Order <- Leaves],
+    Min = lists:min(Forms),
+    {Min, length([F || F <- Forms, F =:= Min])}.
+
+search(Col, Edges, N) ->
+    case [Ns || Ns <- group_by_colour(Col), length(Ns) > 1] of
+        [] -> [lists:append(group_by_colour(Col))];
+        [Cell | _] ->
+            lists:append([search(refine(individualise(Col, V), Edges, N), Edges, N) || V <- Cell])
+    end.
+
+%% V gets a colour of its own, ahead of the rest of its class
+individualise(Col, V) ->
+    C = maps:get(V, Col),
+    maps:map(fun(X, Cx) when Cx =:= C -> case X of V -> {Cx, 0}; _ -> {Cx, 1} end; (_, Cx) -> {Cx, 1} end, Col).
 
 legs(N, Edges) ->
     [F || {{A, F}, _} <- Edges, A =:= N] ++ [F || {_, {B, F}} <- Edges, B =:= N].
@@ -126,11 +150,107 @@ group_by_colour(Col) ->
     G = maps:fold(fun(N, C, M) -> M#{C => [N | maps:get(C, M, [])]} end, #{}, Col),
     [lists:sort(Ns) || {_, Ns} <- lists:sort(maps:to_list(G))].
 
-orders([]) -> [[]];
-orders([Ns | Rest]) -> [P ++ R || P <- perms(Ns), R <- orders(Rest)].
+%%% Orderly generation
 
-perms([]) -> [[]];
-perms(L) -> [[X | P] || X <- L, P <- perms(L -- [X])].
+orderly(Vts, Props, Fer, Ext, Ns, Opts) ->
+    Vlist = lists:append([lists:duplicate(N, T) || {N, T} <- lists:zip(Ns, Vts)]),
+    Verts = lists:enumerate(Vlist),
+    Types = [{I, Name} || {I, {Name, _}} <- Verts],
+    Nodes = [{ext, I} || {I, _} <- lists:enumerate(Ext)] ++ [{v, I} || {I, _} <- Verts],
+    Legs0 = maps:from_list([{{ext, I}, count([F])} || {I, F} <- lists:enumerate(Ext)] ++
+                           [{{v, I}, count(Fs)} || {I, {_, Fs}} <- Verts]),
+    Full = maps:from_list([{{v, I}, {Name, count(Fs)}} || {I, {Name, Fs}} <- Verts]),
+    Join = joinable(Props),
+    Raw = build(Nodes, Legs0, Full, Join, none, [], []),
+    Uniq = lists:foldl(fun(Edges, Acc) ->
+                               G = {Types, Edges},
+                               case keep(G, Opts) of
+                                   false -> Acc;
+                                   true ->
+                                       {Key, Aut} = canonical(Types, Edges),
+                                       case maps:is_key(Key, Acc) of
+                                           true -> Acc;
+                                           false -> Acc#{Key => Aut}
+                                       end
+                               end
+                       end, #{}, Raw),
+    [{{Types, Edges}, weight(Edges, Aut, Fer)} || Edges := Aut <- Uniq].
+
+count(Fs) -> lists:foldl(fun(F, M) -> M#{F => maps:get(F, M, 0) + 1} end, #{}, Fs).
+
+%% Last = {Node, Field, Partner}: the last partner chosen for that leg class (partners of one class go in order)
+build(Nodes, Legs, Full, Join, Last, Edges, Acc) ->
+    case first_free(Nodes, Legs) of
+        none -> [Edges | Acc];
+        {N, F} ->
+            Min = case Last of {N, F, P} -> P; _ -> none end,
+            Cands = [{M, G} || M <- lists:dropwhile(fun(X) -> X =/= N end, Nodes),
+                               {G, C} <- lists:sort(maps:to_list(maps:get(M, Legs))), C > 0,
+                               sets:is_element({F, G}, Join),
+                               not (M =:= N andalso G =:= F andalso C < 2),
+                               Min =:= none orelse {M, G} >= Min,
+                               first_untouched(M, N, Nodes, Legs, Full)],
+            lists:foldl(fun({M, G} = P, A) ->
+                                L1 = take(take(Legs, N, F), M, G),
+                                build(Nodes, L1, Full, Join, {N, F, P}, [edge({N, F}, {M, G}) | Edges], A)
+                        end, Acc, Cands)
+    end.
+
+first_free([], _) -> none;
+first_free([N | Rest], Legs) ->
+    case lists:sort([F || {F, C} <- maps:to_list(maps:get(N, Legs)), C > 0]) of
+        [] -> first_free(Rest, Legs);
+        [F | _] -> {N, F}
+    end.
+
+take(Legs, N, F) -> M = maps:get(N, Legs), Legs#{N => M#{F => maps:get(F, M) - 1}}.
+
+%% a vertex untouched so far may be joined only if no untouched vertex of its type comes before it
+first_untouched({ext, _}, _, _, _, _) -> true;
+first_untouched(M, M, _, _, _) -> true;
+first_untouched(M, Cur, Nodes, Legs, Full) ->
+    {Type, Legs0} = maps:get(M, Full),
+    case maps:get(M, Legs) =:= Legs0 of
+        false -> true;
+        true ->
+            % (the current node N does not count: its leg is being joined now)
+            Before = [X || X <- lists:takewhile(fun(X) -> X =/= M end, Nodes), X =/= Cur],
+            not lists:any(fun({v, _} = X) -> {T, L0} = maps:get(X, Full), T =:= Type andalso maps:get(X, Legs) =:= L0;
+                             (_) -> false end, Before)
+    end.
+
+%% sign / S
+weight(Edges, Aut, Fer) ->
+    Mult = lists:foldl(fun(E, M) -> M#{E => maps:get(E, M, 0) + 1} end, #{}, Edges),
+    S = maps:fold(fun({{A, F}, {B, G}}, K, P) ->
+                          Self = case A =:= B andalso F =:= G of true -> pow(2, K); false -> 1 end,
+                          P * fact(K) * Self
+                  end, Aut, Mult),
+    Sign = case fermion_loops(Edges, Fer) rem 2 of 0 -> 1; 1 -> -1 end,
+    norm(Sign, S).
+
+%% the closed fermion loops of a graph {Types, Edges} of a theory (exported for weights with N flavours)
+fermion_loops({_, Edges}, Th) when is_map(Th) ->
+    fermion_loops(Edges, sets:from_list(maps:get(fermions, Th, []), [{version, 2}]));
+
+%% the closed fermion loops: components of the fermion lines (a vertex joins its two fermion legs) without an external
+%% leg
+fermion_loops(Edges, Fer) ->
+    FE = [{A, B} || {{A, F}, {B, G}} <- Edges, sets:is_element(F, Fer), sets:is_element(G, Fer)],
+    case FE of
+        [] -> 0;
+        _ ->
+            Nodes = lists:usort(lists:append([[A, B] || {A, B} <- FE])),
+            lists:foreach(fun(N) ->
+                                  Deg = length([x || {A, _} <- FE, A =:= N]) + length([x || {_, B} <- FE, B =:= N]),
+                                  case N of
+                                      {v, _} when Deg =/= 2 -> error({pq_diagrams, {vertex_with_fermions, Deg}});
+                                      _ -> ok
+                                  end
+                          end, Nodes),
+            Comps = components(Nodes, [{{A, x}, {B, x}} || {A, B} <- FE]),
+            length([C || C <- Comps, not lists:any(fun({ext, _}) -> true; (_) -> false end, sets:to_list(C))])
+    end.
 
 relabel(Edges, Map) ->
     R = fun({{v, I}, F}) -> {{v, maps:get(I, Map)}, F}; (X) -> X end,
@@ -218,7 +338,8 @@ fact(N) -> N * fact(N - 1).
 pow(_, 0) -> 1;
 pow(X, K) -> X * pow(X, K - 1).
 
-norm(N, D) -> G = gcd(N, D), {N div G, D div G}.
+%% a fraction with its denominator positive
+norm(N, D) -> G = gcd(abs(N), abs(D)), S = case D < 0 of true -> -1; false -> 1 end, {S * N div G, S * D div G}.
 gcd(A, 0) -> A;
 gcd(A, B) -> gcd(B, A rem B).
 qadd({A, B}, {C, D}) -> norm(A * D + C * B, B * D).

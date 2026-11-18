@@ -16,6 +16,22 @@ the public API is additive.
 
 ### Added
 
+- **Feynman diagrams, second part** (`pq_diagrams`, step F4): orderly generation, fermions, QED and QCD against FORM.
+  - **Orderly generation:** multigraphs built by joining free legs to partners in order, a vertex joined first only
+    if it is the first untouched one of its type; a canonical form by individualisation and refinement, whose
+    equal leaves count the automorphisms; 1/S = 1/(|Aut| prod m! 2^(self-loops)). phi^3 vacuum graphs at five loops
+    (eight vertices) in 1.8 s (out of reach before), equal to ln Z; graph by graph equal to the Wick pairings.
+  - **Fermions:** Grassmann fields (fermions, ghosts), (-1) per closed fermion loop; zero-dimensional QED with N
+    flavours equals ln <(1 - e A)^N> exactly (N = 1, 2, 3, up to eight vertices).
+  - **Against FORM 5's generator** (`test/oracle/gt_diagrams.sh`, `comparison/diagrams`): 24 QED and QCD cases (self-
+    energies to three loops, vertices to two, vacuum graphs), the same number of diagrams and the same multiset of
+    weights sign/S in every one; the three-loop gluon self-energy (324 diagrams) in 0.1 s.
+- **Feynman rules from a Lagrangian** (`pq_lagrangian`, step F4): monomials of fields with indices and derivatives,
+  coefficients with couplings, metrics, deltas, structure constants, Dirac matrices and generators; a vertex is i times
+  the sum over the assignments of legs to fields (d_mu -> -i p_mu), field indices joined to the legs' by metrics or
+  deltas and contracted, f's indices ordered with their sign, dummy indices renamed: a canonical form. phi^4, Yukawa,
+  QED, scalar QED and the QCD vertices (quark-gluon, three-gluon, four-gluon, ghost) equal Peskin and Schroeder's
+  term by term; the scalar, Dirac and R_xi gauge-field propagators are -Gamma_2^-1 of their quadratic Lagrangians.
 - **Feynman diagrams** (`pq_diagrams`, step F4, first part): every graph of a theory (vertex types as multisets of
   fields, the propagators that join them) with given external legs and loops, and its weight 1/S, computed exactly as
   the number of Wick pairings over the vertex normalisations (no automorphism group); legs of a vertex with the same

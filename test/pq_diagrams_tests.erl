@@ -3,7 +3,9 @@
 %% coefficients of generating functions (Cvitanovic, Lautrup and Pearson, Phys. Rev. D 18, 1939 (1978),
 %% doi:10.1103/PhysRevD.18.1939): ln Z for connected vacuum graphs, the cumulants of Z(J) for connected n-point graphs,
 %% the self-energy Sigma = 1 - 1/G and the vertex G_c^(4) / G^4 for one-particle-irreducible ones. The generating
-%% functions are computed here in exact rationals, independently of the graphs.
+%% functions are computed here in exact rationals, independently of the graphs. QED and QCD diagrams against FORM 5's
+%% generator (test/oracle/gt_diagrams.sh, test/fixtures/gt_diagrams.json): the same number of diagrams and the same
+%% multiset of weights sign/S; the orderly method against the Wick pairings, graph by graph.
 -module(pq_diagrams_tests).
 -include_lib("eunit/include/eunit.hrl").
 
@@ -113,3 +115,86 @@ named_graphs_test() ->
     % removes the graphs with a tadpole on an internal line
     ?assertEqual([], pq_diagrams:graphs(phi3(), [phi, phi], 2, [no_tadpoles, one_pi]) --
                      pq_diagrams:graphs(phi3(), [phi, phi], 2, [one_pi])).
+
+%%% Orderly generation and fermions
+
+%% phi^3 vacuum graphs at five loops (eight vertices), out of reach of the pairings, against ln Z
+phi3_five_loops_test_() ->
+    {timeout, 120, fun() ->
+        Ln = slog(zk(3, 0, 8)),
+        Gs = pq_diagrams:graphs(phi3(), [], 5, []),
+        ?assertEqual(71, length(Gs)),
+        ?assertEqual(lists:nth(9, Ln), pq_diagrams:sum_weights(Gs))
+    end}.
+
+%% the orderly method gives the same graphs and weights as Wick's pairings
+orderly_equals_wick_test_() ->
+    {timeout, 300, fun() ->
+        T2 = #{vertices => [{v, [phi, phi, chi]}], propagators => [{phi, phi}, {chi, chi}]},
+        Cases = [{phi4(), [], 5, []}, {phi4(), [phi, phi], 3, [one_pi]}, {phi4(), [phi, phi, phi, phi], 2, []},
+                 {phi3(), [], 4, []}, {phi3(), [phi, phi], 3, [one_pi, no_tadpoles]}, {T2, [], 4, []}],
+        [?assertEqual(lists:sort(pq_diagrams:graphs(T, E, L, O, #{method => wick})), lists:sort(pq_diagrams:graphs(T, E, L, O)))
+         || {T, E, L, O} <- Cases]
+    end}.
+
+qed() -> #{vertices => [{v, ['ELE', ele, pho]}], propagators => [{ele, 'ELE'}, {pho, pho}], fermions => [ele, 'ELE']}.
+
+%% zero-dimensional QED with N flavours: Z = <(1 - e A)^N>, so ln Z = sum over vacuum graphs of sign N^(fermion loops)/S
+qed_zero_dimensional_test_() ->
+    {timeout, 120, fun() ->
+        M = 8,
+        [begin
+             Z = [mul({binom(N, K) * pow(-1, K), 1}, {moment(K), 1}) || K <- lists:seq(0, M)],
+             Ln = slog(Z),
+             [begin
+                  Gs = pq_diagrams:graphs(qed(), [], L, []),
+                  Sum = lists:foldl(fun({G, {A, B}}, Acc) -> add(Acc, {A * pow(N, pq_diagrams:fermion_loops(G, qed())), B}) end,
+                                    {0, 1}, Gs),
+                  ?assertEqual(lists:nth(2 * L - 1, Ln), Sum)
+              end || L <- lists:seq(2, 5)]
+         end || N <- [1, 2, 3]]
+    end}.
+
+binom(N, K) when K > N -> 0;
+binom(N, K) -> fact(N) div (fact(K) * fact(N - K)).
+
+%% QED and QCD against FORM 5: the same number of diagrams and the same weights
+form_test_() ->
+    {timeout, 300, fun() ->
+        [begin
+             Ext = [conj(binary_to_atom(F)) || F <- In] ++ [binary_to_atom(F) || F <- Out],
+             Opts = case O of <<"1pi">> -> [one_pi]; _ -> [] end,
+             Gs = pq_diagrams:graphs(model(M), Ext, L, Opts),
+             ?assertEqual({Name, L, N}, {Name, L, length(Gs)}),
+             ?assertEqual({Name, L, sort_q([frac(C) || C <- Cs])}, {Name, L, sort_q([W || {_, W} <- Gs])})
+         end || #{<<"name">> := Name, <<"model">> := M, <<"in">> := In, <<"out">> := Out, <<"loops">> := L,
+                  <<"options">> := O, <<"count">> := N, <<"coefficients">> := Cs} <- form_fixture()]
+    end}.
+
+model(<<"QED">>) -> qed();
+model(<<"QCD">>) ->
+    #{vertices => [{qqg, ['QUA', qua, glu]}, {ccg, ['GHO', gho, glu]}, {g3, [glu, glu, glu]}, {g4, [glu, glu, glu, glu]}],
+      propagators => [{qua, 'QUA'}, {gho, 'GHO'}, {glu, glu}], fermions => [qua, 'QUA', gho, 'GHO']}.
+
+%% FORM's incoming leg of a charged field carries the conjugate on its external node
+conj(ele) -> 'ELE';
+conj(qua) -> 'QUA';
+conj(gho) -> 'GHO';
+conj(X) -> X.
+
+frac(B) ->
+    case binary:split(B, <<"/">>) of
+        [N] -> {binary_to_integer(N), 1};
+        [N, D] -> {binary_to_integer(N), binary_to_integer(D)}
+    end.
+
+sort_q(L) -> lists:sort(fun({A, B}, {C, D}) -> A * D =< C * B end, L).
+
+form_fixture() ->
+    Dir = filename:dirname(code:which(?MODULE)),
+    Paths = [filename:join([Dir, "..", "test", "fixtures", "gt_diagrams.json"]),
+             filename:join([Dir, "..", "..", "..", "..", "test", "fixtures", "gt_diagrams.json"]),
+             "test/fixtures/gt_diagrams.json"],
+    [P | _] = [P || P <- Paths, filelib:is_regular(P)],
+    {ok, B} = file:read_file(P),
+    json:decode(B).
