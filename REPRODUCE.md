@@ -20,7 +20,9 @@ Cortex-A725). The times are ours, with the images built; the first build adds th
 | The three-loop QCD β-function | [comparison/beta/REPRODUCE.md](comparison/beta/REPRODUCE.md) | eef0e6f | 15 min, images included | 8 GB, 8 cores |
 | Holographic QCD: seven computations | [comparison/holographic/README.md](comparison/holographic/README.md) | d77ead6 | seconds to 4 min each; IHQCD 40 min on 16 cores (quick check 4 min) | 2.5 GB |
 | Quantum optics against QuTiP, QuantumCumulants.jl and PIQS | [comparison/quantum-optics/REPRODUCE.md](comparison/quantum-optics/REPRODUCE.md) | aef6143 | 75 s against QuTiP; 7 min PIQS (+ images) | 8 GB, 1 core |
-| QFT instruments: one-loop integrals against LoopTools, QCDLoop and mpmath; Dirac traces against FORM | [comparison/oneloop/REPRODUCE.md](comparison/oneloop/REPRODUCE.md) | d7d95e1 | tests 1 min; fixtures 30 min (C0) | 10 GB, 1 core |
+| QFT instruments: one-loop integrals (B, C0, D0) against LoopTools, QCDLoop and mpmath; Dirac traces against FORM | [comparison/oneloop/REPRODUCE.md](comparison/oneloop/REPRODUCE.md) | 7570e62 | tests 3.5 min (D0); fixtures 2 min, plus 30 min for C0 | 10 GB, 1 core |
+| Feynman diagrams against FORM's generator; Feynman rules against Peskin and Schroeder | [comparison/diagrams/REPRODUCE.md](comparison/diagrams/REPRODUCE.md) | 7570e62 | seconds (+ images) | 5 GB, 1 core |
+| The running of QCD to five loops against mpmath and CRunDec | [comparison/qcd/REPRODUCE.md](comparison/qcd/REPRODUCE.md) | 7570e62 | seconds (+ images) | 4 GB, 1 core |
 | Genome research: the worked example and G0-G4 (branch `research/genome`) | [research/genome/REPRODUCE.md](https://github.com/quanterall/pqcf/blob/research/genome/research/genome/REPRODUCE.md) | bb8a5dd | 6 min for the example on 8 cores; G3 1.5 min, G4 4.5 min | 4 GB, network (NCBI) |
 | The test suite (EUnit, Dialyzer, xref, the Python tests, cargo test, clippy) | `docker build -t pqcf-dev . && docker run --rm pqcf-dev` | any | about 10 min | 2.5 GB |
 

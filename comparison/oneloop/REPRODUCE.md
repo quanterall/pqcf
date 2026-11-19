@@ -2,7 +2,7 @@
 
 This page takes you from nothing to the published checks of PQCF's first instruments for quantum field theory: the
 one-loop integrals (two-point functions against LoopTools and mpmath, the three-point function C0 against mpmath,
-QCDLoop and LoopTools) and the Dirac traces in d dimensions (against FORM). What is compared and why:
+QCDLoop and LoopTools, the four-point function D0 against mpmath, LoopTools and QCDLoop) and the Dirac traces in d dimensions (against FORM). What is compared and why:
 [README.md](README.md); the results: the CHANGELOG entries for `pq_oneloop`, `pq_quad` and `pq_dirac`.
 
 Each check has two halves. A script runs the reference programs and writes a fixture (a JSON file in
@@ -25,7 +25,7 @@ The images' base images are named by digest; the digests are in [REPRODUCE.md](.
 ```sh
 git clone https://github.com/quanterall/pqcf.git
 cd pqcf
-git checkout d7d95e1
+git checkout 7570e62
 docker build -t pqcf-dev .                                 # Erlang/OTP 27, Rust, PQCF
 docker build -t pqcf-oracle test/oracle                    # mpmath, SymPy
 docker build -t pqcf-looptools comparison/oneloop/looptools  # LoopTools 2.16
@@ -33,7 +33,7 @@ docker build -t pqcf-qcdloop comparison/oneloop/qcdloop      # QCDLoop 2.1.0
 docker build -t pqcf-form -f comparison/form/Dockerfile .  # FORM 5 (for the Dirac traces)
 ```
 
-**Run the latest** version: the same commands without `git checkout d7d95e1`; the fixtures must still come out the
+**Run the latest** version: the same commands without `git checkout 7570e62`; the fixtures must still come out the
 same, and what changed since is in [CHANGELOG.md](../../CHANGELOG.md).
 
 ## 2. Only the tests (a few minutes)
@@ -48,6 +48,10 @@ Expected: `N tests, 0 failures`. What they require:
   B11, dB0) to LoopTools to 1e-11, in 60 configurations; C0 in 40 configurations equal to mpmath's direct integral to
   28 digits where it exists, to mpmath's contour deformation to 1e-12 where that is stable, and elsewhere to the value
   two of the references agree on (README.md has the table); the refusals of divergent configurations.
+- `pq_oneloop_tests` also requires D0 equal to mpmath's direct integral to 16 digits in three Euclidean
+  configurations, and to LoopTools to about 1e-15 in three of the four configurations above threshold (the fourth,
+  slow, is left out of the suite). D0 above threshold takes 45 s to 5 minutes at 18 digits on 20 cores, so this module
+  takes a few minutes.
 - `pq_dirac_tests`: 60 traces of up to 12 gamma matrices equal to FORM's `tracen` exactly.
 - `pq_quad_tests`: the quadrature on integrals with closed forms, at 200 bits.
 
@@ -57,6 +61,7 @@ Expected: `N tests, 0 failures`. What they require:
 sh test/oracle/gt_oneloop.sh   # LoopTools and mpmath, two-point functions: seconds
 sh test/oracle/gt_dirac.sh     # FORM, Dirac traces: seconds
 sh test/oracle/gt_c0.sh        # mpmath (contour deformation, direct integral), QCDLoop, LoopTools: about 40 minutes
+sh test/oracle/gt_d0.sh        # mpmath (D0's direct integral), LoopTools, QCDLoop: about 2 minutes
 git status --short test/fixtures
 git diff --stat test/fixtures
 ```
@@ -64,6 +69,9 @@ git diff --stat test/fixtures
 - `gt_oneloop.sh` prints `60 configurations; LoopTools and mpmath agree`: it checks the two references against each
   other before it writes the fixture.
 - `gt_dirac.sh` prints `60 traces; longest 12`.
+- `gt_d0.sh` prints the three Euclidean values, then `3 Euclidean, 4 physical`. It records LoopTools' and QCDLoop's
+  values as they are: in our aarch64 build QCDLoop returns `nan` for two of the four configurations above threshold
+  (D0(2, 3, 1, 4, 20, -5; 1, 2, 1, 3) and D0(1, 2, 3, 4, 30, -10; 2, 1, 2, 1)).
 - `gt_c0.sh` prints one line per configuration (the deformed value, `stable` or `UNSTABLE`, and `direct` where the
   direct integral was done), then a summary: how many configurations are stable, how many have the direct integral,
   and how many QCDLoop and LoopTools disagree on.
@@ -107,7 +115,14 @@ LoopTools is wrong in both configurations, QCDLoop in the second.
 
 ## Tested
 
-From a fresh clone of the public repository on 16 November 2026, at d7d95e1, on an aarch64 machine: the five images
+From a fresh clone of the public repository on 19 November 2026, at 7570e62, on an aarch64 machine (Cortex-X925 and
+Cortex-A725): the images built; `gt_oneloop.sh` (3 s), `gt_dirac.sh` (1 s) and `gt_d0.sh` (124 s) rewrote their
+fixtures byte for byte (`git diff` empty); `gt_d0.sh` printed the three Euclidean values (0.035995465803132427694,
+0.080700137002475906277, 0.032168270315717678003) and `3 Euclidean, 4 physical`; the tests passed:
+`pq_oneloop_tests` 7 tests, 0 failures, in 205 s, and `pq_dirac_tests` with `pq_quad_tests` 5 tests, 0 failures.
+`gt_c0.sh` was not rerun at this commit; its run follows.
+
+Earlier, from a fresh clone of the public repository on 16 November 2026, at d7d95e1, on an aarch64 machine: the five images
 built; `gt_oneloop.sh` (2 s), `gt_dirac.sh` (1 s) and `gt_c0.sh` (29 minutes) rewrote the three fixtures byte for byte
 (`git diff` empty); `gt_c0.sh` printed "40 configurations; 28 stable under the deformation; 9 with the direct
 integral; QCDLoop disagrees on 12; LoopTools disagrees or gives nothing on 12" (its flags compare each program with
