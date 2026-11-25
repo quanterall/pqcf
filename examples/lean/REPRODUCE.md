@@ -58,4 +58,7 @@ The times depend on your machine.
 
 ## Tested
 
-[to fill in after the fresh-clone run]
+From fresh clones of both public repositories on 25 Nov 2026 (PQCF dd472fc, erlang-lean4 137489b), on an aarch64
+machine (Cortex-X925 and Cortex-A725, 20 cores): both images built from the clones (with Docker's layer cache: the
+Mathlib download was not repeated), then the script: 15 of 15 valid, the same Lean sources byte for byte as our run,
+28-104 s per certificate, 16.5 minutes in all.
