@@ -12,7 +12,7 @@
 %% when no checker is asked for (Opts: checker => local | {node, Node} | none, default local when lean_check is
 %% loaded, else none), or {error, Why}. PQCF does not depend on lean-check at build time.
 -module(pq_lean).
--export([factor/1, factor/2, gcd/2, gcd/3, linear/2, linear/3, to_lean/1, check/2]).
+-export([factor/1, factor/2, gcd/2, gcd/3, linear/2, linear/3, to_lean/1, check/2, cert_term/2]).
 
 %%% Certificates
 
@@ -21,7 +21,7 @@ factor(E, Opts) ->
     case pq_symbolic:factor(E) of
         {ok, {C, Fs}} ->
             Rhs = {mul, [C | [case M of 1 -> F; _ -> {pow, F, M} end || {F, M} <- Fs]]},
-            Src = theorem(<<"pqcf_factor">>, vars([E | [F || {F, _} <- Fs]]), [eq(E, Rhs)], <<"ring">>),
+            Src = identities(<<"pqcf_factor">>, [{E, Rhs}], <<"ring">>, Opts),
             check(Src, Opts);
         Err -> Err
     end.
@@ -32,8 +32,8 @@ gcd(A, B, Opts) ->
         {ok, G} ->
             case {cofactor(A, G), cofactor(B, G)} of
                 {{ok, Ca}, {ok, Cb}} ->
-                    Src = theorem(<<"pqcf_gcd">>, vars([A, B, G, Ca, Cb]),
-                                  [eq(A, {mul, [G, Ca]}), eq(B, {mul, [G, Cb]})], <<"constructor <;> ring">>),
+                    Src = identities(<<"pqcf_gcd">>, [{A, {mul, [G, Ca]}}, {B, {mul, [G, Cb]}}],
+                                     <<"constructor <;> ring">>, Opts),
                     check(Src, Opts);
                 _ -> {error, {pq_lean, cofactor}}
             end;
@@ -54,16 +54,60 @@ num(N) when is_integer(N) -> N;
 num({N, D}) -> {rat, N, D};
 num({rat, _, _} = Q) -> Q.
 
+%% polynomial identities L = R as one theorem: by reflection (PqcfCert, in lean-check's base environment: the
+%% canonical forms compared by the kernel) when every coefficient is an integer, else over ℚ with Tactic (ring).
+%% Opts: method => reflect | tactic (default reflect where possible). Reflection scales to thousands of terms; ring
+%% does not (a 575-term gcd certificate ran for over 30 minutes).
+identities(Name, Pairs, Tactic, Opts) ->
+    Exprs = lists:append([[L, R] || {L, R} <- Pairs]),
+    case maps:get(method, Opts, reflect) =:= reflect andalso lists:all(fun integral/1, Exprs) of
+        true -> reflect(Name, Pairs);
+        false -> theorem(Name, vars(Exprs), [eq(L, R) || {L, R} <- Pairs], Tactic)
+    end.
+
+integral({rat, _, _}) -> false;
+integral(T) when is_tuple(T) -> lists:all(fun integral/1, tuple_to_list(T));
+integral(L) when is_list(L) -> lists:all(fun integral/1, L);
+integral(_) -> true.
+
+%% theorem Name : forall rho : N -> Q, eval rho L1 = eval rho R1 /\ .. := fun rho => <cert .., ..>
+reflect(Name, Pairs) ->
+    Vars = vars(lists:append([[L, R] || {L, R} <- Pairs])),
+    Index = maps:from_list(lists:zip(Vars, lists:seq(0, length(Vars) - 1))),
+    Legend = ["-- variables: ", lists:join(", ", [["v ", integer_to_list(I), " = ", ident(V)] || {V, I} <- lists:zip(Vars, lists:seq(0, length(Vars) - 1))]), "\n"],
+    Eqs = [["PqcfCert.eval ρ (", cert_term(L, Index), ") = PqcfCert.eval ρ (", cert_term(R, Index), ")"] || {L, R} <- Pairs],
+    Proofs = [["PqcfCert.cert _ _ (by decide +kernel) ρ"] || _ <- Pairs],
+    Proof = case Proofs of [P] -> P; _ -> ["⟨", lists:join(", ", Proofs), "⟩"] end,
+    unicode:characters_to_binary(["set_option maxHeartbeats 0 in\n", Legend, "theorem ", Name, " : ∀ ρ : ℕ → ℚ,\n    ",
+                                  lists:join(" ∧\n    ", Eqs), " :=\n  fun ρ => ", Proof, "\n"]).
+
+%% an expression as a PqcfCert.E term (sums and products as balanced trees: depth log n, within the parser's limits)
+cert_term(N, _) when is_integer(N), N >= 0 -> [".c ", integer_to_list(N)];
+cert_term(N, _) when is_integer(N) -> [".c (", integer_to_list(N), ")"];
+cert_term({sym, X}, Index) -> [".v ", integer_to_list(maps:get(X, Index))];
+cert_term({add, []}, _) -> ".c 0";
+cert_term({mul, []}, _) -> ".c 1";
+cert_term({add, Ts}, Index) -> tree(".add", Ts, Index);
+cert_term({mul, Ts}, Index) -> tree(".mul", Ts, Index);
+cert_term({pow, X, K}, Index) when is_integer(K), K >= 0 -> [".pow (", cert_term(X, Index), ") ", integer_to_list(K)];
+cert_term(X, _) -> error({pq_lean, {not_a_polynomial, X}}).
+
+tree(_, [T], Index) -> cert_term(T, Index);
+tree(Op, Ts, Index) ->
+    {A, B} = lists:split(length(Ts) div 2, Ts),
+    [Op, " (", tree(Op, A, Index), ") (", tree(Op, B, Index), ")"].
+
 %%% Lean source
 
-%% theorem Name (x y : ℚ) : Eq1 ∧ Eq2 := by Tactic
+%% theorem Name (x y : ℚ) : Eq1 ∧ Eq2 := by Tactic. Lean's elaboration budget (maxHeartbeats, 200000 by default) is
+%% lifted: large certificates exceed it while building the statement, and lean-check bounds the wall time anyway.
 theorem(Name, Vars, Eqs, Tactic) ->
     Binders = case Vars of
                   [] -> <<>>;
                   _ -> [" (", lists:join(" ", [ident(V) || V <- Vars]), " : ℚ)"]
               end,
     Stmt = lists:join(" ∧ ", Eqs),
-    unicode:characters_to_binary(["theorem ", Name, Binders, " :\n    ", Stmt, " := by\n  ", Tactic, "\n"]).
+    unicode:characters_to_binary(["set_option maxHeartbeats 0 in\n", "theorem ", Name, Binders, " :\n    ", Stmt, " := by\n  ", Tactic, "\n"]).
 
 eq(L, R) -> ["(", to_lean(L), " : ℚ) = ", to_lean(R)].
 

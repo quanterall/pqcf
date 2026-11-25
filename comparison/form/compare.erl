@@ -11,6 +11,8 @@
 %%   erl -pa _build/default/lib/*/ebin -pa <dir> -noshell -eval 'compare:main("comparison/form")'
 -module(compare).
 -export([main/1, tasks/0, charts_only/1]).
+%% the published gcd and factorisation problems, for their Lean certificates (examples/lean/certify_published.erl)
+-export([gcd_problems/1, factor_problems/1]).
 
 -define(LIMITS, #{sym_timeout_ms => 900000, sym_max_heap_words => 4000000000, max_poly_terms => 50000000,
                   max_expand_power => 64, max_expr_nodes => 500000000}).

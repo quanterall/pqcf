@@ -97,6 +97,19 @@ LEAN_CHECK_SRC=../erlang-lean4 sh examples/lean/run.sh     # about 20 s once bot
 The lean-check image is large (11.8 GB: Lean 4.36.0, the Lean REPL and Mathlib's prebuilt cache) and takes 10 to
 30 minutes to build the first time.
 
+## Published results certified
+
+| part | results | certificates | status |
+| --- | --- | --- | --- |
+| 1 | the polynomial gcds (T7, 10) and factorisations (T8, 5) of the published comparison with FORM (`comparison/form`) | 15, valid, 27-99 s each | [results](../examples/lean/results/part1-2026-11-25.txt), [how to reproduce](../examples/lean/REPRODUCE.md) |
+
+These polynomials have 572-751 terms. Lean's `ring` tactic does not finish on identities of that size (more than 30
+minutes on the first gcd), so for integer coefficients `pq_lean` writes a **reflective certificate**: the statement
+is `PqcfCert.eval ρ A = PqcfCert.eval ρ (G * A')` for every assignment ρ of the variables, and the proof is
+`PqcfCert.cert _ _ (by decide +kernel) ρ`. `PqcfCert` (in lean-check's base environment) is a polynomial normaliser
+with one soundness theorem proved in Lean once; the kernel computes the two normal forms and compares them. No new
+axioms and no compiled code are trusted. Expressions with fractional coefficients still use `ring` (or `norm_num`).
+
 ## Reading a verdict
 
 `valid` means Lean accepted the proof of the statement shown, from the axioms listed. It does not mean the

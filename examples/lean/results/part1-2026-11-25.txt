@@ -1,0 +1,51 @@
+# Lean 4 certificates of PQCF's published results, part 1 (T7 gcds, T8 factorisations of comparison/form)
+# 25 Nov 2026; lean-check (quanterall/erlang-lean4 137489b): Lean v4.36.0, Mathlib v4.36.0, PqcfCert; aarch64, one worker
+# LEAN_CHECK_SRC=../erlang-lean4 DEMO=certify_published sh examples/lean/run.sh
+
+T7 gcd 1: 575 input terms, Lean source 177902 bytes -> valid in 66.4 s, axioms [<<"Classical.choice">>,
+                                                                                <<"Quot.sound">>,
+                                                                                <<"propext">>]
+T7 gcd 2: 598 input terms, Lean source 195789 bytes -> valid in 71.9 s, axioms [<<"Classical.choice">>,
+                                                                                <<"Quot.sound">>,
+                                                                                <<"propext">>]
+T7 gcd 3: 691 input terms, Lean source 225784 bytes -> valid in 96.3 s, axioms [<<"Classical.choice">>,
+                                                                                <<"Quot.sound">>,
+                                                                                <<"propext">>]
+T7 gcd 4: 667 input terms, Lean source 184270 bytes -> valid in 65.2 s, axioms [<<"Classical.choice">>,
+                                                                                <<"Quot.sound">>,
+                                                                                <<"propext">>]
+T7 gcd 5: 614 input terms, Lean source 185449 bytes -> valid in 58.0 s, axioms [<<"Classical.choice">>,
+                                                                                <<"Quot.sound">>,
+                                                                                <<"propext">>]
+T7 gcd 6: 725 input terms, Lean source 199758 bytes -> valid in 68.6 s, axioms [<<"Classical.choice">>,
+                                                                                <<"Quot.sound">>,
+                                                                                <<"propext">>]
+T7 gcd 7: 672 input terms, Lean source 199378 bytes -> valid in 74.4 s, axioms [<<"Classical.choice">>,
+                                                                                <<"Quot.sound">>,
+                                                                                <<"propext">>]
+T7 gcd 8: 751 input terms, Lean source 242650 bytes -> valid in 99.2 s, axioms [<<"Classical.choice">>,
+                                                                                <<"Quot.sound">>,
+                                                                                <<"propext">>]
+T7 gcd 9: 575 input terms, Lean source 170974 bytes -> valid in 61.4 s, axioms [<<"Classical.choice">>,
+                                                                                <<"Quot.sound">>,
+                                                                                <<"propext">>]
+T7 gcd 10: 572 input terms, Lean source 188001 bytes -> valid in 70.2 s, axioms [<<"Classical.choice">>,
+                                                                                 <<"Quot.sound">>,
+                                                                                 <<"propext">>]
+T8 factor 1: 722 input terms, Lean source 108387 bytes -> valid in 38.2 s, axioms [<<"Classical.choice">>,
+                                                                                   <<"Quot.sound">>,
+                                                                                   <<"propext">>]
+T8 factor 2: 572 input terms, Lean source 86701 bytes -> valid in 27.4 s, axioms [<<"Classical.choice">>,
+                                                                                  <<"Quot.sound">>,
+                                                                                  <<"propext">>]
+T8 factor 3: 689 input terms, Lean source 103585 bytes -> valid in 38.0 s, axioms [<<"Classical.choice">>,
+                                                                                   <<"Quot.sound">>,
+                                                                                   <<"propext">>]
+T8 factor 4: 642 input terms, Lean source 96845 bytes -> valid in 39.1 s, axioms [<<"Classical.choice">>,
+                                                                                  <<"Quot.sound">>,
+                                                                                  <<"propext">>]
+T8 factor 5: 623 input terms, Lean source 94151 bytes -> valid in 29.0 s, axioms [<<"Classical.choice">>,
+                                                                                  <<"Quot.sound">>,
+                                                                                  <<"propext">>]
+
+summary: 15 of 15 valid

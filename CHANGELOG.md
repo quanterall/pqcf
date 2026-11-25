@@ -16,6 +16,14 @@ the public API is additive.
 
 ### Added
 
+- **Published results certified by Lean 4, part 1:** the polynomial gcds (T7, 10) and factorisations (T8, 5) of
+  the published comparison with FORM, all 15 accepted by Lean's kernel from the standard axioms (27-99 s each;
+  `examples/lean/certify_published.erl`, `examples/lean/results/part1-2026-11-25.txt`, `examples/lean/REPRODUCE.md`).
+  `ring` does not finish on these (572-751 terms; over 30 minutes on the first), so `pq_lean` writes reflective
+  certificates for integer coefficients: `PqcfCert.eval ρ A = PqcfCert.eval ρ B` proved by `PqcfCert.cert` and
+  `decide +kernel` (PqcfCert: a polynomial normaliser with its soundness proved once, in lean-check's base
+  environment). `method => tactic` keeps the statement over ℚ with `ring`. `compare.erl` exports its gcd and
+  factorisation problems.
 - **Results certified by Lean 4** (`pq_lean`, `docs/lean-certificates.md`): PQCF writes a Lean statement and proof
   for an exact result and has it checked by lean-check (a separate application: Lean 4.36.0 and Mathlib behind a
   supervised pool of workers, in the same node or another). Factorisations (`pq_symbolic:factor/1`: the product of
