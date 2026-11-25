@@ -16,6 +16,13 @@ the public API is additive.
 
 ### Added
 
+- **Results certified by Lean 4** (`pq_lean`, `docs/lean-certificates.md`): PQCF writes a Lean statement and proof
+  for an exact result and has it checked by lean-check (a separate application: Lean 4.36.0 and Mathlib behind a
+  supervised pool of workers, in the same node or another). Factorisations (`pq_symbolic:factor/1`: the product of
+  the factors is the input, by `ring`), gcds with their cofactors (`ring`) and exact solutions of linear systems
+  (`norm_num`). `examples/lean/run.sh` runs a PQCF node and a lean-check node on an internal Docker network: the
+  three certificates valid in 0.4-0.6 s each, a wrong solution rejected. PQCF does not depend on lean-check to
+  build.
 - **Feynman diagrams, second part** (`pq_diagrams`, step F4): orderly generation, fermions, QED and QCD against FORM.
   - **Orderly generation:** multigraphs built by joining free legs to partners in order, a vertex joined first only
     if it is the first untouched one of its type; a canonical form by individualisation and refinement, whose
